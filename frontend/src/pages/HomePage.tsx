@@ -46,7 +46,7 @@ export default function HomePage() {
             width={1152} height={300} fetchPriority="high" />
         </h1>
         <p className="hero__lead">
-          A sua plataforma para campeonatos de cross!
+          A sua plataforma para campeonatos de cross.
         </p>
         <form className="search" role="search" onSubmit={submit}>
           <label className="sr-only" htmlFor="search-q">

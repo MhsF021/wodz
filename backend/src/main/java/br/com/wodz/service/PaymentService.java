@@ -14,6 +14,7 @@ import br.com.wodz.dto.PaymentDtos.CreatePaymentRequest;
 import br.com.wodz.dto.PaymentDtos.PaymentDto;
 import br.com.wodz.dto.PaymentDtos.PublicConfig;
 import br.com.wodz.dto.PaymentDtos.RegistrationSummary;
+import br.com.wodz.dto.PaymentDtos.ThreeDsChallenge;
 import br.com.wodz.payment.GatewayPayment;
 import br.com.wodz.payment.PaymentCommand;
 import br.com.wodz.payment.PaymentGateway;
@@ -25,14 +26,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 
 /**
- * Pagamento da inscrição pelo link público /pagamento/{código}.
- * Aprovação (cartão na hora, Pix/boleto via webhook) dispara a trigger
- * que confirma a equipe no banco.
+ * Pagamento da inscrição pelo link público /pagamento/{código}: Pix ou cartão
+ * (crédito ou débito). Aprovação (cartão na hora ou após o 3DS, Pix via webhook)
+ * dispara a trigger que confirma a equipe no banco.
  */
 @Service
 public class PaymentService {
@@ -102,13 +102,11 @@ public class PaymentService {
         payment.setMethod(req.method());
         payment.setStatus(PaymentStatus.PENDING);
         payment.setProvider(gateway.providerName());
-        payment.setExpiresAt(switch (req.method()) {
-            case PIX -> now.plus(props.payment().pixExpiration());
-            case BOLETO -> now.plus(Duration.ofDays(props.payment().boletoDays()));
-            case CREDIT_CARD -> null;
-        });
-        if (req.method() == PaymentMethod.CREDIT_CARD) {
-            payment.setInstallments(req.card().installments() == null ? 1 : req.card().installments());
+        payment.setExpiresAt(req.method() == PaymentMethod.PIX ? now.plus(props.payment().pixExpiration()) : null);
+        if (req.method().isCard()) {
+            // débito é sempre à vista (validate já recusou parcelas > 1)
+            payment.setInstallments(req.method() == PaymentMethod.DEBIT_CARD || req.card().installments() == null
+                    ? 1 : req.card().installments());
         }
         payments.saveAndFlush(payment);
 
@@ -122,11 +120,13 @@ public class PaymentService {
                 req.method(),
                 req.payer(),
                 req.card(),
+                payment.getInstallments(),
                 payment.getExpiresAt(),
                 "team:" + team.getId() + ":payment:" + payment.getId()));
         apply(payment, result);
         payments.saveAndFlush(payment);
-        return toDto(payment);
+        // o desafio 3DS só é útil agora (o emissor dá poucos segundos para iniciá-lo); não vai para o banco
+        return toDto(payment, payment.getStatus() == PaymentStatus.PENDING ? result.threeDsChallenge() : null);
     }
 
     /**
@@ -147,7 +147,7 @@ public class PaymentService {
         return toDto(payment);
     }
 
-    /** Apenas no sandbox: simula a compensação de Pix/boleto. */
+    /** Apenas no sandbox: simula a compensação de um pagamento pendente. */
     @Transactional
     public PaymentDto simulateApproval(String code, Long paymentId) {
         if (!gateway.supportsSimulation()) {
@@ -188,15 +188,22 @@ public class PaymentService {
                 .orElseThrow(() -> ApiException.notFound("Inscrição não encontrada. Confira o link de pagamento."));
     }
 
-    private static void validate(CreatePaymentRequest req) {
+    static void validate(CreatePaymentRequest req) {
+        if (!req.method().isAvailable()) {
+            throw ApiException.badRequest("Forma de pagamento indisponível. Pague com Pix ou cartão.");
+        }
         if (Codes.digits(req.payer().cpf()).length() != 11) {
             throw ApiException.badRequest("Informe um CPF válido para o pagador");
         }
-        if (req.method() == PaymentMethod.CREDIT_CARD && req.card() == null) {
+        if (req.method().isCard() && req.card() == null) {
             throw ApiException.badRequest("Dados do cartão não recebidos. Preencha o cartão novamente.");
         }
-        if (req.method() == PaymentMethod.BOLETO && req.payer().address() == null) {
-            throw ApiException.badRequest("O boleto exige o endereço do pagador");
+        if (!req.method().isCard() && req.card() != null) {
+            throw ApiException.badRequest("Dados de cartão só são aceitos no pagamento com cartão");
+        }
+        if (req.method() == PaymentMethod.DEBIT_CARD && req.card().installments() != null
+                && req.card().installments() != 1) {
+            throw ApiException.badRequest("Pagamento no débito é sempre à vista (1 parcela)");
         }
     }
 
@@ -210,12 +217,6 @@ public class PaymentService {
         if (result.pixQrCodeBase64() != null) {
             payment.setPixQrCodeBase64(result.pixQrCodeBase64());
         }
-        if (result.boletoUrl() != null) {
-            payment.setBoletoUrl(result.boletoUrl());
-        }
-        if (result.boletoBarcode() != null) {
-            payment.setBoletoBarcode(result.boletoBarcode());
-        }
         if (result.expiresAt() != null) {
             payment.setExpiresAt(result.expiresAt());
         }
@@ -228,8 +229,12 @@ public class PaymentService {
     }
 
     static PaymentDto toDto(Payment p) {
+        return toDto(p, null);
+    }
+
+    private static PaymentDto toDto(Payment p, ThreeDsChallenge challenge) {
         return new PaymentDto(p.getId(), p.getMethod(), p.getStatus(), p.getStatusDetail(), p.getAmount(),
-                p.getPixQrCode(), p.getPixQrCodeBase64(), p.getBoletoUrl(), p.getBoletoBarcode(),
-                p.getCardLastDigits(), p.getInstallments(), p.getExpiresAt(), p.getPaidAt(), p.getCreatedAt());
+                p.getPixQrCode(), p.getPixQrCodeBase64(), p.getCardLastDigits(), p.getInstallments(),
+                p.getExpiresAt(), p.getPaidAt(), p.getCreatedAt(), challenge);
     }
 }

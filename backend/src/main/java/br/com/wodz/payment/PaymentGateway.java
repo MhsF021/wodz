@@ -20,7 +20,7 @@ public interface PaymentGateway {
         throw new UnsupportedOperationException("Este provedor não consulta pagamentos remotamente");
     }
 
-    /** Só o sandbox permite simular a aprovação de Pix/boleto. */
+    /** Só o sandbox permite simular a aprovação de um pagamento pendente. */
     default boolean supportsSimulation() {
         return false;
     }

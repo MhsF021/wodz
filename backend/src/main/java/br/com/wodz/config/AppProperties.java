@@ -17,10 +17,12 @@ public record AppProperties(
     public record JwtProps(String secret, Duration ttl, String issuer) {
     }
 
-    public record PaymentProps(String provider, Duration pixExpiration, int boletoDays, MercadoPagoProps mercadopago) {
+    public record PaymentProps(String provider, Duration pixExpiration, MercadoPagoProps mercadopago) {
     }
 
-    public record MercadoPagoProps(String accessToken, String publicKey, String webhookSecret, String notificationUrl) {
+    /** threeDSecure envia three_d_secure_mode=optional: o emissor pode pedir autenticação do titular do cartão. */
+    public record MercadoPagoProps(String accessToken, String publicKey, String webhookSecret, String notificationUrl,
+                                   boolean threeDSecure) {
     }
 
     public record SeedProps(boolean enabled) {

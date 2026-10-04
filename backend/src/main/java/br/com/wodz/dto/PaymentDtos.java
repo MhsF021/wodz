@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -19,43 +20,41 @@ public final class PaymentDtos {
     private PaymentDtos() {
     }
 
-    /** Endereço do pagador: exigido pelo Mercado Pago para boleto registrado. */
-    public record Address(
-            @NotBlank String zipCode,
-            @NotBlank String street,
-            @NotBlank String number,
-            @NotBlank String neighborhood,
-            @NotBlank String city,
-            @NotBlank @Size(min = 2, max = 2) String state) {
-    }
-
     public record Payer(
             @NotBlank @Size(max = 60) String firstName,
             @NotBlank @Size(max = 60) String lastName,
             @NotBlank @Email String email,
-            @NotBlank String cpf,
-            @Valid Address address) {
+            @NotBlank String cpf) {
     }
 
     /**
      * Dados do cartão já tokenizados no navegador (Mercado Pago Card Brick).
-     * O número do cartão nunca passa pelo backend.
+     * O número do cartão nunca passa pelo backend. Crédito ou débito é definido
+     * pelo método do pagamento e conferido no servidor, não por este objeto.
      */
     public record CardData(
-            @NotBlank String token,
-            String paymentMethodId,
-            String issuerId,
+            @NotBlank @Size(max = 100) @Pattern(regexp = "[A-Za-z0-9_-]+") String token,
+            @Size(max = 30) @Pattern(regexp = "[a-z0-9_]+") String paymentMethodId,
+            @Size(max = 20) @Pattern(regexp = "[0-9]+") String issuerId,
             @Min(1) @Max(12) Integer installments,
-            @Size(max = 4) String lastFourDigits) {
+            @Pattern(regexp = "[0-9]{4}") String lastFourDigits) {
     }
 
     public record CreatePaymentRequest(@NotNull PaymentMethod method, @NotNull @Valid Payer payer, @Valid CardData card) {
     }
 
+    /**
+     * Desafio 3DS do emissor do cartão: o navegador envia creq por POST para url
+     * num iframe. Só vem na resposta da criação e não é gravado no banco.
+     */
+    public record ThreeDsChallenge(String url, String creq) {
+    }
+
     public record PaymentDto(Long id, PaymentMethod method, PaymentStatus status, String statusDetail,
-                             BigDecimal amount, String pixQrCode, String pixQrCodeBase64, String boletoUrl,
-                             String boletoBarcode, String cardLastDigits, Integer installments,
-                             Instant expiresAt, Instant paidAt, Instant createdAt) {
+                             BigDecimal amount, String pixQrCode, String pixQrCodeBase64,
+                             String cardLastDigits, Integer installments,
+                             Instant expiresAt, Instant paidAt, Instant createdAt,
+                             ThreeDsChallenge threeDsChallenge) {
     }
 
     public record RegistrationSummary(String code, Long teamId, String teamName, String championshipName,

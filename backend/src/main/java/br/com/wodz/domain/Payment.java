@@ -61,10 +61,6 @@ public class Payment {
 
     private String pixQrCodeBase64;
 
-    private String boletoUrl;
-
-    private String boletoBarcode;
-
     private String cardLastDigits;
 
     private Integer installments;

@@ -3,7 +3,9 @@ export type ChampionshipStatus = 'DRAFT' | 'PUBLISHED' | 'IN_PROGRESS' | 'FINISH
 export type ScoringSystem = 'POINTS_TABLE' | 'RANK_SUM';
 export type WorkoutType = 'FOR_TIME' | 'AMRAP' | 'MAX_LOAD' | 'MAX_REPS';
 export type TeamStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED';
-export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+/** BOLETO só aparece em cobranças antigas; novas cobranças são Pix ou cartão. */
+export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
+export type CardMethod = 'CREDIT_CARD' | 'DEBIT_CARD';
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
 export type HeatStatus = 'UPCOMING' | 'IN_PROGRESS' | 'FINISHED';
 export type ScoreStatus = 'VALID' | 'CAPPED' | 'DNS' | 'DQ';
@@ -338,13 +340,18 @@ export interface Payment {
   amount: number;
   pixQrCode?: string | null;
   pixQrCodeBase64?: string | null;
-  boletoUrl?: string | null;
-  boletoBarcode?: string | null;
   cardLastDigits?: string | null;
   installments?: number | null;
   expiresAt?: string | null;
   paidAt?: string | null;
   createdAt?: string | null;
+  /** Autenticação 3DS pedida pelo emissor; só vem na resposta da criação. */
+  threeDsChallenge?: ThreeDsChallenge | null;
+}
+
+export interface ThreeDsChallenge {
+  url: string;
+  creq: string;
 }
 
 export interface RegistrationSummary {
@@ -366,16 +373,6 @@ export interface PayerInput {
   lastName: string;
   email: string;
   cpf: string;
-  address?: AddressInput;
-}
-
-export interface AddressInput {
-  zipCode: string;
-  street: string;
-  number: string;
-  neighborhood: string;
-  city: string;
-  state: string;
 }
 
 export interface CardInput {

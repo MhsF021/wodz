@@ -211,12 +211,12 @@ public class DemoDataSeeder implements ApplicationRunner {
         List<Category> cats = categories(c, new String[]{"180.00", "220.00", "260.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
-            ws.add(workout(cat, 1, "Abertura", WorkoutType.FOR_TIME, 12 * 60, null,
+                        ws.add(workout(cat, 1, "The Grind", WorkoutType.FOR_TIME, 12 * 60, null,
                     "21-15-9\nThrusters\nPull-ups"));
             ws.add(workout(cat, 2, "Chipper da Maré", WorkoutType.AMRAP, 15 * 60, 45,
                     "15 wall balls\n15 box jumps\n15 kettlebell swings"));
-            ws.add(workout(cat, 3, "Last Dance", WorkoutType.MAX_LOAD, 8 * 60, null,
-                    "Em 8 minutos, cada atleta busca o maior clean & jerk.\nResultado: soma das cargas da dupla."));
+            ws.add(workout(cat, 3, "Last Dance", WorkoutType.MAX_LOAD, 13 * 60, null,
+                    "For time - 5 minutos (0' a 5')\n1RM de clean e jerk\n\nRest 2 minutos (5' a 7')\n\nFor time - 5 minutos (7' a 12')\n1RM de snatch"));
         }
         Instant paidAt = today.minusDays(10).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {

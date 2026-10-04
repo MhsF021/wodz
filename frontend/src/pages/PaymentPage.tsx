@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, FileText, QrCode } from 'lucide-react';
+import { CreditCard, QrCode } from 'lucide-react';
 import { paymentApi, publicApi } from '../api/endpoints';
-import type { AddressInput, CardInput, Payment, PaymentMethod, PayerInput } from '../api/types';
-import { UFS, dateTime, isValidCpf, maskCpf, methodLabel, money, onlyDigits } from '../lib/format';
+import type { CardInput, CardMethod, Payment, PaymentMethod, PayerInput, ThreeDsChallenge } from '../api/types';
+import { dateTime, isValidCpf, maskCpf, methodLabel, money, onlyDigits } from '../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { Field } from '../components/Field';
 import { CopyButton } from '../components/CopyButton';
@@ -12,13 +12,17 @@ import { PaymentBadge } from '../components/StatusBadge';
 import { MercadoPagoCardBrick } from '../components/MercadoPagoCardBrick';
 import { ErrorState, InlineError, Loading } from '../components/States';
 
-const METHODS: { id: PaymentMethod; icon: typeof QrCode }[] = [
-  { id: 'PIX', icon: QrCode },
-  { id: 'CREDIT_CARD', icon: CreditCard },
-  { id: 'BOLETO', icon: FileText },
+type Choice = 'PIX' | 'CARD';
+
+const METHODS: { id: Choice; label: string; icon: typeof QrCode }[] = [
+  { id: 'PIX', label: 'Pix', icon: QrCode },
+  { id: 'CARD', label: 'Cartão', icon: CreditCard },
 ];
 
-const EMPTY_ADDRESS: AddressInput = { zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' };
+const CARD_TYPES: { id: CardMethod; label: string; hint: string }[] = [
+  { id: 'CREDIT_CARD', label: 'Crédito', hint: 'À vista ou parcelado' },
+  { id: 'DEBIT_CARD', label: 'Débito', hint: 'À vista' },
+];
 
 export default function PaymentPage() {
   const { code = '' } = useParams();
@@ -28,28 +32,34 @@ export default function PaymentPage() {
   const summary = useQuery({ queryKey: ['registration', code], queryFn: () => paymentApi.summary(code) });
   const config = useQuery({ queryKey: ['public-config'], queryFn: publicApi.config, staleTime: Infinity });
 
-  const [method, setMethod] = useState<PaymentMethod>('PIX');
+  const [choice, setChoice] = useState<Choice>('PIX');
+  // no cartão, crédito ou débito é escolha explícita: o formulário só aparece depois dela
+  const [cardType, setCardType] = useState<CardMethod | null>(null);
   const [payer, setPayer] = useState<PayerInput>(() => {
     const [first = '', ...rest] = (user?.name ?? '').split(' ');
     return { firstName: first, lastName: rest.join(' '), email: user?.email ?? '', cpf: '' };
   });
-  const [address, setAddress] = useState<AddressInput>(EMPTY_ADDRESS);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [resumeChecked, setResumeChecked] = useState(false);
 
-  // Retoma uma única vez um Pix/boleto já gerado (ex.: atleta voltou pelo link)
+  // Retoma uma única vez um Pix ou cartão pendente (ex.: atleta voltou pelo link). Boletos antigos não.
   useEffect(() => {
     if (resumeChecked || !summary.data) return;
     setResumeChecked(true);
     const last = summary.data.lastPayment;
-    if (last && last.status === 'PENDING') {
+    if (last && last.status === 'PENDING' && last.method !== 'BOLETO') {
       setPayment(last);
-      setMethod(last.method);
+      if (last.method === 'PIX') {
+        setChoice('PIX');
+      } else {
+        setChoice('CARD');
+        setCardType(last.method);
+      }
     }
   }, [summary.data, resumeChecked]);
 
-  // Polling enquanto aguarda Pix/boleto
+  // Polling enquanto o pagamento está pendente (Pix, ou cartão em análise/3DS)
   const poll = useQuery({
     queryKey: ['payment', code, payment?.id],
     queryFn: () => paymentApi.status(code, payment!.id),
@@ -69,17 +79,13 @@ export default function PaymentPage() {
   }, [payment?.status, code, queryClient]);
 
   const create = useMutation({
-    mutationFn: (card?: CardInput) =>
-      paymentApi.create(code, {
-        method,
-        payer: {
-          ...payer,
-          cpf: onlyDigits(payer.cpf),
-          address: method === 'BOLETO' ? { ...address, zipCode: onlyDigits(address.zipCode) } : undefined,
-        },
-        card,
-      }),
-    onSuccess: setPayment,
+    mutationFn: ({ method, card }: { method: PaymentMethod; card?: CardInput }) =>
+      paymentApi.create(code, { method, payer: { ...payer, cpf: onlyDigits(payer.cpf) }, card }),
+    onSuccess: (created) => {
+      setPayment(created);
+      // a nova cobrança cancela as pendentes anteriores; atualiza o resumo
+      queryClient.invalidateQueries({ queryKey: ['registration', code] });
+    },
   });
 
   const simulate = useMutation({
@@ -102,9 +108,6 @@ export default function PaymentPage() {
     if (!payer.firstName.trim() || !payer.lastName.trim()) return fail('Informe nome e sobrenome do pagador');
     if (!/^\S+@\S+\.\S+$/.test(payer.email)) return fail('Informe um e-mail válido');
     if (!isValidCpf(payer.cpf)) return fail('Informe um CPF válido');
-    if (method === 'BOLETO' && Object.values(address).some((v) => !v.trim())) {
-      return fail('Preencha o endereço completo para emitir o boleto');
-    }
     setFormError(null);
     return true;
   }
@@ -115,9 +118,16 @@ export default function PaymentPage() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (payerValid()) create.mutate(undefined);
+    // o cartão é enviado pelo próprio formulário do cartão
+    if (choice === 'PIX' && payerValid()) create.mutate({ method: 'PIX' });
   }
 
+  function payWithCard(type: CardMethod, card: CardInput) {
+    if (!payerValid()) return Promise.reject(new Error('Confira os dados de quem está pagando'));
+    return create.mutateAsync({ method: type, card });
+  }
+
+  const legacyBoleto = s.lastPayment?.method === 'BOLETO' && s.lastPayment.status === 'PENDING';
   const pendingOrResult = payment && payment.status !== 'CANCELLED' && payment.status !== 'EXPIRED';
 
   return (
@@ -173,6 +183,12 @@ export default function PaymentPage() {
           {payment && (payment.status === 'EXPIRED' || payment.status === 'CANCELLED') && (
             <p className="note">A cobrança anterior expirou. Gere uma nova abaixo.</p>
           )}
+          {legacyBoleto && (
+            <p className="note">
+              Há um boleto gerado antes aguardando compensação. Se você já pagou, aguarde: a confirmação é
+              automática e não é preciso pagar de novo.
+            </p>
+          )}
 
           <fieldset className="form-section">
             <legend className="form-section__title">Quem está pagando</legend>
@@ -199,82 +215,69 @@ export default function PaymentPage() {
           <fieldset className="form-section">
             <legend className="form-section__title">Forma de pagamento</legend>
             <div className="methods" role="radiogroup" aria-label="Forma de pagamento">
-              {METHODS.map(({ id, icon: Icon }) => (
+              {METHODS.map(({ id, label, icon: Icon }) => (
                 <label key={id} className="method">
-                  <input type="radio" name="method" checked={method === id} onChange={() => setMethod(id)} />
+                  <input type="radio" name="method" checked={choice === id} onChange={() => setChoice(id)} />
                   <span className="method__body">
                     <Icon size={20} aria-hidden />
-                    {methodLabel[id]}
+                    {label}
                   </span>
                 </label>
               ))}
             </div>
 
-            {method === 'PIX' && (
+            {choice === 'PIX' && (
               <p className="note">Geramos um QR Code com validade de 30 minutos. A confirmação é automática.</p>
             )}
 
-            {method === 'BOLETO' && (
+            {choice === 'CARD' && (
               <>
-                <p className="note">O boleto vence em 3 dias e pode levar até 3 dias úteis para compensar.</p>
-                <div className="grid-3">
-                  <Field label="CEP" htmlFor="addr-zip">
-                    <input id="addr-zip" className="input" inputMode="numeric" autoComplete="postal-code"
-                      value={address.zipCode} onChange={(e) => setAddress({ ...address, zipCode: e.target.value })} />
-                  </Field>
-                  <Field label="Rua" htmlFor="addr-street" className="span-2">
-                    <input id="addr-street" className="input" autoComplete="address-line1" value={address.street}
-                      onChange={(e) => setAddress({ ...address, street: e.target.value })} />
-                  </Field>
-                  <Field label="Número" htmlFor="addr-number">
-                    <input id="addr-number" className="input" value={address.number}
-                      onChange={(e) => setAddress({ ...address, number: e.target.value })} />
-                  </Field>
-                  <Field label="Bairro" htmlFor="addr-hood">
-                    <input id="addr-hood" className="input" value={address.neighborhood}
-                      onChange={(e) => setAddress({ ...address, neighborhood: e.target.value })} />
-                  </Field>
-                  <Field label="Cidade" htmlFor="addr-city">
-                    <input id="addr-city" className="input" autoComplete="address-level2" value={address.city}
-                      onChange={(e) => setAddress({ ...address, city: e.target.value })} />
-                  </Field>
-                  <Field label="UF" htmlFor="addr-uf">
-                    <select id="addr-uf" className="input" value={address.state}
-                      onChange={(e) => setAddress({ ...address, state: e.target.value })}>
-                      <option value="">Selecione</option>
-                      {UFS.map((u) => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                  </Field>
+                <p className="method-group__title" aria-hidden>Tipo do cartão</p>
+                <div className="methods" role="radiogroup" aria-label="Tipo do cartão">
+                  {CARD_TYPES.map(({ id, label, hint }) => (
+                    <label key={id} className="method">
+                      <input type="radio" name="card-type" checked={cardType === id}
+                        onChange={() => setCardType(id)} />
+                      <span className="method__body">
+                        {label}
+                        <span className="method__hint">{hint}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
-              </>
-            )}
 
-            {method === 'CREDIT_CARD' && (
-              config.data?.mercadoPagoPublicKey ? (
-                <MercadoPagoCardBrick
-                  publicKey={config.data.mercadoPagoPublicKey}
-                  amount={s.amount}
-                  email={payer.email}
-                  onToken={(card) => (payerValid() ? create.mutateAsync(card) : Promise.reject(new Error(formError ?? '')))}
-                />
-              ) : (
-                <SandboxCardForm
-                  busy={create.isPending}
-                  onToken={(card) => {
-                    if (payerValid()) create.mutate(card);
-                  }}
-                />
-              )
+                {!cardType ? (
+                  <p className="note">Escolha crédito ou débito para preencher os dados do cartão.</p>
+                ) : config.data?.mercadoPagoPublicKey ? (
+                  <MercadoPagoCardBrick
+                    key={cardType}
+                    publicKey={config.data.mercadoPagoPublicKey}
+                    amount={s.amount}
+                    email={payer.email}
+                    cardType={cardType}
+                    onToken={(card) => payWithCard(cardType, card)}
+                  />
+                ) : (
+                  <SandboxCardForm
+                    key={cardType}
+                    cardType={cardType}
+                    busy={create.isPending}
+                    onToken={(card) => {
+                      payWithCard(cardType, card).catch(() => undefined);
+                    }}
+                  />
+                )}
+              </>
             )}
           </fieldset>
 
           {formError && <p className="form-error" role="alert">{formError}</p>}
           <InlineError error={create.error} />
 
-          {method !== 'CREDIT_CARD' && (
+          {choice === 'PIX' && (
             <div className="form-actions">
               <button type="submit" className="btn btn--primary btn--large" disabled={create.isPending}>
-                {create.isPending ? 'Gerando…' : method === 'PIX' ? 'Gerar Pix' : 'Gerar boleto'}
+                {create.isPending ? 'Gerando…' : 'Gerar Pix'}
               </button>
             </div>
           )}
@@ -302,7 +305,13 @@ function PendingPayment({
   return (
     <section className="pending" aria-live="polite">
       <div className="pending__head">
-        <h2 className="section-title">{payment.method === 'PIX' ? 'Pague com Pix' : 'Pague o boleto'}</h2>
+        <h2 className="section-title">
+          {payment.method === 'PIX'
+            ? 'Pague com Pix'
+            : payment.threeDsChallenge
+              ? 'Confirme o pagamento com seu banco'
+              : 'Pagamento com cartão em análise'}
+        </h2>
         <PaymentBadge status={payment.status} />
       </div>
 
@@ -319,19 +328,18 @@ function PendingPayment({
         </>
       )}
 
-      {payment.method === 'BOLETO' && (
+      {payment.method !== 'PIX' && (
         <>
-          <Field label="Linha digitável" htmlFor="boleto-code">
-            <input id="boleto-code" className="input input--code" readOnly value={payment.boletoBarcode ?? ''} />
-          </Field>
-          <div className="row-actions">
-            {payment.boletoBarcode && <CopyButton value={payment.boletoBarcode} label="Copiar código" />}
-            {payment.boletoUrl && (
-              <a className="btn btn--secondary btn--small" href={payment.boletoUrl} target="_blank" rel="noreferrer">
-                Abrir boleto em PDF
-              </a>
-            )}
-          </div>
+          <p className="note">
+            {methodLabel[payment.method]}
+            {payment.cardLastDigits ? ` final ${payment.cardLastDigits}` : ''}
+            {payment.installments && payment.installments > 1 ? ` em ${payment.installments}x` : ''}.
+          </p>
+          {payment.threeDsChallenge ? (
+            <ThreeDsChallengeFrame challenge={payment.threeDsChallenge} />
+          ) : (
+            <p className="note">O emissor do cartão está analisando a transação.</p>
+          )}
         </>
       )}
 
@@ -353,16 +361,74 @@ function PendingPayment({
   );
 }
 
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Desafio 3DS: envia o creq por POST para a página do emissor dentro de um
+ * iframe isolado (sem acesso à navegação desta página). O resultado não é lido
+ * daqui: o status vem do polling, que o backend confere no Mercado Pago.
+ */
+function ThreeDsChallengeFrame({ challenge }: { challenge: ThreeDsChallenge }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const submitted = useRef(false);
+  const frameName = useRef(`threeds-${Math.random().toString(36).slice(2)}`).current;
+  const safe = isHttpsUrl(challenge.url);
+
+  useEffect(() => {
+    if (!safe || submitted.current) return;
+    submitted.current = true;
+    formRef.current?.submit();
+  }, [safe]);
+
+  if (!safe) {
+    return (
+      <p className="form-error" role="alert">
+        Não foi possível abrir a confirmação do banco. Tente outro cartão ou pague com Pix.
+      </p>
+    );
+  }
+  return (
+    <div className="threeds">
+      <p className="note">Seu banco pediu uma confirmação de segurança. Conclua abaixo em até 5 minutos.</p>
+      <iframe
+        name={frameName}
+        title="Confirmação de segurança do banco"
+        className="threeds__frame"
+        sandbox="allow-forms allow-scripts allow-same-origin"
+        referrerPolicy="no-referrer"
+      />
+      <form ref={formRef} method="post" action={challenge.url} target={frameName} hidden>
+        <input type="hidden" name="creq" value={challenge.creq} />
+      </form>
+    </div>
+  );
+}
+
 /** Formulário de teste usado quando não há chave do Mercado Pago (provedor sandbox). */
-function SandboxCardForm({ busy, onToken }: { busy: boolean; onToken: (card: CardInput) => void }) {
+function SandboxCardForm({
+  cardType,
+  busy,
+  onToken,
+}: {
+  cardType: CardMethod;
+  busy: boolean;
+  onToken: (card: CardInput) => void;
+}) {
+  const debit = cardType === 'DEBIT_CARD';
   const [card, setCard] = useState({ number: '', holder: '', expiry: '', cvv: '', installments: '1' });
 
   function pay() {
     const digits = onlyDigits(card.number);
     onToken({
       token: digits.endsWith('0002') ? 'sandbox-rejected' : 'sandbox-approved',
-      paymentMethodId: 'visa',
-      installments: Number(card.installments),
+      paymentMethodId: debit ? 'debvisa' : 'visa',
+      installments: debit ? 1 : Number(card.installments),
       lastFourDigits: digits.slice(-4),
     });
   }
@@ -391,16 +457,18 @@ function SandboxCardForm({ busy, onToken }: { busy: boolean; onToken: (card: Car
           <input id="cc-cvv" className="input" inputMode="numeric" autoComplete="cc-csc" maxLength={4} value={card.cvv}
             onChange={(e) => setCard({ ...card, cvv: onlyDigits(e.target.value) })} />
         </Field>
-        <Field label="Parcelas" htmlFor="cc-inst">
-          <select id="cc-inst" className="input" value={card.installments}
-            onChange={(e) => setCard({ ...card, installments: e.target.value })}>
-            {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}x</option>)}
-          </select>
-        </Field>
+        {!debit && (
+          <Field label="Parcelas" htmlFor="cc-inst">
+            <select id="cc-inst" className="input" value={card.installments}
+              onChange={(e) => setCard({ ...card, installments: e.target.value })}>
+              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}x</option>)}
+            </select>
+          </Field>
+        )}
       </div>
       <div className="form-actions">
         <button type="button" className="btn btn--primary btn--large" disabled={!ready || busy} onClick={pay}>
-          {busy ? 'Processando…' : 'Pagar com cartão'}
+          {busy ? 'Processando…' : debit ? 'Pagar no débito' : 'Pagar no crédito'}
         </button>
       </div>
     </div>

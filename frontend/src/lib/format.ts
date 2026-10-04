@@ -118,6 +118,7 @@ export const paymentStatusLabel: Record<PaymentStatus, string> = {
 export const methodLabel: Record<PaymentMethod, string> = {
   PIX: 'Pix',
   CREDIT_CARD: 'Cartão de crédito',
+  DEBIT_CARD: 'Cartão de débito',
   BOLETO: 'Boleto',
 };
 

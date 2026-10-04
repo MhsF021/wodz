@@ -35,12 +35,13 @@ app:
   payment:
     provider: ${PAYMENT_PROVIDER:sandbox}     # sandbox | mercadopago
     pix-expiration: ${PIX_EXPIRATION:30m}
-    boleto-days: ${BOLETO_DAYS:3}
     mercadopago:
       access-token: ${MP_ACCESS_TOKEN:}
       public-key: ${MP_PUBLIC_KEY:}
       webhook-secret: ${MP_WEBHOOK_SECRET:}
       notification-url: ${MP_NOTIFICATION_URL:}
+      # 3DS 2.0 nos cartões (crédito e débito). Só desligue se a conta do Mercado Pago não suportar.
+      three-d-secure: ${MP_THREE_D_SECURE:true}
   seed:
     enabled: ${SEED_DEMO:false}
   google:

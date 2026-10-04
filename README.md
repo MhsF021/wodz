@@ -3,7 +3,7 @@
 Sistema para campeonatos de CrossFit. O **organizador** cadastra o campeonato,
 as categorias e as provas, abre o formulário de inscrição, acompanha as equipes,
 monta e controla as baterias e lança os resultados. O **atleta** busca
-campeonatos, inscreve a equipe, paga online (Pix, cartão ou boleto), vê o horário
+campeonatos, inscreve a equipe, paga online (Pix ou cartão de crédito/débito), vê o horário
 e o status das suas baterias e acompanha o leaderboard ao vivo.
 
 | Camada | Tecnologia |
@@ -12,7 +12,7 @@ e o status das suas baterias e acompanha o leaderboard ao vivo.
 | Banco | PostgreSQL 16, com tabelas, functions, procedures, triggers e views versionadas no Flyway |
 | Frontend | React 19, TypeScript, Vite, React Router 7, TanStack Query |
 | Tempo real | Server-Sent Events (baterias e leaderboard atualizam sozinhos) |
-| Pagamentos | Mercado Pago (Checkout Transparente: Pix, boleto e cartão tokenizado) ou sandbox simulado |
+| Pagamentos | Mercado Pago (Checkout Transparente: Pix e cartão de crédito/débito tokenizado, com 3DS) ou sandbox simulado |
 
 ## Como rodar
 
@@ -85,8 +85,13 @@ Deixe a variável vazia para desligar o login com Google.
 
 ## Pagamentos
 
+As formas de pagamento são **Pix** e **cartão**. No cartão, a pessoa escolhe
+**crédito** (à vista ou parcelado) ou **débito** (sempre à vista) antes de o
+formulário do cartão aparecer. Boleto não é mais aceito: cobranças antigas
+continuam no histórico, mas a API e o banco recusam boletos novos.
+
 Por padrão o provedor é o **sandbox**: cartão é aprovado na hora (cartões com
-final 0002 são recusados) e Pix/boleto ficam pendentes até você clicar em
+final 0002 são recusados) e Pix fica pendente até você clicar em
 "Simular pagamento aprovado".
 
 Para cobrar de verdade com o **Mercado Pago**:
@@ -97,16 +102,23 @@ MP_ACCESS_TOKEN=APP_USR-...          # credencial de produção ou de teste
 MP_PUBLIC_KEY=APP_USR-...            # usada pelo Card Brick no navegador
 MP_WEBHOOK_SECRET=...                # "Assinatura secreta" do painel de webhooks
 MP_NOTIFICATION_URL=https://seu-dominio.com/api/webhooks/mercadopago
+MP_THREE_D_SECURE=true               # 3DS 2.0 nos cartões (padrão: ligado)
 ```
 
 - O cartão é digitado no **Card Payment Brick** do Mercado Pago (iframe) e
   tokenizado no navegador; o número do cartão nunca passa pela API.
+- O Brick só aceita cartões do tipo escolhido (crédito ou débito) e a API
+  confere de novo no catálogo de meios de pagamento do Mercado Pago antes de
+  cobrar. Débito é sempre em 1 parcela (validado na API e por constraint no banco).
+- Com `MP_THREE_D_SECURE=true` o pagamento vai com `three_d_secure_mode=optional`:
+  se o emissor pedir autenticação, a página abre o desafio do banco num iframe
+  isolado e acompanha o resultado pelo polling.
 - O webhook tem a assinatura `x-signature` validada (HMAC-SHA256) e o status é
   sempre **reconsultado na API do Mercado Pago**, nunca lido do corpo da notificação.
 - Enquanto a página de pagamento está aberta, ela também consulta o status a
   cada 5 s. Isso funciona mesmo em ambiente local, sem URL pública para o webhook.
-- Pagamento aprovado confirma a equipe **por trigger no banco**; Pix e boletos
-  vencidos expiram por um job que chama uma procedure.
+- Pagamento aprovado confirma a equipe **por trigger no banco**; Pix (e boletos
+  antigos) vencidos expiram por um job que chama uma procedure.
 
 ## Banco de dados
 
@@ -134,7 +146,7 @@ ranking) estão no próprio PostgreSQL.
 |---|---|
 | `sp_start_heat` | Marca a bateria como em andamento e conclui a que estava rodando. |
 | `sp_generate_heats` | Distribui as equipes confirmadas em baterias de até 8 equipes, de forma equilibrada (17 equipes viram 5 + 6 + 6). As piores colocadas correm primeiro e os líderes na última. |
-| `sp_expire_pending_payments` | Expira Pix e boletos vencidos. |
+| `sp_expire_pending_payments` | Expira cobranças pendentes vencidas (Pix e boletos antigos). |
 
 **Triggers**
 

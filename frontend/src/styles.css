@@ -733,10 +733,43 @@ textarea.input {
 }
 
 /* O Google desenha o botão num iframe; reservamos a altura para a página não pular. */
+/* Mesmo padrão do .input; o botão oficial (invisível) fica por cima e recebe o clique. */
 .google-button {
-  display: flex;
-  justify-content: center;
+  position: relative;
+  width: 100%;
   min-height: 44px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 0.15s, outline-color 0.15s;
+}
+
+.google-button__face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 41px;
+  padding: 9px 12px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.google-button__hit {
+  position: absolute;
+  inset: 0;
+  opacity: 0.01;
+  transform-origin: 0 0;
+}
+
+.google-button:hover,
+.google-button:focus-within {
+  border-color: var(--accent);
+}
+
+.google-button:focus-within {
+  outline: 3px solid var(--accent-soft);
 }
 
 .google-first {
@@ -1826,7 +1859,7 @@ textarea.input {
 
 .methods {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1860,6 +1893,17 @@ textarea.input {
   text-align: center;
 }
 
+.method__hint {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.method-group__title {
+  font-weight: 650;
+  margin: 4px 0 8px;
+}
+
 .method input:checked + .method__body {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1.5px var(--accent);
@@ -1888,6 +1932,19 @@ textarea.input {
 
 .pending .note {
   margin: 0;
+}
+
+.threeds {
+  width: 100%;
+}
+
+.threeds__frame {
+  display: block;
+  width: 100%;
+  min-height: 460px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
 }
 
 .pending__head {
