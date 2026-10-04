@@ -30,8 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Integração com a API de pagamentos do Mercado Pago (Checkout Transparente):
- * Pix e cartão de crédito ou débito tokenizado no navegador, com 3DS opcional.
+ * Integração com a API de pagamentos do Mercado Pago (Checkout Transparente) no
+ * modelo split 1:1: cada cobrança usa o token OAuth do organizador, então o
+ * dinheiro cai direto na conta dele. Pix e cartão de crédito ou débito tokenizado
+ * no navegador, com 3DS opcional e application_fee para a plataforma.
  * Docs: https://www.mercadopago.com.br/developers/pt/reference/payments/_payments/post
  */
 @Component
@@ -54,13 +56,7 @@ public class MercadoPagoGateway implements PaymentGateway {
 
     public MercadoPagoGateway(AppProperties props, RestClient.Builder builder) {
         this.config = props.payment().mercadopago();
-        if (config.accessToken() == null || config.accessToken().isBlank()) {
-            throw new IllegalStateException("Defina MP_ACCESS_TOKEN para usar o Mercado Pago");
-        }
-        this.client = builder
-                .baseUrl("https://api.mercadopago.com")
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.accessToken())
-                .build();
+        this.client = builder.baseUrl("https://api.mercadopago.com").build();
     }
 
     @Override
@@ -80,6 +76,10 @@ public class MercadoPagoGateway implements PaymentGateway {
 
     @Override
     public GatewayPayment create(PaymentCommand cmd) {
+        SellerAccount seller = cmd.seller();
+        if (seller == null || seller.accessToken() == null) {
+            throw new IllegalArgumentException("Cobrança sem conta de recebimento");
+        }
         Payer payer = cmd.payer();
         Map<String, Object> payerBody = new LinkedHashMap<>();
         payerBody.put("email", payer.email());
@@ -94,6 +94,9 @@ public class MercadoPagoGateway implements PaymentGateway {
         if (config.notificationUrl() != null && !config.notificationUrl().isBlank()) {
             body.put("notification_url", config.notificationUrl());
         }
+        if (cmd.applicationFee() != null && cmd.applicationFee().signum() > 0) {
+            body.put("application_fee", cmd.applicationFee());
+        }
 
         switch (cmd.method()) {
             case PIX -> {
@@ -103,7 +106,7 @@ public class MercadoPagoGateway implements PaymentGateway {
             case CREDIT_CARD, DEBIT_CARD -> {
                 CardData card = cmd.card();
                 // O navegador só limita o formulário; quem garante crédito x débito é o catálogo do Mercado Pago.
-                ensureCardType(card.paymentMethodId(), cmd.method());
+                ensureCardType(card.paymentMethodId(), cmd.method(), seller);
                 body.put("token", card.token());
                 body.put("installments", cmd.installments());
                 body.put("payment_method_id", card.paymentMethodId());
@@ -122,6 +125,7 @@ public class MercadoPagoGateway implements PaymentGateway {
         try {
             JsonNode response = client.post()
                     .uri("/v1/payments")
+                    .header(HttpHeaders.AUTHORIZATION, bearer(seller))
                     .header("X-Idempotency-Key", cmd.idempotencyKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
@@ -129,8 +133,12 @@ public class MercadoPagoGateway implements PaymentGateway {
                     .body(JsonNode.class);
             result = toGatewayPayment(response);
         } catch (RestClientResponseException e) {
-            log.warn("Mercado Pago recusou o pagamento {}: {} {}", cmd.localPaymentId(), e.getStatusCode(),
-                    e.getResponseBodyAsString());
+            log.warn("Mercado Pago recusou o pagamento {} ({}): {} {}", cmd.localPaymentId(), seller,
+                    e.getStatusCode(), e.getResponseBodyAsString());
+            if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
+                throw ApiException.unprocessable("A conta Mercado Pago do organizador não está autorizando cobranças. "
+                        + "Fale com a organização do campeonato.");
+            }
             if (e.getStatusCode().is4xxClientError()) {
                 throw ApiException.unprocessable("O Mercado Pago recusou os dados do pagamento. Confira as informações e tente de novo.");
             }
@@ -150,10 +158,11 @@ public class MercadoPagoGateway implements PaymentGateway {
     }
 
     @Override
-    public GatewayPayment fetch(String providerPaymentId) {
+    public GatewayPayment fetch(String providerPaymentId, SellerAccount seller) {
         try {
             JsonNode response = client.get()
                     .uri("/v1/payments/{id}", providerPaymentId)
+                    .header(HttpHeaders.AUTHORIZATION, bearer(seller))
                     .retrieve()
                     .body(JsonNode.class);
             return toGatewayPayment(response);
@@ -173,13 +182,13 @@ public class MercadoPagoGateway implements PaymentGateway {
     }
 
     /** Recusa a cobrança se a bandeira do cartão não for do tipo escolhido (crédito ou débito). */
-    private void ensureCardType(String paymentMethodId, PaymentMethod method) {
+    private void ensureCardType(String paymentMethodId, PaymentMethod method, SellerAccount seller) {
         if (paymentMethodId == null || paymentMethodId.isBlank()) {
             throw ApiException.badRequest("Dados do cartão incompletos. Preencha o cartão novamente.");
         }
-        String type = paymentTypes(false).get(paymentMethodId);
+        String type = paymentTypes(false, seller).get(paymentMethodId);
         if (type == null) {
-            type = paymentTypes(true).get(paymentMethodId);
+            type = paymentTypes(true, seller).get(paymentMethodId);
         }
         if (!cardPaymentType(method).equals(type)) {
             throw ApiException.unprocessable(method == PaymentMethod.DEBIT_CARD
@@ -188,8 +197,8 @@ public class MercadoPagoGateway implements PaymentGateway {
         }
     }
 
-    /** Catálogo de meios de pagamento da conta, em cache. Falha fechada: sem catálogo, não cobra. */
-    private Map<String, String> paymentTypes(boolean reloadIfStale) {
+    /** Catálogo de meios de pagamento do Brasil, em cache. Falha fechada: sem catálogo, não cobra. */
+    private Map<String, String> paymentTypes(boolean reloadIfStale, SellerAccount seller) {
         Instant now = Instant.now();
         Duration maxAge = reloadIfStale ? CATALOG_MIN_RELOAD : CATALOG_TTL;
         if (paymentTypesLoadedAt.plus(maxAge).isAfter(now)) {
@@ -200,7 +209,9 @@ public class MercadoPagoGateway implements PaymentGateway {
                 return paymentTypes;
             }
             try {
-                JsonNode response = client.get().uri("/v1/payment_methods").retrieve().body(JsonNode.class);
+                JsonNode response = client.get().uri("/v1/payment_methods")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(seller))
+                        .retrieve().body(JsonNode.class);
                 Map<String, String> types = new HashMap<>();
                 if (response != null) {
                     for (JsonNode m : response) {
@@ -258,6 +269,10 @@ public class MercadoPagoGateway implements PaymentGateway {
             return null;
         }
         return new ThreeDsChallenge(url, creq);
+    }
+
+    private static String bearer(SellerAccount seller) {
+        return "Bearer " + seller.accessToken();
     }
 
     static PaymentStatus mapStatus(String status) {

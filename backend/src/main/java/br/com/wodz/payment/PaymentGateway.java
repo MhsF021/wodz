@@ -16,7 +16,8 @@ public interface PaymentGateway {
         return false;
     }
 
-    default GatewayPayment fetch(String providerPaymentId) {
+    /** Consulta com as credenciais de quem recebeu o pagamento. */
+    default GatewayPayment fetch(String providerPaymentId, SellerAccount seller) {
         throw new UnsupportedOperationException("Este provedor não consulta pagamentos remotamente");
     }
 
@@ -25,7 +26,7 @@ public interface PaymentGateway {
         return false;
     }
 
-    /** Chave pública usada pelo navegador para tokenizar cartões. */
+    /** Chave pública da plataforma usada pelo navegador para tokenizar cartões. */
     default String publicKey() {
         return null;
     }
