@@ -1,0 +1,47 @@
+package br.com.wodz.dto;
+
+import br.com.wodz.domain.HeatStatus;
+import br.com.wodz.domain.WorkoutType;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+
+import java.time.Instant;
+import java.util.List;
+
+public final class HeatDtos {
+
+    private HeatDtos() {
+    }
+
+    /** judgeName: informado pelo organizador ao lançar o resultado da raia. */
+    public record LaneView(int lane, Long teamId, String teamName, String boxName, String judgeName) {
+    }
+
+    /** Linha da view vw_heat_schedule. */
+    public record HeatView(Long heatId, int heatNumber, Instant scheduledAt, HeatStatus status, Instant startedAt,
+                           Instant finishedAt, Long workoutId, int workoutNumber, String workoutName,
+                           WorkoutType workoutType, Integer timeCapSeconds, Long categoryId, String categoryName,
+                           Long championshipId, String championshipSlug, String championshipName,
+                           List<LaneView> lanes) {
+    }
+
+    public record GenerateHeatsRequest(
+            @NotNull @Min(1) @Max(value = 8, message = "Cada bateria tem no máximo 8 equipes") Integer lanes,
+            @NotNull Instant firstStart,
+            @NotNull @Min(0) @Max(240) Integer intervalMinutes) {
+    }
+
+    /** Todas as provas do campeonato de uma vez, até 8 equipes por bateria, em sequência a partir de firstStart. */
+    public record GenerateAllHeatsRequest(
+            @NotNull Instant firstStart,
+            @NotNull @Min(0) @Max(240) Integer intervalMinutes) {
+    }
+
+    /** teamIds na ordem das raias (1, 2, 3...). Null = mantém as raias atuais. */
+    public record HeatRequest(@NotNull Instant scheduledAt, List<Long> teamIds) {
+    }
+
+    public record HeatStatusRequest(@NotNull HeatStatus status) {
+    }
+}

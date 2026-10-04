@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: wodz-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/wodz}
+    username: ${DB_USER:wodz}
+    password: ${DB_PASSWORD:wodz}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none          # o schema é do Flyway (tabelas, triggers, functions, procedures)
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  cors-allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
+  jwt:
+    # Em produção use um segredo aleatório com 32+ caracteres (ex.: openssl rand -base64 48)
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+    ttl: ${JWT_TTL:12h}
+    issuer: wodz
+  payment:
+    provider: ${PAYMENT_PROVIDER:sandbox}     # sandbox | mercadopago
+    pix-expiration: ${PIX_EXPIRATION:30m}
+    boleto-days: ${BOLETO_DAYS:3}
+    mercadopago:
+      access-token: ${MP_ACCESS_TOKEN:}
+      public-key: ${MP_PUBLIC_KEY:}
+      webhook-secret: ${MP_WEBHOOK_SECRET:}
+      notification-url: ${MP_NOTIFICATION_URL:}
+  seed:
+    enabled: ${SEED_DEMO:false}
+  google:
+    # Client ID OAuth (tipo "Aplicativo da Web") do Google Cloud; é público, vai para o navegador.
+    client-id: ${GOOGLE_CLIENT_ID:84072245662-m7cc1brb2fb7lkv92i9dqm5o1phnagr9.apps.googleusercontent.com}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
