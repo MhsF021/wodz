@@ -25,6 +25,8 @@ server:
   forward-headers-strategy: framework
 
 app:
+  # dev | homolog | prod. Fora de dev a API só sobe com Mercado Pago real e segredos próprios.
+  environment: ${APP_ENV:dev}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   cors-allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
   jwt:
@@ -36,12 +38,23 @@ app:
     provider: ${PAYMENT_PROVIDER:sandbox}     # sandbox | mercadopago
     pix-expiration: ${PIX_EXPIRATION:30m}
     mercadopago:
-      access-token: ${MP_ACCESS_TOKEN:}
+      # Aplicação da plataforma no Mercado Pago (split 1:1). Os organizadores conectam
+      # a própria conta por OAuth; o dinheiro das inscrições cai direto na conta deles.
+      client-id: ${MP_CLIENT_ID:}
+      client-secret: ${MP_CLIENT_SECRET:}
       public-key: ${MP_PUBLIC_KEY:}
       webhook-secret: ${MP_WEBHOOK_SECRET:}
       notification-url: ${MP_NOTIFICATION_URL:}
       # 3DS 2.0 nos cartões (crédito e débito). Só desligue se a conta do Mercado Pago não suportar.
       three-d-secure: ${MP_THREE_D_SECURE:true}
+      # Percentual retido pela plataforma em cada inscrição (application_fee). 0 = nada.
+      platform-fee-percent: ${MP_PLATFORM_FEE_PERCENT:0}
+      # Chave usada para tokenizar o cartão: platform (padrão da documentação do split) ou seller.
+      card-public-key-source: ${MP_CARD_PUBLIC_KEY_SOURCE:platform}
+  security:
+    # 32 bytes em Base64 (openssl rand -base64 32). Cifra os tokens das contas de recebimento.
+    # Vazio só é aceito em dev. Trocar a chave invalida as contas já conectadas.
+    encryption-key: ${APP_ENCRYPTION_KEY:}
   seed:
     enabled: ${SEED_DEMO:false}
   google:
