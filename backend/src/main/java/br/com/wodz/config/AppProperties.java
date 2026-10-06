@@ -2,6 +2,7 @@ package br.com.wodz.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 
@@ -12,7 +13,14 @@ public record AppProperties(
         JwtProps jwt,
         PaymentProps payment,
         SeedProps seed,
-        GoogleProps google) {
+        GoogleProps google,
+        /* dev | homolog | prod: homolog e prod exigem configuração de produção (EnvironmentGuard) */
+        String environment,
+        SecurityProps security) {
+
+    public boolean isDev() {
+        return environment == null || environment.isBlank() || "dev".equalsIgnoreCase(environment);
+    }
 
     public record JwtProps(String secret, Duration ttl, String issuer) {
     }
@@ -30,5 +38,9 @@ public record AppProperties(
 
     /** clientId vazio desliga o login com Google. */
     public record GoogleProps(String clientId) {
+    }
+
+    /** encryptionKey: 32 bytes em Base64 (AES-256), cifra os tokens das contas de recebimento. */
+    public record SecurityProps(String encryptionKey) {
     }
 }

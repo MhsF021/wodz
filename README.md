@@ -27,16 +27,24 @@ docker compose up --build
 - Site: http://localhost:8081
 - API e Swagger: http://localhost:8080/swagger-ui
 
-Com `SEED_DEMO=true` (padrão no compose) o sistema sobe com dois campeonatos do
-organizador de demonstração, cada um com 3 categorias, 3 provas por categoria e
-16 duplas por categoria (ninguém aparece em duas equipes):
+Com `SEED_DEMO=true` (padrão no compose) o sistema sobe com três campeonatos do
+organizador de demonstração, cada um com 3 categorias e 3 provas por categoria
+(ninguém aparece em duas equipes do mesmo campeonato):
 
 - **Vitória Games - Ano 6**: encerrado e 100% concluído, com todas as baterias
   concluídas e todos os resultados lançados, cada um com o judge da raia.
+  16 duplas por categoria.
 - **Arena 911 - 2026**: acontecendo hoje. Prova 1 concluída com resultados,
   a 1ª bateria da Prova 2 concluída aguardando resultados (para lançar pela
-  interface) e a 2ª em andamento. A atleta de demonstração é capitã do
-  "Time da Ana", na Scaled.
+  interface) e a 2ª em andamento. 16 duplas por categoria. A atleta de
+  demonstração é capitã do "Time da Ana", na Scaled.
+- **TCB 2026** (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para
+  testar pagamentos. 8 duplas pagas por categoria (sobram vagas para inscrever
+  novas equipes) e o "Time da Ana", na Scaled, aguardando pagamento: entre como
+  atleta e use "Pagar inscrição" em Minhas equipes.
+
+O seed só roda com o banco vazio. Para ver dados novos do seed num banco já
+criado, recrie o banco (no compose: `docker compose down -v`, que apaga os dados).
 
 | Perfil | E-mail | Senha |
 |---|---|---|

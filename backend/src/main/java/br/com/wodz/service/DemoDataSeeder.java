@@ -42,6 +42,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -57,11 +58,14 @@ import java.util.stream.Collectors;
  *       (todas as baterias concluídas e todos os resultados lançados, com judge).</li>
  *   <li>Arena 911 - 2026: acontecendo hoje. Prova 1 concluída com resultados,
  *       1ª bateria da Prova 2 concluída aguardando resultados e a 2ª em andamento.</li>
+ *   <li>TCB 2026 (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para testar
+ *       pagamentos. 8 duplas pagas por categoria e o "Time da Ana" (Scaled) aguardando pagamento.</li>
  * </ul>
- * Cada categoria tem 16 duplas. Ninguém aparece em duas equipes: nome, e-mail e
- * CPF são únicos em todo o seed. atleta@wodz.dev é capitã do "Time da Ana"
- * (Scaled, campeonato em andamento). Baterias e resultados passam pelos mesmos
- * serviços usados pelo organizador na interface.
+ * Nos dois primeiros, cada categoria tem 16 duplas. Ninguém aparece em duas equipes
+ * de um mesmo campeonato: nome, e-mail e CPF são únicos em todo o seed (só a atleta
+ * de demonstração se repete). atleta@wodz.dev é capitã do "Time da Ana" no Arena 911
+ * e no TCB 2026. Baterias e resultados passam pelos mesmos serviços usados pelo
+ * organizador na interface.
  */
 @Component
 @ConditionalOnProperty(prefix = "app.seed", name = "enabled", havingValue = "true")
@@ -95,6 +99,13 @@ public class DemoDataSeeder implements ApplicationRunner {
             "Recife Strength", "Boa Viagem Athletics", "CrossFit Casa Forte", "Box Jaboatão", "CrossFit Graças",
             "Paulista Training", "CrossFit Espinheiro", "Box Candeias", "CrossFit Torre"};
     private static final String[] CITIES = {"Recife", "Olinda", "Jaboatão dos Guararapes", "Paulista", "Camaragibe"};
+
+    private static final Region RECIFE = new Region(TEAM_PLACES, BOXES, CITIES);
+    private static final Region SAO_PAULO = new Region(
+            new String[]{"da Paulista", "do Ibirapuera", "da Mooca", "de Pinheiros", "do Tatuapé", "da Vila Madalena"},
+            new String[]{"CrossFit Paulista", "Box Vila Mariana", "CrossFit Pinheiros", "Moema Strength",
+                    "CrossFit Mooca", "Box Santana", "CrossFit Tatuapé", "Ibirapuera Athletics"},
+            new String[]{"São Paulo", "Santo André", "São Bernardo do Campo", "Osasco", "Guarulhos", "Campinas"});
 
     /** Um judge fixo por raia (1 a 8) em cada campeonato. */
     private static final String[] JUDGES_PAST = {"Carlos Mendes", "Patrícia Rocha", "Rodrigo Nunes",
@@ -151,6 +162,7 @@ public class DemoDataSeeder implements ApplicationRunner {
 
         seedFinished(organizer, roster, random, today.minusDays(45));
         seedInProgress(organizer, athlete, roster, random, today);
+        seedRegistrationOpen(organizer, athlete, roster, today);
     }
 
     // ------------------------------------------------------------ campeonatos
@@ -160,7 +172,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         Championship c = openForRegistration(organizer, "Vitória Games - Ano 6", "vitoria-games-2026",
                 "Campeonato de verão em duplas no Sítio Histórico. Três provas em dois dias, com premiação para os "
                         + "três primeiros de cada categoria.",
-                "Ginásio Olinda Arena", "Rua do Sol, 250 - Carmo", "Olinda");
+                "Ginásio Olinda Arena", "Rua do Sol, 250 - Carmo", "Olinda", "PE");
         List<Category> cats = categories(c, new String[]{"150.00", "190.00", "230.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
@@ -207,7 +219,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         Championship c = openForRegistration(organizer, "Arena 911 - 2026", "arena-911-2026",
                 "Campeonato em duplas com três provas em dois dias. Kit atleta com camiseta e squeeze. "
                         + "Aquecimento liberado 30 minutos antes de cada bateria.",
-                "Arena Boa Viagem", "Av. Boa Viagem, 1000 - Boa Viagem", "Recife");
+                "Arena Boa Viagem", "Av. Boa Viagem, 1000 - Boa Viagem", "Recife", "PE");
         List<Category> cats = categories(c, new String[]{"180.00", "220.00", "260.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
@@ -245,11 +257,40 @@ public class DemoDataSeeder implements ApplicationRunner {
         jdbc.update("CALL sp_start_heat(?, ?)", secondWorkout.get(1).heatId(), false);
     }
 
+    /**
+     * Inscrições abertas e ainda não começou (início daqui a 30 dias), para testar pagamentos:
+     * metade das vagas com duplas pagas e o "Time da Ana" (Scaled) aguardando pagamento, com o
+     * botão de pagar em "Minhas equipes". Ainda há vagas para inscrever equipes novas.
+     */
+    private void seedRegistrationOpen(AppUser organizer, AppUser athlete, Roster roster, LocalDate today) {
+        Championship c = openForRegistration(organizer, "TCB 2026", "tcb-2026",
+                "Campeonato em duplas em São Paulo. Três provas em dois dias, com premiação para os três "
+                        + "primeiros de cada categoria.",
+                "Arena TCB", "Rua Vergueiro, 1500 - Vila Mariana", "São Paulo", "SP");
+        List<Category> cats = categories(c, new String[]{"170.00", "210.00", "250.00"});
+        for (Category cat : cats) {
+            workout(cat, 1, "Avenida Paulista", WorkoutType.FOR_TIME, 10 * 60, null,
+                    "For time em dupla\n40 cal row\n30 thrusters\n20 bar muscle-ups\n\nTime cap: 10 min");
+            workout(cat, 2, "Garoa", WorkoutType.AMRAP, 12 * 60, 30,
+                    "AMRAP 12 min\n10 wall balls\n10 burpees\n10 kettlebell swings");
+            workout(cat, 3, "Terraço Itália", WorkoutType.MAX_LOAD, 10 * 60, null,
+                    "Em 10 minutos, cada atleta busca o maior clean.\nResultado: soma das cargas da dupla.");
+        }
+        Instant paidAt = today.minusDays(3).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
+        for (Category cat : cats) {
+            for (int i = 0; i < TEAMS_PER_CATEGORY / 2; i++) {
+                roster.team(cat, null, paidAt, SAO_PAULO);
+            }
+        }
+        roster.team(cats.get(1), athlete, null, SAO_PAULO);
+        payAll(c, paidAt);
+    }
+    
     // --------------------------------------------------------------- helpers
 
     /** Inscrições só entram antes do início (trigger): o campeonato nasce marcado para daqui a 30 dias. */
     private Championship openForRegistration(AppUser organizer, String name, String slug, String description,
-                                             String venue, String address, String city) {
+                                             String venue, String address, String city, String state) {
         LocalDate future = LocalDate.now(Championship.ZONE).plusDays(30);
         Championship c = new Championship();
         c.setOwner(organizer);
@@ -259,7 +300,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         c.setVenueName(venue);
         c.setAddress(address);
         c.setCity(city);
-        c.setState("PE");
+        c.setState(state);
         c.setStartDate(future);
         c.setEndDate(future.plusDays(1));
         c.setStatus(ChampionshipStatus.PUBLISHED);
@@ -304,14 +345,18 @@ public class DemoDataSeeder implements ApplicationRunner {
         return workouts.save(workout);
     }
 
-    /** Pix aprovado para todas as equipes (a trigger de pagamento não muda equipes já confirmadas). */
+    /**
+     * Pix aprovado para todas as equipes confirmadas (a trigger de pagamento não muda
+     * equipes já confirmadas). Equipes aguardando pagamento ficam sem cobrança.
+     */
     private void payAll(Championship c, Instant paidAt) {
         teams.flush();
         jdbc.update("""
                 INSERT INTO payment (team_id, amount, method, status, provider, paid_at)
                 SELECT t.id, cat.price, 'PIX', 'APPROVED', 'sandbox', ?
                   FROM team t JOIN category cat ON cat.id = t.category_id
-                 WHERE cat.championship_id = ?""", OffsetDateTime.ofInstant(paidAt, ZoneOffset.UTC), c.getId());
+                 WHERE cat.championship_id = ?
+                   AND t.status = 'CONFIRMED'""", OffsetDateTime.ofInstant(paidAt, ZoneOffset.UTC), c.getId());
     }
 
     /** Conclui a bateria; no campeonato encerrado, usa o horário previsto como início e fim. */
@@ -374,35 +419,39 @@ public class DemoDataSeeder implements ApplicationRunner {
         private final String passwordHash;
         private final Set<String> names = new HashSet<>();
         private final Set<String> cpfs = new HashSet<>();
-        private final List<String> teamNames = new ArrayList<>();
+        private final Map<Region, List<String>> teamNames = new HashMap<>();
+        private Member athleteMember;
         private int seq;
 
         Roster(Random random, String passwordHash, String... reservedNames) {
             this.random = random;
             this.passwordHash = passwordHash;
             names.addAll(List.of(reservedNames));
-            for (String noun : TEAM_NOUNS) {
-                for (String place : TEAM_PLACES) {
-                    teamNames.add(noun + " " + place);
-                }
-            }
-            Collections.shuffle(teamNames, random);
+            teamNames(RECIFE);
         }
 
-        /** Dupla confirmada. Com athlete, ele é o capitão (o "Time da Ana"). */
         Team team(Category category, AppUser athlete, Instant confirmedAt) {
-            Member captain = athlete == null ? person() : member(athlete.getName(), athlete.getEmail(), Gender.F);
+            return team(category, athlete, confirmedAt, RECIFE);
+        }
+
+        /**
+         * Dupla da região, confirmada em confirmedAt; com confirmedAt nulo, aguardando pagamento.
+         * Com athlete, ele é o capitão (o "Time da Ana"), sempre com o mesmo CPF.
+         */
+        Team team(Category category, AppUser athlete, Instant confirmedAt, Region region) {
+            List<String> regionTeamNames = teamNames(region);
+            Member captain = athlete == null ? person() : athlete(athlete);
             AppUser captainUser = athlete != null ? athlete : user(captain.name(), captain.email(), Role.ATHLETE,
                     passwordHash, random);
 
             Team team = new Team();
             team.setCategory(category);
             team.setCaptain(captainUser);
-            team.setName(athlete != null ? "Time da Ana" : teamNames.remove(teamNames.size() - 1));
-            team.setBoxName(BOXES[random.nextInt(BOXES.length)]);
-            team.setCity(CITIES[random.nextInt(CITIES.length)]);
+            team.setName(athlete != null ? "Time da Ana" : regionTeamNames.remove(regionTeamNames.size() - 1));
+            team.setBoxName(region.boxes()[random.nextInt(region.boxes().length)]);
+            team.setCity(region.cities()[random.nextInt(region.cities().length)]);
             team.setRegistrationCode(Codes.registrationCode());
-            team.setStatus(TeamStatus.CONFIRMED);
+            team.setStatus(confirmedAt == null ? TeamStatus.PENDING_PAYMENT : TeamStatus.CONFIRMED);
             team.setConfirmedAt(confirmedAt);
             List<Member> members = List.of(captain, person());
             for (int m = 0; m < members.size(); m++) {
@@ -435,6 +484,27 @@ public class DemoDataSeeder implements ApplicationRunner {
             }
         }
 
+        /** Nomes de equipe da região, embaralhados na primeira vez que a região aparece. */
+        private List<String> teamNames(Region region) {
+            return teamNames.computeIfAbsent(region, r -> {
+                List<String> list = new ArrayList<>();
+                for (String noun : TEAM_NOUNS) {
+                    for (String place : r.places()) {
+                        list.add(noun + " " + place);
+                    }
+                }
+                Collections.shuffle(list, random);
+                return list;
+            });
+        }
+
+        private Member athlete(AppUser athlete) {
+            if (athleteMember == null) {
+                athleteMember = member(athlete.getName(), athlete.getEmail(), Gender.F);
+            }
+            return athleteMember;
+        }
+
         private Member member(String name, String email, Gender gender) {
             String cpf;
             do {
@@ -449,6 +519,10 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     private record Member(String name, String email, String cpf, Gender gender) {
+    }
+
+    /** Praça das equipes: complemento do nome da equipe, boxes e cidades. */
+    private record Region(String[] places, String[] boxes, String[] cities) {
     }
 
     /** CPF com dígitos verificadores válidos (fictício). */

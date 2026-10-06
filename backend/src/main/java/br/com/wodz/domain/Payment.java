@@ -65,6 +65,14 @@ public class Payment {
 
     private String cardLastDigits;
 
+    /** Conta do organizador que recebeu (split); nula em cobranças anteriores ao split. */
+    @Column(name = "payout_account_id")
+    private Long payoutAccountId;
+
+    /** Parte retida pela plataforma (application_fee do Mercado Pago). */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal applicationFee;
+
     private Integer installments;
 
     private Instant expiresAt;
