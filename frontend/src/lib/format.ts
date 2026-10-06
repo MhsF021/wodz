@@ -119,6 +119,7 @@ export const methodLabel: Record<PaymentMethod, string> = {
   PIX: 'Pix',
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
+  CHECKOUT_PRO: 'Mercado Pago',
   BOLETO: 'Boleto',
 };
 
@@ -150,6 +151,24 @@ export function maskCpf(value: string): string {
     .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
     .replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
 }
+
+/** Telefone só com DDD + número; tira o +55 quando vier com código do país. */
+function phoneDigits(value: string): string {
+  const d = onlyDigits(value);
+  return /^55\d{10,11}$/.test(d) ? d.slice(2) : d;
+}
+
+/** "81999998888" -> "(81) 99999-8888"; fixo: "(81) 3333-4444" */
+export function maskPhone(value: string): string {
+  const d = phoneDigits(value).slice(0, 11);
+  if (d.length <= 2) return d.length ? `(${d}` : '';
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+/** DDD válido (sem 0) + 8 ou 9 dígitos, a mesma regra da API. */
+export const isValidPhone = (value: string) => /^[1-9]{2}\d{8,9}$/.test(phoneDigits(value));
 
 export function isValidCpf(value: string): boolean {
   const d = onlyDigits(value);

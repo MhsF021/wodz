@@ -20,6 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <springdoc.version>2.8.9</springdoc.version>
+        <mercadopago.version>2.1.21</mercadopago.version>
     </properties>
 
     <dependencies>
@@ -66,6 +67,47 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- Checkout Pro: preferências, consulta de pagamentos e busca por external_reference -->
+        <dependency>
+            <groupId>com.mercadopago</groupId>
+            <artifactId>sdk-java</artifactId>
+            <version>${mercadopago.version}</version>
+            <!-- o pom do SDK declara ferramentas de build como dependências de runtime (~70 jars) -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.maven</groupId>
+                    <artifactId>maven-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.velocity</groupId>
+                    <artifactId>velocity-engine-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.velocity.tools</groupId>
+                    <artifactId>velocity-tools-generic</artifactId>
+                </exclusion>
+                <!-- o spring-jcl já fornece a API do commons-logging usada pelo HttpClient -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- usadas pelo SDK, mas que só chegavam pelo maven-javadoc-plugin excluído acima -->
+        <dependency>
+            <groupId>commons-collections</groupId>
+            <artifactId>commons-collections</artifactId>
+            <version>3.2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
         </dependency>
 
         <dependency>
