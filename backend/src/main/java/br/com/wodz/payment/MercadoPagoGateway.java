@@ -1,66 +1,61 @@
 package br.com.wodz.payment;
 
 import br.com.wodz.common.ApiException;
-import br.com.wodz.common.Codes;
 import br.com.wodz.config.AppProperties;
-import br.com.wodz.domain.PaymentMethod;
 import br.com.wodz.domain.PaymentStatus;
-import br.com.wodz.dto.PaymentDtos.CardData;
 import br.com.wodz.dto.PaymentDtos.Payer;
-import br.com.wodz.dto.PaymentDtos.ThreeDsChallenge;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.mercadopago.MercadoPagoConfig;
+import com.mercadopago.client.common.IdentificationRequest;
+import com.mercadopago.client.common.PhoneRequest;
+import com.mercadopago.client.payment.PaymentClient;
+import com.mercadopago.client.preference.PreferenceBackUrlsRequest;
+import com.mercadopago.client.preference.PreferenceClient;
+import com.mercadopago.client.preference.PreferenceItemRequest;
+import com.mercadopago.client.preference.PreferencePayerRequest;
+import com.mercadopago.client.preference.PreferencePaymentMethodsRequest;
+import com.mercadopago.client.preference.PreferencePaymentTypeRequest;
+import com.mercadopago.client.preference.PreferenceRequest;
+import com.mercadopago.core.MPRequestOptions;
+import com.mercadopago.exceptions.MPApiException;
+import com.mercadopago.exceptions.MPException;
+import com.mercadopago.net.MPResultsResourcesPage;
+import com.mercadopago.net.MPSearchRequest;
+import com.mercadopago.resources.payment.Payment;
+import com.mercadopago.resources.preference.Preference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 
 import java.net.URI;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Integração com a API de pagamentos do Mercado Pago (Checkout Transparente):
- * Pix e cartão de crédito ou débito tokenizado no navegador, com 3DS opcional.
- * Docs: https://www.mercadopago.com.br/developers/pt/reference/payments/_payments/post
+ * Checkout Pro pelo SDK oficial: cria a preferência com os dados do pagador e o
+ * navegador segue para o init_point, onde o pagador escolhe Pix ou cartão.
  */
 @Component
-@ConditionalOnProperty(prefix = "app.payment", name = "provider", havingValue = "mercadopago")
 public class MercadoPagoGateway implements PaymentGateway {
 
     private static final Logger log = LoggerFactory.getLogger(MercadoPagoGateway.class);
-    private static final ZoneId BRASILIA = ZoneId.of("America/Sao_Paulo");
-    private static final DateTimeFormatter MP_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
-    private static final Duration CATALOG_TTL = Duration.ofHours(6);
-    // bandeira desconhecida força recarga do catálogo no máximo uma vez nesse intervalo
-    private static final Duration CATALOG_MIN_RELOAD = Duration.ofMinutes(10);
 
-    private final RestClient client;
+    /** Limite da constraint ck_payment_installments. */
+    static final int MAX_INSTALLMENTS = 12;
+
     private final AppProperties.MercadoPagoProps config;
+    private final PreferenceClient preferences;
+    private final PaymentClient paymentClient;
 
-    /** payment_method_id -> payment_type_id (ex.: master -> credit_card). */
-    private volatile Map<String, String> paymentTypes = Map.of();
-    private volatile Instant paymentTypesLoadedAt = Instant.EPOCH;
-
-    public MercadoPagoGateway(AppProperties props, RestClient.Builder builder) {
-        this.config = props.payment().mercadopago();
-        if (config.accessToken() == null || config.accessToken().isBlank()) {
-            throw new IllegalStateException("Defina MP_ACCESS_TOKEN para usar o Mercado Pago");
+    public MercadoPagoGateway(AppProperties props) {
+        this.config = props.payment() == null ? null : props.payment().mercadopago();
+        if (config == null || config.accessToken() == null || config.accessToken().isBlank()) {
+            throw new IllegalStateException("Defina MP_ACCESS_TOKEN (credencial do Mercado Pago) no .env");
         }
-        this.client = builder
-                .baseUrl("https://api.mercadopago.com")
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.accessToken())
-                .build();
+        MercadoPagoConfig.setAccessToken(config.accessToken().trim());
+        this.preferences = new PreferenceClient();
+        this.paymentClient = new PaymentClient();
     }
 
     @Override
@@ -69,201 +64,167 @@ public class MercadoPagoGateway implements PaymentGateway {
     }
 
     @Override
-    public boolean supportsRemoteFetch() {
-        return true;
-    }
-
-    @Override
-    public String publicKey() {
-        return config.publicKey();
-    }
-
-    @Override
-    public GatewayPayment create(PaymentCommand cmd) {
-        Payer payer = cmd.payer();
-        Map<String, Object> payerBody = new LinkedHashMap<>();
-        payerBody.put("email", payer.email());
-        payerBody.put("first_name", payer.firstName());
-        payerBody.put("last_name", payer.lastName());
-        payerBody.put("identification", Map.of("type", "CPF", "number", Codes.digits(payer.cpf())));
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("transaction_amount", cmd.amount());
-        body.put("description", cmd.description());
-        body.put("external_reference", cmd.externalReference());
-        if (config.notificationUrl() != null && !config.notificationUrl().isBlank()) {
-            body.put("notification_url", config.notificationUrl());
-        }
-
-        switch (cmd.method()) {
-            case PIX -> {
-                body.put("payment_method_id", "pix");
-                body.put("date_of_expiration", MP_DATE.format(cmd.expiresAt().atZone(BRASILIA)));
-            }
-            case CREDIT_CARD, DEBIT_CARD -> {
-                CardData card = cmd.card();
-                // O navegador só limita o formulário; quem garante crédito x débito é o catálogo do Mercado Pago.
-                ensureCardType(card.paymentMethodId(), cmd.method());
-                body.put("token", card.token());
-                body.put("installments", cmd.installments());
-                body.put("payment_method_id", card.paymentMethodId());
-                if (card.issuerId() != null && !card.issuerId().isBlank()) {
-                    body.put("issuer_id", card.issuerId());
-                }
-                if (config.threeDSecure()) {
-                    body.put("three_d_secure_mode", "optional");
-                }
-            }
-            case BOLETO -> throw new IllegalArgumentException("Boleto não é mais aceito");
-        }
-        body.put("payer", payerBody);
-
-        GatewayPayment result;
+    public String createCheckout(PaymentCommand cmd) {
+        MPRequestOptions options = MPRequestOptions.builder()
+                .customHeaders(Map.of("X-Idempotency-Key", cmd.idempotencyKey()))
+                .build();
         try {
-            JsonNode response = client.post()
-                    .uri("/v1/payments")
-                    .header("X-Idempotency-Key", cmd.idempotencyKey())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
-            result = toGatewayPayment(response);
-        } catch (RestClientResponseException e) {
-            log.warn("Mercado Pago recusou o pagamento {}: {} {}", cmd.localPaymentId(), e.getStatusCode(),
-                    e.getResponseBodyAsString());
-            if (e.getStatusCode().is4xxClientError()) {
-                throw ApiException.unprocessable("O Mercado Pago recusou os dados do pagamento. Confira as informações e tente de novo.");
+            Preference preference = preferences.create(preferenceRequest(cmd, config.notificationUrl()), options);
+            String url = checkoutUrl(preference.getInitPoint(), preference.getSandboxInitPoint(), config.accessToken());
+            if (url == null) {
+                throw ApiException.badGateway("O Mercado Pago não retornou o link para pagamento.");
+            }
+            return url;
+        } catch (MPApiException e) {
+            log.warn("Mercado Pago recusou a preferência do pagamento {}: {} {}", cmd.localPaymentId(),
+                    e.getStatusCode(), e.getApiResponse() == null ? null : e.getApiResponse().getContent());
+            if (e.getStatusCode() >= 400 && e.getStatusCode() < 500) {
+                throw ApiException.unprocessable("O Mercado Pago não conseguiu iniciar o checkout. "
+                        + "Confira os dados de quem está pagando e tente novamente.");
             }
             throw ApiException.badGateway("O Mercado Pago não respondeu. Tente de novo em instantes.");
-        } catch (RestClientException e) {
+        } catch (MPException e) {
             log.error("Falha de comunicação com o Mercado Pago", e);
             throw ApiException.badGateway("Não foi possível falar com o Mercado Pago. Tente de novo em instantes.");
         }
-
-        String expectedType = cardPaymentType(cmd.method());
-        if (expectedType != null && result.paymentTypeId() != null && !expectedType.equals(result.paymentTypeId())) {
-            // não deveria acontecer depois de ensureCardType; o pagamento já existe no provedor, então só registra
-            log.error("Pagamento {} ({}) foi processado pelo Mercado Pago como {}", cmd.localPaymentId(),
-                    cmd.method(), result.paymentTypeId());
-        }
-        return result;
     }
 
     @Override
     public GatewayPayment fetch(String providerPaymentId) {
+        long id;
         try {
-            JsonNode response = client.get()
-                    .uri("/v1/payments/{id}", providerPaymentId)
-                    .retrieve()
-                    .body(JsonNode.class);
-            return toGatewayPayment(response);
-        } catch (RestClientException e) {
-            log.error("Falha ao consultar pagamento {} no Mercado Pago", providerPaymentId, e);
+            id = Long.parseLong(providerPaymentId.trim());
+        } catch (NumberFormatException e) {
+            throw ApiException.badRequest("Identificador de pagamento inválido");
+        }
+        try {
+            return toGatewayPayment(paymentClient.get(id));
+        } catch (MPApiException e) {
+            log.warn("Mercado Pago não retornou o pagamento {}: {}", id, e.getStatusCode());
+            throw ApiException.badGateway("Não foi possível consultar o pagamento no Mercado Pago");
+        } catch (MPException e) {
+            log.error("Falha ao consultar o pagamento {} no Mercado Pago", id, e);
             throw ApiException.badGateway("Não foi possível consultar o pagamento no Mercado Pago");
         }
     }
 
-    /** payment_type_id do Mercado Pago correspondente à forma de pagamento com cartão. */
-    static String cardPaymentType(PaymentMethod method) {
-        return switch (method) {
-            case CREDIT_CARD -> "credit_card";
-            case DEBIT_CARD -> "debit_card";
-            default -> null;
-        };
-    }
-
-    /** Recusa a cobrança se a bandeira do cartão não for do tipo escolhido (crédito ou débito). */
-    private void ensureCardType(String paymentMethodId, PaymentMethod method) {
-        if (paymentMethodId == null || paymentMethodId.isBlank()) {
-            throw ApiException.badRequest("Dados do cartão incompletos. Preencha o cartão novamente.");
-        }
-        String type = paymentTypes(false).get(paymentMethodId);
-        if (type == null) {
-            type = paymentTypes(true).get(paymentMethodId);
-        }
-        if (!cardPaymentType(method).equals(type)) {
-            throw ApiException.unprocessable(method == PaymentMethod.DEBIT_CARD
-                    ? "Este cartão não pode ser usado na função débito. Escolha \"Crédito\" ou use outro cartão."
-                    : "Este cartão não pode ser usado na função crédito. Escolha \"Débito\" ou use outro cartão.");
-        }
-    }
-
-    /** Catálogo de meios de pagamento da conta, em cache. Falha fechada: sem catálogo, não cobra. */
-    private Map<String, String> paymentTypes(boolean reloadIfStale) {
-        Instant now = Instant.now();
-        Duration maxAge = reloadIfStale ? CATALOG_MIN_RELOAD : CATALOG_TTL;
-        if (paymentTypesLoadedAt.plus(maxAge).isAfter(now)) {
-            return paymentTypes;
-        }
-        synchronized (this) {
-            if (paymentTypesLoadedAt.plus(maxAge).isAfter(Instant.now())) {
-                return paymentTypes;
-            }
-            try {
-                JsonNode response = client.get().uri("/v1/payment_methods").retrieve().body(JsonNode.class);
-                Map<String, String> types = new HashMap<>();
-                if (response != null) {
-                    for (JsonNode m : response) {
-                        String id = text(m.path("id"));
-                        String type = text(m.path("payment_type_id"));
-                        if (id != null && type != null) {
-                            types.put(id, type);
-                        }
-                    }
-                }
-                paymentTypes = Map.copyOf(types);
-                paymentTypesLoadedAt = Instant.now();
-                return paymentTypes;
-            } catch (RestClientException e) {
-                log.error("Falha ao carregar os meios de pagamento do Mercado Pago", e);
-                throw ApiException.badGateway("Não foi possível validar o cartão no Mercado Pago. Tente de novo em instantes.");
-            }
+    @Override
+    public Optional<GatewayPayment> findByExternalReference(String externalReference) {
+        MPSearchRequest request = MPSearchRequest.builder()
+                .offset(0)
+                .limit(50)
+                .filters(Map.<String, Object>of(
+                        "external_reference", externalReference,
+                        "sort", "date_created",
+                        "criteria", "desc"))
+                .build();
+        try {
+            MPResultsResourcesPage<Payment> page = paymentClient.search(request);
+            List<GatewayPayment> attempts = page == null || page.getResults() == null ? List.of()
+                    : page.getResults().stream().map(MercadoPagoGateway::toGatewayPayment).toList();
+            return mostRelevant(attempts);
+        } catch (MPApiException e) {
+            log.warn("Mercado Pago recusou a busca por {}: {}", externalReference, e.getStatusCode());
+            throw ApiException.badGateway("Não foi possível consultar o pagamento no Mercado Pago");
+        } catch (MPException e) {
+            log.error("Falha ao buscar pagamentos de {} no Mercado Pago", externalReference, e);
+            throw ApiException.badGateway("Não foi possível consultar o pagamento no Mercado Pago");
         }
     }
 
-    private static GatewayPayment toGatewayPayment(JsonNode n) {
-        JsonNode tx = n.path("point_of_interaction").path("transaction_data");
-        String expiration = text(n.path("date_of_expiration"));
-        return new GatewayPayment(
-                text(n.path("id")),
-                mapStatus(text(n.path("status"))),
-                text(n.path("status_detail")),
-                text(tx.path("qr_code")),
-                text(tx.path("qr_code_base64")),
-                expiration == null ? null : OffsetDateTime.parse(expiration).toInstant(),
-                text(n.path("card").path("last_four_digits")),
-                text(n.path("payment_type_id")),
-                challenge(n));
+    // ----------------------------------------------------------------- helpers
+
+    static PreferenceRequest preferenceRequest(PaymentCommand cmd, String notificationUrl) {
+        PreferenceItemRequest item = PreferenceItemRequest.builder()
+                .id("inscricao-" + cmd.localPaymentId())
+                .title(cmd.description())
+                .quantity(1)
+                .currencyId("BRL")
+                .unitPrice(cmd.amount())
+                .build();
+
+        Payer payer = cmd.payer();
+        PreferencePayerRequest payerRequest = PreferencePayerRequest.builder()
+                .name(payer.firstName())
+                .surname(payer.lastName())
+                .email(payer.email())
+                .identification(IdentificationRequest.builder().type("CPF").number(payer.cpf()).build())
+                // telefone já normalizado: DDD (2 dígitos) + número
+                .phone(PhoneRequest.builder()
+                        .areaCode(payer.phone().substring(0, 2))
+                        .number(payer.phone().substring(2))
+                        .build())
+                .build();
+
+        PreferenceRequest.PreferenceRequestBuilder builder = PreferenceRequest.builder()
+                .items(List.of(item))
+                .payer(payerRequest)
+                .externalReference(cmd.externalReference())
+                // boleto (ticket) não é aceito; Pix e cartão ficam disponíveis no checkout
+                .paymentMethods(PreferencePaymentMethodsRequest.builder()
+                        .excludedPaymentTypes(List.of(PreferencePaymentTypeRequest.builder().id("ticket").build()))
+                        .installments(MAX_INSTALLMENTS)
+                        .build())
+                .backUrls(PreferenceBackUrlsRequest.builder()
+                        .success(cmd.returnUrl() + "?checkout=success")
+                        .pending(cmd.returnUrl() + "?checkout=pending")
+                        .failure(cmd.returnUrl() + "?checkout=failure")
+                        .build());
+        // O Mercado Pago recusa auto_return com URL local; nela o pagador volta pelo botão do checkout.
+        if (isPublicHttps(cmd.returnUrl())) {
+            builder.autoReturn("approved");
+        }
+        if (notificationUrl != null && !notificationUrl.isBlank()) {
+            builder.notificationUrl(notificationUrl.trim());
+        }
+        return builder.build();
     }
 
-    /** Desafio 3DS pendente; só aceita URL https para o navegador não postar o creq em outro lugar. */
-    static ThreeDsChallenge challenge(JsonNode n) {
-        if (!"pending_challenge".equals(text(n.path("status_detail")))) {
-            return null;
+    /** Credenciais TEST- abrem o checkout de sandbox; as de produção (inclusive de usuário de teste), o init_point. */
+    static String checkoutUrl(String initPoint, String sandboxInitPoint, String accessToken) {
+        if (accessToken.trim().startsWith("TEST-") && sandboxInitPoint != null) {
+            return sandboxInitPoint;
         }
-        JsonNode info = n.path("three_ds_info");
-        String url = text(info.path("external_resource_url"));
-        String creq = text(info.path("creq"));
-        if (url == null || creq == null) {
-            return null;
-        }
+        return initPoint;
+    }
+
+    static boolean isPublicHttps(String url) {
         try {
             URI uri = URI.create(url);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-                log.warn("Desafio 3DS ignorado: URL não é https ({})", uri.getHost());
-                return null;
-            }
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            return "https".equalsIgnoreCase(uri.getScheme()) && !host.isEmpty()
+                    && !host.equals("localhost") && !host.endsWith(".localhost")
+                    && !host.equals("127.0.0.1") && !host.equals("[::1]");
         } catch (IllegalArgumentException e) {
-            log.warn("Desafio 3DS ignorado: URL inválida");
-            return null;
+            return false;
         }
-        return new ThreeDsChallenge(url, creq);
+    }
+
+    /**
+     * Num mesmo checkout o pagador pode tentar várias vezes (ex.: cartão recusado e
+     * depois Pix). Vale a aprovada; senão a que está em andamento; senão a mais recente.
+     */
+    static Optional<GatewayPayment> mostRelevant(List<GatewayPayment> attemptsNewestFirst) {
+        return attemptsNewestFirst.stream().filter(p -> p.status() == PaymentStatus.APPROVED).findFirst()
+                .or(() -> attemptsNewestFirst.stream().filter(p -> p.status() == PaymentStatus.PENDING).findFirst())
+                .or(() -> attemptsNewestFirst.stream().findFirst());
+    }
+
+    private static GatewayPayment toGatewayPayment(Payment p) {
+        int installments = p.getInstallments();
+        return new GatewayPayment(
+                p.getId() == null ? null : String.valueOf(p.getId()),
+                mapStatus(p.getStatus()),
+                statusDetail(p.getStatus(), p.getStatusDetail()),
+                p.getPaymentTypeId(),
+                installments >= 1 && installments <= MAX_INSTALLMENTS ? installments : null,
+                p.getCard() == null ? null : p.getCard().getLastFourDigits(),
+                p.getDateOfExpiration() == null ? null : p.getDateOfExpiration().toInstant(),
+                p.getExternalReference());
     }
 
     static PaymentStatus mapStatus(String status) {
-        if (status == null) {
-            return PaymentStatus.PENDING;
-        }
+        if (status == null) return PaymentStatus.PENDING;
         return switch (status) {
             case "approved" -> PaymentStatus.APPROVED;
             case "rejected" -> PaymentStatus.REJECTED;
@@ -273,7 +234,20 @@ public class MercadoPagoGateway implements PaymentGateway {
         };
     }
 
-    public static String text(JsonNode node) {
-        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
+    /** Texto exibido ao pagador; o código do Mercado Pago fica entre parênteses para o suporte. */
+    static String statusDetail(String status, String detail) {
+        String text = switch (status == null ? "" : status) {
+            case "approved" -> "Pagamento aprovado no Mercado Pago";
+            case "rejected" -> "O Mercado Pago recusou o pagamento";
+            case "cancelled" -> "Pagamento cancelado no Mercado Pago";
+            case "refunded" -> "Pagamento estornado";
+            case "charged_back" -> "Pagamento contestado no cartão";
+            case "in_process", "in_mediation" -> "Pagamento em análise no Mercado Pago";
+            default -> "pending_waiting_transfer".equals(detail)
+                    ? "Aguardando o pagamento do Pix"
+                    : "Aguardando pagamento no Mercado Pago";
+        };
+        String full = detail == null || detail.isBlank() ? text : text + " (" + detail + ")";
+        return full.length() <= 160 ? full : full.substring(0, 160); // payment.status_detail é VARCHAR(160)
     }
 }

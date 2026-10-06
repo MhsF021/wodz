@@ -17,12 +17,12 @@ public record AppProperties(
     public record JwtProps(String secret, Duration ttl, String issuer) {
     }
 
-    public record PaymentProps(String provider, Duration pixExpiration, MercadoPagoProps mercadopago) {
+    /** Pagamentos sempre pelo Checkout Pro do Mercado Pago. */
+    public record PaymentProps(MercadoPagoProps mercadopago) {
     }
 
-    /** threeDSecure envia three_d_secure_mode=optional: o emissor pode pedir autenticação do titular do cartão. */
-    public record MercadoPagoProps(String accessToken, String publicKey, String webhookSecret, String notificationUrl,
-                                   boolean threeDSecure) {
+    /** Credenciais e endpoint de notificação do Checkout Pro. */
+    public record MercadoPagoProps(String accessToken, String webhookSecret, String notificationUrl) {
     }
 
     public record SeedProps(boolean enabled) {

@@ -16,4 +16,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findFirstByTeamIdOrderByIdDesc(Long teamId);
 
     Optional<Payment> findByIdAndTeamId(Long id, Long teamId);
+
+    boolean existsByTeamIdAndStatusAndIdNot(Long teamId, PaymentStatus status, Long id);
 }

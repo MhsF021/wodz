@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { athleteApi, publicApi } from '../api/endpoints';
-import type { Gender, MemberInput, ShirtSize, User } from '../api/types';
+import type { Gender, MemberInput, PayerPrefill, ShirtSize, User } from '../api/types';
 import { isValidCpf, maskCpf, money, onlyDigits } from '../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { Field } from '../components/Field';
@@ -55,8 +55,20 @@ export default function TeamRegistrationPage() {
           shirtSize: m.shirtSize === '' ? null : m.shirtSize,
         })),
       }),
-    onSuccess: (created) =>
-      navigate(created.status === 'CONFIRMED' ? '/minhas-equipes' : `/pagamento/${created.registrationCode}`),
+    onSuccess: (created) => {
+      if (created.status === 'CONFIRMED') {
+        navigate('/minhas-equipes');
+        return;
+      }
+      // o primeiro atleta (por padrão, quem está logado) já vem como pagador na página de pagamento
+      const [first] = members;
+      const payer: PayerPrefill = {
+        fullName: first?.fullName.trim(),
+        email: first?.email.trim(),
+        cpf: onlyDigits(first?.cpf ?? ''),
+      };
+      navigate(`/pagamento/${created.registrationCode}`, { state: { payer } });
+    },
   });
 
   if (query.isLoading) return <Loading />;

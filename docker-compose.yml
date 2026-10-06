@@ -28,12 +28,9 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8081}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:5173}
       SEED_DEMO: ${SEED_DEMO:-true}
-      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sandbox}
       MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
-      MP_PUBLIC_KEY: ${MP_PUBLIC_KEY:-}
       MP_WEBHOOK_SECRET: ${MP_WEBHOOK_SECRET:-}
       MP_NOTIFICATION_URL: ${MP_NOTIFICATION_URL:-}
-      MP_THREE_D_SECURE: ${MP_THREE_D_SECURE:-true}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-84072245662-m7cc1brb2fb7lkv92i9dqm5o1phnagr9.apps.googleusercontent.com}
     ports:
       - "8080:8080"
