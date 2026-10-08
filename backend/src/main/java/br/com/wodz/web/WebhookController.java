@@ -1,6 +1,7 @@
 package br.com.wodz.web;
 
 import br.com.wodz.config.AppProperties;
+import br.com.wodz.payment.MercadoPagoGateway;
 import br.com.wodz.payment.MercadoPagoSignatureVerifier;
 import br.com.wodz.service.PaymentService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,9 +37,9 @@ public class WebhookController {
             @RequestHeader(name = "x-request-id", required = false) String requestId,
             @RequestBody(required = false) JsonNode body) {
 
-        String type = typeParam != null ? typeParam : body == null ? null : text(body.path("type"));
+        String type = typeParam != null ? typeParam : body == null ? null : MercadoPagoGateway.text(body.path("type"));
         String dataId = dataIdParam != null ? dataIdParam
-                : body == null ? null : text(body.path("data").path("id"));
+                : body == null ? null : MercadoPagoGateway.text(body.path("data").path("id"));
 
         if (!"payment".equals(type) || dataId == null) {
             return ResponseEntity.ok().build();
@@ -48,9 +49,5 @@ public class WebhookController {
         }
         payments.syncFromProvider(dataId);
         return ResponseEntity.ok().build();
-    }
-
-    private static String text(JsonNode node) {
-        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
     }
 }

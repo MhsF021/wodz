@@ -67,6 +67,8 @@ export const paymentApi = {
     http.post<Payment>(`/api/public/registrations/${enc(code)}/payments`, input),
   status: (code: string, paymentId: number) =>
     http.get<Payment>(`/api/public/registrations/${enc(code)}/payments/${paymentId}`),
+  simulate: (code: string, paymentId: number) =>
+    http.post<Payment>(`/api/public/registrations/${enc(code)}/payments/${paymentId}/simulate-approval`),
 };
 
 export const athleteApi = {
