@@ -39,7 +39,9 @@ export function WorkoutsTab({ championship }: { championship: ChampionshipDetail
 
   const save = useMutation({
     mutationFn: (input: WorkoutInput) =>
-      editing ? adminApi.updateWorkout(editing.id, input) : adminApi.createWorkouts(championship.id, input),
+      editing
+        ? adminApi.updateWorkout(editing.id, input).then((workout) => [workout])
+        : adminApi.createWorkouts(championship.id, input),
     onSuccess: () => {
       refresh();
       setEditing(null);

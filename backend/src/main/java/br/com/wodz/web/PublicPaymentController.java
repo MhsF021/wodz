@@ -38,7 +38,7 @@ public class PublicPaymentController {
 
     @PostMapping("/payments")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Cria o Checkout Pro com os dados de quem paga; o navegador segue para checkoutUrl")
+    @Operation(summary = "Gera Pix ou cobra o cartão de crédito/débito (token do Mercado Pago)")
     public PaymentDto create(@PathVariable String code, @Valid @RequestBody CreatePaymentRequest req) {
         return payments.create(code, req);
     }
@@ -47,5 +47,11 @@ public class PublicPaymentController {
     @Operation(summary = "Status do pagamento (usado em polling pela página de pagamento)")
     public PaymentDto status(@PathVariable String code, @PathVariable Long paymentId) {
         return payments.status(code, paymentId);
+    }
+
+    @PostMapping("/payments/{paymentId}/simulate-approval")
+    @Operation(summary = "Somente sandbox: simula a aprovação de um pagamento pendente")
+    public PaymentDto simulate(@PathVariable String code, @PathVariable Long paymentId) {
+        return payments.simulateApproval(code, paymentId);
     }
 }

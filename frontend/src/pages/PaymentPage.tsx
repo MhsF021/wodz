@@ -1,65 +1,65 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useLocation, useParams, useSearchParams } from 'react-router';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { paymentApi } from '../api/endpoints';
-import type { Payment, PayerInput, PayerPrefill, User } from '../api/types';
-import { dateTime, isValidCpf, isValidPhone, maskCpf, maskPhone, methodLabel, money, onlyDigits } from '../lib/format';
+import { CreditCard, QrCode } from 'lucide-react';
+import { paymentApi, publicApi } from '../api/endpoints';
+import type { CardInput, CardMethod, Payment, PaymentMethod, PayerInput, ThreeDsChallenge } from '../api/types';
+import { dateTime, isValidCpf, maskCpf, methodLabel, money, onlyDigits } from '../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { Field } from '../components/Field';
+import { CopyButton } from '../components/CopyButton';
 import { PaymentBadge } from '../components/StatusBadge';
+import { MercadoPagoCardBrick } from '../components/MercadoPagoCardBrick';
 import { ErrorState, InlineError, Loading } from '../components/States';
 
-/** Dados vindos da inscrição têm prioridade; o perfil completa o que faltar (inclusive o celular). */
-function fillPayer(current: PayerInput, prefill: PayerPrefill | undefined, user: User | null): PayerInput {
-  const [first = '', ...rest] = (prefill?.fullName ?? user?.name ?? '').trim().split(/\s+/);
-  return {
-    firstName: current.firstName || first,
-    lastName: current.lastName || rest.join(' '),
-    email: current.email || prefill?.email || user?.email || '',
-    cpf: current.cpf || (prefill?.cpf ? maskCpf(prefill.cpf) : ''),
-    phone: current.phone || (user?.phone ? maskPhone(user.phone) : ''),
-  };
-}
+type Choice = 'PIX' | 'CARD';
 
-const EMPTY_PAYER: PayerInput = { firstName: '', lastName: '', email: '', cpf: '', phone: '' };
+const METHODS: { id: Choice; label: string; icon: typeof QrCode }[] = [
+  { id: 'PIX', label: 'Pix', icon: QrCode },
+  { id: 'CARD', label: 'Cartão', icon: CreditCard },
+];
 
-function payerError(payer: PayerInput): string | null {
-  if (!payer.firstName.trim() || !payer.lastName.trim()) return 'Informe nome e sobrenome de quem está pagando';
-  if (!/^\S+@\S+\.\S+$/.test(payer.email.trim())) return 'Informe um e-mail válido';
-  if (!isValidCpf(payer.cpf)) return 'Informe um CPF válido';
-  if (!isValidPhone(payer.phone)) return 'Informe um celular válido com DDD, ex.: (81) 99999-9999';
-  return null;
-}
+const CARD_TYPES: { id: CardMethod; label: string; hint: string }[] = [
+  { id: 'CREDIT_CARD', label: 'Crédito', hint: 'À vista ou parcelado' },
+  { id: 'DEBIT_CARD', label: 'Débito', hint: 'À vista' },
+];
 
 export default function PaymentPage() {
   const { code = '' } = useParams();
-  const [searchParams] = useSearchParams();
-  const prefill = (useLocation().state as { payer?: PayerPrefill } | null)?.payer;
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const summary = useQuery({ queryKey: ['registration', code], queryFn: () => paymentApi.summary(code) });
+  const config = useQuery({ queryKey: ['public-config'], queryFn: publicApi.config, staleTime: Infinity });
 
-  const [payer, setPayer] = useState<PayerInput>(() => fillPayer(EMPTY_PAYER, prefill, user));
+  const [choice, setChoice] = useState<Choice>('PIX');
+  // no cartão, crédito ou débito é escolha explícita: o formulário só aparece depois dela
+  const [cardType, setCardType] = useState<CardMethod | null>(null);
+  const [payer, setPayer] = useState<PayerInput>(() => {
+    const [first = '', ...rest] = (user?.name ?? '').split(' ');
+    return { firstName: first, lastName: rest.join(' '), email: user?.email ?? '', cpf: '' };
+  });
   const [payment, setPayment] = useState<Payment | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [redirecting, setRedirecting] = useState(false);
   const [resumeChecked, setResumeChecked] = useState(false);
 
-  // o perfil chega depois do primeiro render quando a página é aberta direto pelo link
-  useEffect(() => {
-    if (user) setPayer((current) => fillPayer(current, prefill, user));
-  }, [user, prefill]);
-
-  // Retoma uma única vez o último checkout (ex.: atleta voltou do Mercado Pago ou reabriu o link).
+  // Retoma uma única vez um Pix ou cartão pendente (ex.: atleta voltou pelo link). Boletos antigos não.
   useEffect(() => {
     if (resumeChecked || !summary.data) return;
     setResumeChecked(true);
     const last = summary.data.lastPayment;
-    if (last?.checkoutUrl) setPayment(last);
+    if (last && last.status === 'PENDING' && last.method !== 'BOLETO') {
+      setPayment(last);
+      if (last.method === 'PIX') {
+        setChoice('PIX');
+      } else {
+        setChoice('CARD');
+        setCardType(last.method);
+      }
+    }
   }, [summary.data, resumeChecked]);
 
-  // Enquanto pendente, a API consulta o Mercado Pago (funciona mesmo sem webhook)
+  // Polling enquanto o pagamento está pendente (Pix, ou cartão em análise/3DS)
   const poll = useQuery({
     queryKey: ['payment', code, payment?.id],
     queryFn: () => paymentApi.status(code, payment!.id),
@@ -67,7 +67,7 @@ export default function PaymentPage() {
     refetchInterval: 5000,
   });
   useEffect(() => {
-    if (poll.data && payment && poll.data.id === payment.id && poll.data !== payment) {
+    if (poll.data && payment && poll.data.id === payment.id && poll.data.status !== payment.status) {
       setPayment(poll.data);
     }
   }, [poll.data, payment]);
@@ -79,23 +79,18 @@ export default function PaymentPage() {
   }, [payment?.status, code, queryClient]);
 
   const create = useMutation({
-    mutationFn: () =>
-      paymentApi.create(code, {
-        payer: {
-          firstName: payer.firstName.trim(),
-          lastName: payer.lastName.trim(),
-          email: payer.email.trim(),
-          cpf: onlyDigits(payer.cpf),
-          phone: onlyDigits(payer.phone),
-        },
-      }),
+    mutationFn: ({ method, card }: { method: PaymentMethod; card?: CardInput }) =>
+      paymentApi.create(code, { method, payer: { ...payer, cpf: onlyDigits(payer.cpf) }, card }),
     onSuccess: (created) => {
       setPayment(created);
-      if (created.checkoutUrl) {
-        setRedirecting(true);
-        window.location.assign(created.checkoutUrl);
-      }
+      // a nova cobrança cancela as pendentes anteriores; atualiza o resumo
+      queryClient.invalidateQueries({ queryKey: ['registration', code] });
     },
+  });
+
+  const simulate = useMutation({
+    mutationFn: () => paymentApi.simulate(code, payment!.id),
+    onSuccess: setPayment,
   });
 
   if (summary.isLoading) return <Loading />;
@@ -108,18 +103,32 @@ export default function PaymentPage() {
   }
   const s = summary.data;
   const approved = s.teamStatus === 'CONFIRMED' || payment?.status === 'APPROVED';
-  const inCheckout = payment?.status === 'PENDING' && Boolean(payment.checkoutUrl);
-  // cobranças anteriores ao Checkout Pro (Pix/cartão/boleto) ainda podem compensar
-  const legacyPending = !payment && s.lastPayment?.status === 'PENDING' && !s.lastPayment.checkoutUrl;
+
+  function payerValid(): boolean {
+    if (!payer.firstName.trim() || !payer.lastName.trim()) return fail('Informe nome e sobrenome do pagador');
+    if (!/^\S+@\S+\.\S+$/.test(payer.email)) return fail('Informe um e-mail válido');
+    if (!isValidCpf(payer.cpf)) return fail('Informe um CPF válido');
+    setFormError(null);
+    return true;
+  }
+  function fail(message: string) {
+    setFormError(message);
+    return false;
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const error = payerError(payer);
-    setFormError(error);
-    if (!error) create.mutate();
+    // o cartão é enviado pelo próprio formulário do cartão
+    if (choice === 'PIX' && payerValid()) create.mutate({ method: 'PIX' });
   }
 
-  const set = (field: keyof PayerInput) => (value: string) => setPayer({ ...payer, [field]: value });
+  function payWithCard(type: CardMethod, card: CardInput) {
+    if (!payerValid()) return Promise.reject(new Error('Confira os dados de quem está pagando'));
+    return create.mutateAsync({ method: type, card });
+  }
+
+  const legacyBoleto = s.lastPayment?.method === 'BOLETO' && s.lastPayment.status === 'PENDING';
+  const pendingOrResult = payment && payment.status !== 'CANCELLED' && payment.status !== 'EXPIRED';
 
   return (
     <div className="page page--form">
@@ -149,12 +158,14 @@ export default function PaymentPage() {
           <h2 className="result__title">Inscrição cancelada</h2>
           <p>Esta inscrição foi cancelada. Fale com a organização do campeonato.</p>
         </section>
-      ) : inCheckout && payment ? (
-        <CheckoutInProgress
+      ) : pendingOrResult && payment.status !== 'REJECTED' ? (
+        <PendingPayment
           payment={payment}
-          returned={searchParams.has('checkout')}
-          redirecting={redirecting}
-          onChangePayer={() => setPayment(null)}
+          canSimulate={Boolean(config.data?.paymentSimulation)}
+          onSimulate={() => simulate.mutate()}
+          simulating={simulate.isPending}
+          simulateError={simulate.error}
+          onRestart={() => setPayment(null)}
         />
       ) : s.championshipStarted ? (
         <section className="result result--warn">
@@ -165,19 +176,16 @@ export default function PaymentPage() {
         <form className="form form--wide" onSubmit={submit} noValidate>
           {payment?.status === 'REJECTED' && (
             <div className="result result--warn" role="alert">
-              <h2 className="result__title">Pagamento não concluído</h2>
-              <p>
-                {payment.statusDetail ?? 'O Mercado Pago não aprovou o pagamento.'} Você pode tentar de novo com outro
-                cartão ou com Pix.
-              </p>
+              <h2 className="result__title">Pagamento recusado</h2>
+              <p>{payment.statusDetail ?? 'O emissor recusou a transação.'} Tente outro cartão ou outra forma de pagamento.</p>
             </div>
           )}
           {payment && (payment.status === 'EXPIRED' || payment.status === 'CANCELLED') && (
-            <p className="note">O pagamento anterior não foi concluído. Siga para um novo pagamento abaixo.</p>
+            <p className="note">A cobrança anterior expirou. Gere uma nova abaixo.</p>
           )}
-          {legacyPending && (
+          {legacyBoleto && (
             <p className="note">
-              Há uma cobrança gerada antes aguardando compensação. Se você já pagou, aguarde: a confirmação é
+              Há um boleto gerado antes aguardando compensação. Se você já pagou, aguarde: a confirmação é
               automática e não é preciso pagar de novo.
             </p>
           )}
@@ -187,93 +195,282 @@ export default function PaymentPage() {
             <div className="grid-2">
               <Field label="Nome" htmlFor="payer-first">
                 <input id="payer-first" className="input" autoComplete="given-name" value={payer.firstName}
-                  onChange={(e) => set('firstName')(e.target.value)} />
+                  onChange={(e) => setPayer({ ...payer, firstName: e.target.value })} />
               </Field>
               <Field label="Sobrenome" htmlFor="payer-last">
                 <input id="payer-last" className="input" autoComplete="family-name" value={payer.lastName}
-                  onChange={(e) => set('lastName')(e.target.value)} />
+                  onChange={(e) => setPayer({ ...payer, lastName: e.target.value })} />
               </Field>
               <Field label="E-mail" htmlFor="payer-email">
                 <input id="payer-email" className="input" type="email" autoComplete="email" value={payer.email}
-                  onChange={(e) => set('email')(e.target.value)} />
+                  onChange={(e) => setPayer({ ...payer, email: e.target.value })} />
               </Field>
               <Field label="CPF" htmlFor="payer-cpf">
                 <input id="payer-cpf" className="input" inputMode="numeric" placeholder="000.000.000-00"
-                  value={payer.cpf} onChange={(e) => set('cpf')(maskCpf(e.target.value))} />
-              </Field>
-              <Field label="Celular com DDD" htmlFor="payer-phone">
-                <input id="payer-phone" className="input" type="tel" autoComplete="tel-national"
-                  placeholder="(81) 99999-9999" value={payer.phone}
-                  onChange={(e) => set('phone')(maskPhone(e.target.value))} />
+                  value={payer.cpf} onChange={(e) => setPayer({ ...payer, cpf: maskCpf(e.target.value) })} />
               </Field>
             </div>
           </fieldset>
 
-          <p className="note">
-            Na próxima etapa você escolhe Pix ou cartão (crédito ou débito) e informa os dados de pagamento no
-            ambiente seguro do Mercado Pago.
-          </p>
+          <fieldset className="form-section">
+            <legend className="form-section__title">Forma de pagamento</legend>
+            <div className="methods" role="radiogroup" aria-label="Forma de pagamento">
+              {METHODS.map(({ id, label, icon: Icon }) => (
+                <label key={id} className="method">
+                  <input type="radio" name="method" checked={choice === id} onChange={() => setChoice(id)} />
+                  <span className="method__body">
+                    <Icon size={20} aria-hidden />
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {choice === 'PIX' && (
+              <p className="note">Geramos um QR Code com validade de 30 minutos. A confirmação é automática.</p>
+            )}
+
+            {choice === 'CARD' && (
+              <>
+                <p className="method-group__title" aria-hidden>Tipo do cartão</p>
+                <div className="methods" role="radiogroup" aria-label="Tipo do cartão">
+                  {CARD_TYPES.map(({ id, label, hint }) => (
+                    <label key={id} className="method">
+                      <input type="radio" name="card-type" checked={cardType === id}
+                        onChange={() => setCardType(id)} />
+                      <span className="method__body">
+                        {label}
+                        <span className="method__hint">{hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                {!cardType ? (
+                  <p className="note">Escolha crédito ou débito para preencher os dados do cartão.</p>
+                ) : config.data?.mercadoPagoPublicKey ? (
+                  <MercadoPagoCardBrick
+                    key={cardType}
+                    publicKey={config.data.mercadoPagoPublicKey}
+                    amount={s.amount}
+                    email={payer.email}
+                    cardType={cardType}
+                    onToken={(card) => payWithCard(cardType, card)}
+                  />
+                ) : (
+                  <SandboxCardForm
+                    key={cardType}
+                    cardType={cardType}
+                    busy={create.isPending}
+                    onToken={(card) => {
+                      payWithCard(cardType, card).catch(() => undefined);
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </fieldset>
 
           {formError && <p className="form-error" role="alert">{formError}</p>}
           <InlineError error={create.error} />
 
-          <div className="form-actions">
-            <button type="submit" className="btn btn--primary btn--large" disabled={create.isPending}>
-              {create.isPending ? 'Abrindo o Mercado Pago…' : 'Seguir para pagamento'}
-            </button>
-          </div>
+          {choice === 'PIX' && (
+            <div className="form-actions">
+              <button type="submit" className="btn btn--primary btn--large" disabled={create.isPending}>
+                {create.isPending ? 'Gerando…' : 'Gerar Pix'}
+              </button>
+            </div>
+          )}
         </form>
       )}
     </div>
   );
 }
 
-function CheckoutInProgress({
+function PendingPayment({
   payment,
-  returned,
-  redirecting,
-  onChangePayer,
+  canSimulate,
+  onSimulate,
+  simulating,
+  simulateError,
+  onRestart,
 }: {
   payment: Payment;
-  returned: boolean;
-  redirecting: boolean;
-  onChangePayer: () => void;
+  canSimulate: boolean;
+  onSimulate: () => void;
+  simulating: boolean;
+  simulateError: unknown;
+  onRestart: () => void;
 }) {
-  // CHECKOUT_PRO: o pagador ainda não escolheu o meio no Mercado Pago
-  const started = payment.method !== 'CHECKOUT_PRO';
   return (
     <section className="pending" aria-live="polite">
       <div className="pending__head">
-        <h2 className="section-title">Pagamento no Mercado Pago</h2>
+        <h2 className="section-title">
+          {payment.method === 'PIX'
+            ? 'Pague com Pix'
+            : payment.threeDsChallenge
+              ? 'Confirme o pagamento com seu banco'
+              : 'Pagamento com cartão em análise'}
+        </h2>
         <PaymentBadge status={payment.status} />
       </div>
 
-      <p className="note">
-        {redirecting
-          ? 'Abrindo o Mercado Pago…'
-          : returned
-            ? 'Você voltou do Mercado Pago. Assim que o pagamento for confirmado, esta página atualiza sozinha.'
-            : 'Conclua o pagamento na página do Mercado Pago. Esta página atualiza sozinha quando ele for confirmado.'}
-      </p>
-
-      {started && (
-        <p className="note">
-          {methodLabel[payment.method]}
-          {payment.cardLastDigits ? ` final ${payment.cardLastDigits}` : ''}
-          {payment.installments && payment.installments > 1 ? ` em ${payment.installments}x` : ''}
-          {payment.statusDetail ? `: ${payment.statusDetail}` : ''}
-        </p>
+      {payment.method === 'PIX' && (
+        <>
+          {payment.pixQrCodeBase64 && (
+            <img className="pending__qr" src={`data:image/png;base64,${payment.pixQrCodeBase64}`}
+              alt="QR Code do Pix" width={220} height={220} />
+          )}
+          <Field label="Pix copia e cola" htmlFor="pix-code">
+            <textarea id="pix-code" className="input input--code" readOnly rows={3} value={payment.pixQrCode ?? ''} />
+          </Field>
+          {payment.pixQrCode && <CopyButton value={payment.pixQrCode} label="Copiar código Pix" />}
+        </>
       )}
+
+      {payment.method !== 'PIX' && (
+        <>
+          <p className="note">
+            {methodLabel[payment.method]}
+            {payment.cardLastDigits ? ` final ${payment.cardLastDigits}` : ''}
+            {payment.installments && payment.installments > 1 ? ` em ${payment.installments}x` : ''}.
+          </p>
+          {payment.threeDsChallenge ? (
+            <ThreeDsChallengeFrame challenge={payment.threeDsChallenge} />
+          ) : (
+            <p className="note">O emissor do cartão está analisando a transação.</p>
+          )}
+        </>
+      )}
+
       {payment.expiresAt && <p className="note">Válido até {dateTime(payment.expiresAt)}.</p>}
+      <p className="note">Esta página atualiza sozinha quando o pagamento for confirmado.</p>
 
       <div className="row-actions">
-        <a className="btn btn--primary" href={payment.checkoutUrl ?? undefined}>Continuar no Mercado Pago</a>
-        {!started && (
-          <button type="button" className="btn btn--ghost" onClick={onChangePayer}>
-            Alterar dados de quem paga
+        {canSimulate && (
+          <button type="button" className="btn btn--primary" onClick={onSimulate} disabled={simulating}>
+            {simulating ? 'Aprovando…' : 'Simular pagamento aprovado (sandbox)'}
           </button>
         )}
+        <button type="button" className="btn btn--ghost" onClick={onRestart}>
+          Usar outra forma de pagamento
+        </button>
       </div>
+      <InlineError error={simulateError} />
     </section>
+  );
+}
+
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Desafio 3DS: envia o creq por POST para a página do emissor dentro de um
+ * iframe isolado (sem acesso à navegação desta página). O resultado não é lido
+ * daqui: o status vem do polling, que o backend confere no Mercado Pago.
+ */
+function ThreeDsChallengeFrame({ challenge }: { challenge: ThreeDsChallenge }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const submitted = useRef(false);
+  const frameName = useRef(`threeds-${Math.random().toString(36).slice(2)}`).current;
+  const safe = isHttpsUrl(challenge.url);
+
+  useEffect(() => {
+    if (!safe || submitted.current) return;
+    submitted.current = true;
+    formRef.current?.submit();
+  }, [safe]);
+
+  if (!safe) {
+    return (
+      <p className="form-error" role="alert">
+        Não foi possível abrir a confirmação do banco. Tente outro cartão ou pague com Pix.
+      </p>
+    );
+  }
+  return (
+    <div className="threeds">
+      <p className="note">Seu banco pediu uma confirmação de segurança. Conclua abaixo em até 5 minutos.</p>
+      <iframe
+        name={frameName}
+        title="Confirmação de segurança do banco"
+        className="threeds__frame"
+        sandbox="allow-forms allow-scripts allow-same-origin"
+        referrerPolicy="no-referrer"
+      />
+      <form ref={formRef} method="post" action={challenge.url} target={frameName} hidden>
+        <input type="hidden" name="creq" value={challenge.creq} />
+      </form>
+    </div>
+  );
+}
+
+/** Formulário de teste usado quando não há chave do Mercado Pago (provedor sandbox). */
+function SandboxCardForm({
+  cardType,
+  busy,
+  onToken,
+}: {
+  cardType: CardMethod;
+  busy: boolean;
+  onToken: (card: CardInput) => void;
+}) {
+  const debit = cardType === 'DEBIT_CARD';
+  const [card, setCard] = useState({ number: '', holder: '', expiry: '', cvv: '', installments: '1' });
+
+  function pay() {
+    const digits = onlyDigits(card.number);
+    onToken({
+      token: digits.endsWith('0002') ? 'sandbox-rejected' : 'sandbox-approved',
+      paymentMethodId: debit ? 'debvisa' : 'visa',
+      installments: debit ? 1 : Number(card.installments),
+      lastFourDigits: digits.slice(-4),
+    });
+  }
+
+  const ready = onlyDigits(card.number).length >= 13 && card.holder.trim() && card.expiry && card.cvv.length >= 3;
+
+  return (
+    <div className="sandbox-card">
+      <p className="note">
+        Ambiente de teste: nenhum valor é cobrado. Qualquer número é aprovado; cartões terminados em 0002 são recusados.
+      </p>
+      <div className="grid-2">
+        <Field label="Número do cartão" htmlFor="cc-number">
+          <input id="cc-number" className="input" inputMode="numeric" autoComplete="cc-number" value={card.number}
+            onChange={(e) => setCard({ ...card, number: e.target.value })} />
+        </Field>
+        <Field label="Nome impresso no cartão" htmlFor="cc-holder">
+          <input id="cc-holder" className="input" autoComplete="cc-name" value={card.holder}
+            onChange={(e) => setCard({ ...card, holder: e.target.value })} />
+        </Field>
+        <Field label="Validade (MM/AA)" htmlFor="cc-exp">
+          <input id="cc-exp" className="input" autoComplete="cc-exp" placeholder="12/29" value={card.expiry}
+            onChange={(e) => setCard({ ...card, expiry: e.target.value })} />
+        </Field>
+        <Field label="CVV" htmlFor="cc-cvv">
+          <input id="cc-cvv" className="input" inputMode="numeric" autoComplete="cc-csc" maxLength={4} value={card.cvv}
+            onChange={(e) => setCard({ ...card, cvv: onlyDigits(e.target.value) })} />
+        </Field>
+        {!debit && (
+          <Field label="Parcelas" htmlFor="cc-inst">
+            <select id="cc-inst" className="input" value={card.installments}
+              onChange={(e) => setCard({ ...card, installments: e.target.value })}>
+              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}x</option>)}
+            </select>
+          </Field>
+        )}
+      </div>
+      <div className="form-actions">
+        <button type="button" className="btn btn--primary btn--large" disabled={!ready || busy} onClick={pay}>
+          {busy ? 'Processando…' : debit ? 'Pagar no débito' : 'Pagar no crédito'}
+        </button>
+      </div>
+    </div>
   );
 }

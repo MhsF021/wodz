@@ -55,8 +55,6 @@ public class Payment {
 
     private String providerPaymentId;
 
-    private String checkoutUrl;
-
     private String statusDetail;
 
     private String pixQrCode;
