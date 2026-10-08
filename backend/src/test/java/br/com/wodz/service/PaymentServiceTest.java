@@ -1,6 +1,7 @@
 package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
+import br.com.wodz.common.TokenCipher;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.config.AppProperties.PaymentProps;
 import br.com.wodz.domain.Category;
@@ -16,6 +17,7 @@ import br.com.wodz.dto.PaymentDtos.Payer;
 import br.com.wodz.dto.PaymentDtos.PaymentDto;
 import br.com.wodz.payment.SandboxPaymentGateway;
 import br.com.wodz.repository.PaymentRepository;
+import br.com.wodz.repository.PayoutAccountRepository;
 import br.com.wodz.repository.TeamRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,9 +48,12 @@ class PaymentServiceTest {
 
     private final TeamRepository teams = mock(TeamRepository.class);
     private final PaymentRepository payments = mock(PaymentRepository.class);
+    private final PayoutAccountRepository payoutAccounts = mock(PayoutAccountRepository.class);
+    private final TokenCipher tokenCipher = mock(TokenCipher.class);
     private final AppProperties props = new AppProperties(null, null, null,
-            new PaymentProps("sandbox", Duration.ofMinutes(30), null), null, null);
-    private final PaymentService service = new PaymentService(teams, payments, new SandboxPaymentGateway(), props);
+            new PaymentProps("sandbox", Duration.ofMinutes(30), null), null, null, null, null);
+    private final PaymentService service = new PaymentService(teams, payments, payoutAccounts,
+            new SandboxPaymentGateway(), props, tokenCipher);
 
     @BeforeEach
     void setUp() {

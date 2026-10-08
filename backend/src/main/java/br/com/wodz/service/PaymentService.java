@@ -2,12 +2,15 @@ package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
+import br.com.wodz.common.TokenCipher;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.Category;
 import br.com.wodz.domain.Championship;
 import br.com.wodz.domain.Payment;
 import br.com.wodz.domain.PaymentMethod;
 import br.com.wodz.domain.PaymentStatus;
+import br.com.wodz.domain.PayoutAccount;
+import br.com.wodz.domain.PayoutAccountStatus;
 import br.com.wodz.domain.Team;
 import br.com.wodz.domain.TeamStatus;
 import br.com.wodz.dto.PaymentDtos.CreatePaymentRequest;
@@ -18,7 +21,9 @@ import br.com.wodz.dto.PaymentDtos.ThreeDsChallenge;
 import br.com.wodz.payment.GatewayPayment;
 import br.com.wodz.payment.PaymentCommand;
 import br.com.wodz.payment.PaymentGateway;
+import br.com.wodz.payment.SellerAccount;
 import br.com.wodz.repository.PaymentRepository;
+import br.com.wodz.repository.PayoutAccountRepository;
 import br.com.wodz.repository.TeamRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.Locale;
 
@@ -41,15 +47,19 @@ public class PaymentService {
 
     private final TeamRepository teams;
     private final PaymentRepository payments;
+    private final PayoutAccountRepository payoutAccounts;
     private final PaymentGateway gateway;
     private final AppProperties props;
+    private final TokenCipher tokenCipher;
 
-    public PaymentService(TeamRepository teams, PaymentRepository payments, PaymentGateway gateway,
-                          AppProperties props) {
+    public PaymentService(TeamRepository teams, PaymentRepository payments, PayoutAccountRepository payoutAccounts,
+                          PaymentGateway gateway, AppProperties props, TokenCipher tokenCipher) {
         this.teams = teams;
         this.payments = payments;
+        this.payoutAccounts = payoutAccounts;
         this.gateway = gateway;
         this.props = props;
+        this.tokenCipher = tokenCipher;
     }
 
     public PublicConfig publicConfig() {
@@ -95,6 +105,8 @@ public class PaymentService {
         Category category = team.getCategory();
         BigDecimal amount = category.getPrice();
         Instant now = Instant.now();
+        SellerAccount seller = sellerForNewPayment(team);
+        BigDecimal applicationFee = applicationFee(amount);
 
         Payment payment = new Payment();
         payment.setTeam(team);
@@ -102,6 +114,10 @@ public class PaymentService {
         payment.setMethod(req.method());
         payment.setStatus(PaymentStatus.PENDING);
         payment.setProvider(gateway.providerName());
+        if (seller != null) {
+            payment.setPayoutAccountId(seller.payoutAccountId());
+        }
+        payment.setApplicationFee(applicationFee);
         payment.setExpiresAt(req.method() == PaymentMethod.PIX ? now.plus(props.payment().pixExpiration()) : null);
         if (req.method().isCard()) {
             // débito é sempre à vista (validate já recusou parcelas > 1)
@@ -122,7 +138,9 @@ public class PaymentService {
                 req.card(),
                 payment.getInstallments(),
                 payment.getExpiresAt(),
-                "team:" + team.getId() + ":payment:" + payment.getId()));
+                "team:" + team.getId() + ":payment:" + payment.getId(),
+                seller,
+                applicationFee));
         apply(payment, result);
         payments.saveAndFlush(payment);
         // o desafio 3DS só é útil agora (o emissor dá poucos segundos para iniciá-lo); não vai para o banco
@@ -141,7 +159,7 @@ public class PaymentService {
                 .orElseThrow(() -> ApiException.notFound("Pagamento não encontrado"));
         if (payment.getStatus() == PaymentStatus.PENDING && gateway.supportsRemoteFetch()
                 && payment.getProviderPaymentId() != null) {
-            apply(payment, gateway.fetch(payment.getProviderPaymentId()));
+            apply(payment, gateway.fetch(payment.getProviderPaymentId(), sellerForExistingPayment(payment)));
             payments.saveAndFlush(payment);
         }
         return toDto(payment);
@@ -174,7 +192,7 @@ public class PaymentService {
         }
         payments.findByProviderAndProviderPaymentId(gateway.providerName(), providerPaymentId).ifPresentOrElse(
                 payment -> {
-                    apply(payment, gateway.fetch(providerPaymentId));
+                    apply(payment, gateway.fetch(providerPaymentId, sellerForExistingPayment(payment)));
                     payments.saveAndFlush(payment);
                     log.info("Pagamento {} sincronizado: {}", payment.getId(), payment.getStatus());
                 },
@@ -186,6 +204,55 @@ public class PaymentService {
     private Team findTeam(String code) {
         return teams.findByRegistrationCode(code.trim().toUpperCase(Locale.ROOT))
                 .orElseThrow(() -> ApiException.notFound("Inscrição não encontrada. Confira o link de pagamento."));
+    }
+
+    /**
+     * No Mercado Pago, cada organizador recebe diretamente na conta que conectou
+     * por OAuth. O sandbox não precisa dessa conta e continua utilizável no dev.
+     */
+    private SellerAccount sellerForNewPayment(Team team) {
+        if (!gateway.supportsRemoteFetch()) {
+            return null;
+        }
+        Long ownerId = team.getCategory().getChampionship().getOwner().getId();
+        PayoutAccount account = payoutAccounts.findFirstByUserIdAndStatus(ownerId, PayoutAccountStatus.ACTIVE)
+                .orElseThrow(() -> ApiException.unprocessable(
+                        "O organizador ainda não conectou uma conta Mercado Pago para receber pagamentos."));
+        return seller(account);
+    }
+
+    /** Mantém as consultas e webhooks vinculados à conta que recebeu a cobrança original. */
+    private SellerAccount sellerForExistingPayment(Payment payment) {
+        if (!gateway.supportsRemoteFetch()) {
+            return null;
+        }
+        Long payoutAccountId = payment.getPayoutAccountId();
+        if (payoutAccountId == null) {
+            throw ApiException.unprocessable("Esta cobrança não tem uma conta de recebimento associada.");
+        }
+        PayoutAccount account = payoutAccounts.findById(payoutAccountId)
+                .orElseThrow(() -> ApiException.unprocessable(
+                        "A conta de recebimento desta cobrança não foi encontrada."));
+        return seller(account);
+    }
+
+    private SellerAccount seller(PayoutAccount account) {
+        if (account.getAccessToken() == null || account.getAccessToken().isBlank()) {
+            throw ApiException.unprocessable("A conta Mercado Pago do organizador não está mais conectada.");
+        }
+        return new SellerAccount(account.getId(), account.getProviderUserId(), tokenCipher.decrypt(account.getAccessToken()));
+    }
+
+    /** Calcula a parte da plataforma em centavos exatos; nula significa que não há retenção. */
+    private BigDecimal applicationFee(BigDecimal amount) {
+        AppProperties.MercadoPagoProps mercadoPago = props.payment().mercadopago();
+        if (mercadoPago == null || mercadoPago.platformFeePercent() == null
+                || mercadoPago.platformFeePercent().signum() == 0) {
+            return null;
+        }
+        return amount.multiply(mercadoPago.platformFeePercent())
+                .movePointLeft(2)
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     static void validate(CreatePaymentRequest req) {
