@@ -2,23 +2,28 @@ package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
+import br.com.wodz.common.TokenCipher;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.Category;
 import br.com.wodz.domain.Championship;
 import br.com.wodz.domain.Payment;
 import br.com.wodz.domain.PaymentMethod;
 import br.com.wodz.domain.PaymentStatus;
+import br.com.wodz.domain.PayoutAccount;
+import br.com.wodz.domain.PayoutAccountStatus;
 import br.com.wodz.domain.Team;
 import br.com.wodz.domain.TeamStatus;
 import br.com.wodz.dto.PaymentDtos.CreatePaymentRequest;
-import br.com.wodz.dto.PaymentDtos.Payer;
 import br.com.wodz.dto.PaymentDtos.PaymentDto;
 import br.com.wodz.dto.PaymentDtos.PublicConfig;
 import br.com.wodz.dto.PaymentDtos.RegistrationSummary;
+import br.com.wodz.dto.PaymentDtos.ThreeDsChallenge;
 import br.com.wodz.payment.GatewayPayment;
 import br.com.wodz.payment.PaymentCommand;
 import br.com.wodz.payment.PaymentGateway;
+import br.com.wodz.payment.SellerAccount;
 import br.com.wodz.repository.PaymentRepository;
+import br.com.wodz.repository.PayoutAccountRepository;
 import br.com.wodz.repository.TeamRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,14 +31,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.Locale;
 
 /**
- * Pagamento da inscrição pelo link público /pagamento/{código}. Com os dados de
- * quem paga, cria o Checkout Pro e o pagador escolhe Pix ou cartão no Mercado
- * Pago. A aprovação (webhook ou consulta da página) dispara a trigger que
- * confirma a equipe no banco.
+ * Pagamento da inscrição pelo link público /pagamento/{código}: Pix ou cartão
+ * (crédito ou débito). Aprovação (cartão na hora ou após o 3DS, Pix via webhook)
+ * dispara a trigger que confirma a equipe no banco.
  */
 @Service
 public class PaymentService {
@@ -42,19 +47,24 @@ public class PaymentService {
 
     private final TeamRepository teams;
     private final PaymentRepository payments;
+    private final PayoutAccountRepository payoutAccounts;
     private final PaymentGateway gateway;
     private final AppProperties props;
+    private final TokenCipher tokenCipher;
 
-    public PaymentService(TeamRepository teams, PaymentRepository payments, PaymentGateway gateway,
-                          AppProperties props) {
+    public PaymentService(TeamRepository teams, PaymentRepository payments, PayoutAccountRepository payoutAccounts,
+                          PaymentGateway gateway, AppProperties props, TokenCipher tokenCipher) {
         this.teams = teams;
         this.payments = payments;
+        this.payoutAccounts = payoutAccounts;
         this.gateway = gateway;
         this.props = props;
+        this.tokenCipher = tokenCipher;
     }
 
     public PublicConfig publicConfig() {
-        return new PublicConfig(props.google() == null ? null : Codes.blankToNull(props.google().clientId()));
+        String googleClientId = props.google() == null ? null : Codes.blankToNull(props.google().clientId());
+        return new PublicConfig(gateway.providerName(), gateway.publicKey(), gateway.supportsSimulation(), googleClientId);
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +80,6 @@ public class PaymentService {
                 team.getStatus(), championship.hasStarted(Instant.now()), last);
     }
 
-    /** Cria o checkout no Mercado Pago; o frontend redireciona o pagador para checkoutUrl. */
     @Transactional
     public PaymentDto create(String code, CreatePaymentRequest req) {
         Team team = findTeam(code);
@@ -85,9 +94,9 @@ public class PaymentService {
             throw ApiException.unprocessable("O campeonato já começou e não aceita mais pagamentos de inscrição. "
                     + "Fale com a organização do campeonato.");
         }
-        Payer payer = normalize(req.payer());
+        validate(req);
 
-        // um novo checkout substitui cobranças pendentes anteriores
+        // uma nova tentativa substitui cobranças pendentes anteriores
         for (Payment pending : payments.findByTeamIdAndStatus(team.getId(), PaymentStatus.PENDING)) {
             pending.setStatus(PaymentStatus.CANCELLED);
             pending.setStatusDetail("Substituído por uma nova tentativa de pagamento");
@@ -95,169 +104,186 @@ public class PaymentService {
 
         Category category = team.getCategory();
         BigDecimal amount = category.getPrice();
+        Instant now = Instant.now();
+        SellerAccount seller = sellerForNewPayment(team);
+        BigDecimal applicationFee = applicationFee(amount);
 
         Payment payment = new Payment();
         payment.setTeam(team);
         payment.setAmount(amount);
-        payment.setMethod(PaymentMethod.CHECKOUT_PRO);
+        payment.setMethod(req.method());
         payment.setStatus(PaymentStatus.PENDING);
-        payment.setStatusDetail("Aguardando pagamento no Mercado Pago");
         payment.setProvider(gateway.providerName());
+        if (seller != null) {
+            payment.setPayoutAccountId(seller.payoutAccountId());
+        }
+        payment.setApplicationFee(applicationFee);
+        payment.setExpiresAt(req.method() == PaymentMethod.PIX ? now.plus(props.payment().pixExpiration()) : null);
+        if (req.method().isCard()) {
+            // débito é sempre à vista (validate já recusou parcelas > 1)
+            payment.setInstallments(req.method() == PaymentMethod.DEBIT_CARD || req.card().installments() == null
+                    ? 1 : req.card().installments());
+        }
         payments.saveAndFlush(payment);
 
         String description = "Inscrição " + team.getName() + " - " + category.getChampionship().getName()
                 + " (" + category.getName() + ")";
-        String checkoutUrl = gateway.createCheckout(new PaymentCommand(
+        GatewayPayment result = gateway.create(new PaymentCommand(
                 payment.getId(),
                 "wodz-payment-" + payment.getId(),
                 amount,
                 description,
-                payer,
-                externalReference(payment),
-                frontendUrl() + "/pagamento/" + team.getRegistrationCode()));
-        payment.setCheckoutUrl(checkoutUrl);
+                req.method(),
+                req.payer(),
+                req.card(),
+                payment.getInstallments(),
+                payment.getExpiresAt(),
+                "team:" + team.getId() + ":payment:" + payment.getId(),
+                seller,
+                applicationFee));
+        apply(payment, result);
         payments.saveAndFlush(payment);
-        return toDto(payment);
+        // o desafio 3DS só é útil agora (o emissor dá poucos segundos para iniciá-lo); não vai para o banco
+        return toDto(payment, payment.getStatus() == PaymentStatus.PENDING ? result.threeDsChallenge() : null);
     }
 
     /**
-     * Consulta usada pelo polling da página. Enquanto pendente, busca no Mercado
-     * Pago pela referência externa (funciona mesmo sem webhook, ex.: ambiente local).
+     * Consulta usada pelo polling da página de pagamento. Com Mercado Pago,
+     * reconsulta o provedor enquanto estiver pendente (útil quando o webhook
+     * ainda não chegou ou não está configurado, ex.: ambiente local).
      */
     @Transactional
     public PaymentDto status(String code, Long paymentId) {
         Team team = findTeam(code);
         Payment payment = payments.findByIdAndTeamId(paymentId, team.getId())
                 .orElseThrow(() -> ApiException.notFound("Pagamento não encontrado"));
-        if (payment.getStatus() == PaymentStatus.PENDING && gateway.providerName().equals(payment.getProvider())) {
-            gateway.findByExternalReference(externalReference(payment))
-                    .ifPresent(result -> sync(payment, result));
+        if (payment.getStatus() == PaymentStatus.PENDING && gateway.supportsRemoteFetch()
+                && payment.getProviderPaymentId() != null) {
+            apply(payment, gateway.fetch(payment.getProviderPaymentId(), sellerForExistingPayment(payment)));
+            payments.saveAndFlush(payment);
         }
+        return toDto(payment);
+    }
+
+    /** Apenas no sandbox: simula a compensação de um pagamento pendente. */
+    @Transactional
+    public PaymentDto simulateApproval(String code, Long paymentId) {
+        if (!gateway.supportsSimulation()) {
+            throw ApiException.notFound("Simulação indisponível neste ambiente");
+        }
+        Team team = findTeam(code);
+        Payment payment = payments.findByIdAndTeamId(paymentId, team.getId())
+                .orElseThrow(() -> ApiException.notFound("Pagamento não encontrado"));
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw ApiException.unprocessable("Só pagamentos pendentes podem ser aprovados na simulação");
+        }
+        payment.setStatus(PaymentStatus.APPROVED);
+        payment.setStatusDetail("Pagamento aprovado (simulação)");
+        payment.setPaidAt(Instant.now());
+        payments.saveAndFlush(payment);
         return toDto(payment);
     }
 
     /** Chamado pelo webhook: o status vem sempre da API do provedor, nunca do corpo do webhook. */
     @Transactional
     public void syncFromProvider(String providerPaymentId) {
-        GatewayPayment result = gateway.fetch(providerPaymentId);
-        Payment payment = payments.findByProviderAndProviderPaymentId(gateway.providerName(), result.providerPaymentId())
-                .orElseGet(() -> paymentFromExternalReference(result.externalReference()));
-        if (payment == null || !gateway.providerName().equals(payment.getProvider())) {
-            log.warn("Webhook para pagamento desconhecido: {}", providerPaymentId);
+        if (!gateway.supportsRemoteFetch()) {
             return;
         }
-        sync(payment, result);
+        payments.findByProviderAndProviderPaymentId(gateway.providerName(), providerPaymentId).ifPresentOrElse(
+                payment -> {
+                    apply(payment, gateway.fetch(providerPaymentId, sellerForExistingPayment(payment)));
+                    payments.saveAndFlush(payment);
+                    log.info("Pagamento {} sincronizado: {}", payment.getId(), payment.getStatus());
+                },
+                () -> log.warn("Webhook para pagamento desconhecido: {}", providerPaymentId));
     }
 
     // ----------------------------------------------------------------- helpers
-
-    /**
-     * Aplica o resultado do provedor. No mesmo checkout o pagador pode fazer várias
-     * tentativas; uma cobrança já aprovada (ou estornada) só aceita novidades da
-     * própria tentativa, e uma segunda aprovação para a equipe não é gravada.
-     */
-    private void sync(Payment payment, GatewayPayment result) {
-        boolean otherAttempt = payment.getProviderPaymentId() != null
-                && !payment.getProviderPaymentId().equals(result.providerPaymentId());
-        boolean settled = payment.getStatus() == PaymentStatus.APPROVED || payment.getStatus() == PaymentStatus.REFUNDED;
-        if (otherAttempt && settled) {
-            log.info("Pagamento {} já liquidado por {}; ignorando a tentativa {} ({})", payment.getId(),
-                    payment.getProviderPaymentId(), result.providerPaymentId(), result.status());
-            return;
-        }
-        if (result.status() == PaymentStatus.APPROVED && payment.getStatus() != PaymentStatus.APPROVED
-                && payments.existsByTeamIdAndStatusAndIdNot(payment.getTeam().getId(), PaymentStatus.APPROVED,
-                payment.getId())) {
-            log.warn("Pagamento em duplicidade: equipe {} já tem pagamento aprovado; estorne {} no Mercado Pago",
-                    payment.getTeam().getId(), result.providerPaymentId());
-            return;
-        }
-        apply(payment, result);
-        payments.saveAndFlush(payment);
-        log.info("Pagamento {} sincronizado: {}", payment.getId(), payment.getStatus());
-    }
 
     private Team findTeam(String code) {
         return teams.findByRegistrationCode(code.trim().toUpperCase(Locale.ROOT))
                 .orElseThrow(() -> ApiException.notFound("Inscrição não encontrada. Confira o link de pagamento."));
     }
 
-    private String frontendUrl() {
-        String configured = props.frontendUrl();
-        return (configured == null || configured.isBlank() ? "http://localhost:5173" : configured.trim())
-                .replaceAll("/+$", "");
-    }
-
-    static String externalReference(Payment payment) {
-        return "team:" + payment.getTeam().getId() + ":payment:" + payment.getId();
-    }
-
-    private Payment paymentFromExternalReference(String externalReference) {
-        if (externalReference == null || !externalReference.startsWith("team:")) return null;
-        int marker = externalReference.lastIndexOf(":payment:");
-        if (marker < 6) return null;
-        try {
-            Long teamId = Long.valueOf(externalReference.substring(5, marker));
-            Long paymentId = Long.valueOf(externalReference.substring(marker + 9));
-            return payments.findById(paymentId)
-                    .filter(p -> p.getTeam().getId().equals(teamId))
-                    .orElse(null);
-        } catch (NumberFormatException ignored) {
+    /**
+     * No Mercado Pago, cada organizador recebe diretamente na conta que conectou
+     * por OAuth. O sandbox não precisa dessa conta e continua utilizável no dev.
+     */
+    private SellerAccount sellerForNewPayment(Team team) {
+        if (!gateway.supportsRemoteFetch()) {
             return null;
         }
+        Long ownerId = team.getCategory().getChampionship().getOwner().getId();
+        PayoutAccount account = payoutAccounts.findFirstByUserIdAndStatus(ownerId, PayoutAccountStatus.ACTIVE)
+                .orElseThrow(() -> ApiException.unprocessable(
+                        "O organizador ainda não conectou uma conta Mercado Pago para receber pagamentos."));
+        return seller(account);
     }
 
-    /** Valida e devolve o pagador com CPF e telefone só com dígitos (telefone: DDD + número). */
-    static Payer normalize(Payer payer) {
-        String cpf = Codes.digits(payer.cpf());
-        if (!isValidCpf(cpf)) {
-            throw ApiException.badRequest("Informe um CPF válido para quem está pagando");
+    /** Mantém as consultas e webhooks vinculados à conta que recebeu a cobrança original. */
+    private SellerAccount sellerForExistingPayment(Payment payment) {
+        if (!gateway.supportsRemoteFetch()) {
+            return null;
         }
-        String phone = normalizePhone(payer.phone());
-        if (phone == null) {
-            throw ApiException.badRequest("Informe um telefone válido com DDD, ex.: (81) 99999-9999");
+        Long payoutAccountId = payment.getPayoutAccountId();
+        if (payoutAccountId == null) {
+            throw ApiException.unprocessable("Esta cobrança não tem uma conta de recebimento associada.");
         }
-        return new Payer(payer.firstName().trim(), payer.lastName().trim(), payer.email().trim(), cpf, phone);
+        PayoutAccount account = payoutAccounts.findById(payoutAccountId)
+                .orElseThrow(() -> ApiException.unprocessable(
+                        "A conta de recebimento desta cobrança não foi encontrada."));
+        return seller(account);
     }
 
-    /** "(81) 99999-9999" ou "+55 81 99999-9999" -> "81999999999"; null se não for um telefone brasileiro. */
-    static String normalizePhone(String value) {
-        String digits = Codes.digits(value);
-        if (digits == null) return null;
-        if (digits.startsWith("55") && (digits.length() == 12 || digits.length() == 13)) {
-            digits = digits.substring(2);
+    private SellerAccount seller(PayoutAccount account) {
+        if (account.getAccessToken() == null || account.getAccessToken().isBlank()) {
+            throw ApiException.unprocessable("A conta Mercado Pago do organizador não está mais conectada.");
         }
-        boolean validDdd = digits.length() >= 2 && digits.charAt(0) != '0' && digits.charAt(1) != '0';
-        return validDdd && (digits.length() == 10 || digits.length() == 11) ? digits : null;
+        return new SellerAccount(account.getId(), account.getProviderUserId(), tokenCipher.decrypt(account.getAccessToken()));
     }
 
-    static boolean isValidCpf(String cpf) {
-        if (cpf == null || cpf.length() != 11 || cpf.chars().distinct().count() == 1) return false;
-        for (int length = 9; length <= 10; length++) {
-            int sum = 0;
-            for (int i = 0; i < length; i++) {
-                sum += (cpf.charAt(i) - '0') * (length + 1 - i);
-            }
-            int check = (sum * 10) % 11 % 10;
-            if (check != cpf.charAt(length) - '0') return false;
+    /** Calcula a parte da plataforma em centavos exatos; nula significa que não há retenção. */
+    private BigDecimal applicationFee(BigDecimal amount) {
+        AppProperties.MercadoPagoProps mercadoPago = props.payment().mercadopago();
+        if (mercadoPago == null || mercadoPago.platformFeePercent() == null
+                || mercadoPago.platformFeePercent().signum() == 0) {
+            return null;
         }
-        return true;
+        return amount.multiply(mercadoPago.platformFeePercent())
+                .movePointLeft(2)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    static void validate(CreatePaymentRequest req) {
+        if (!req.method().isAvailable()) {
+            throw ApiException.badRequest("Forma de pagamento indisponível. Pague com Pix ou cartão.");
+        }
+        if (Codes.digits(req.payer().cpf()).length() != 11) {
+            throw ApiException.badRequest("Informe um CPF válido para o pagador");
+        }
+        if (req.method().isCard() && req.card() == null) {
+            throw ApiException.badRequest("Dados do cartão não recebidos. Preencha o cartão novamente.");
+        }
+        if (!req.method().isCard() && req.card() != null) {
+            throw ApiException.badRequest("Dados de cartão só são aceitos no pagamento com cartão");
+        }
+        if (req.method() == PaymentMethod.DEBIT_CARD && req.card().installments() != null
+                && req.card().installments() != 1) {
+            throw ApiException.badRequest("Pagamento no débito é sempre à vista (1 parcela)");
+        }
     }
 
     private static void apply(Payment payment, GatewayPayment result) {
-        if (result.providerPaymentId() != null) payment.setProviderPaymentId(result.providerPaymentId());
-        PaymentMethod method = methodOf(result.paymentTypeId());
-        if (method != null) {
-            payment.setMethod(method);
-            // débito é sempre à vista (ck_payment_debit_installments)
-            payment.setInstallments(switch (method) {
-                case CREDIT_CARD -> result.installments();
-                case DEBIT_CARD -> 1;
-                default -> null;
-            });
-        }
+        payment.setProviderPaymentId(result.providerPaymentId());
         payment.setStatus(result.status());
         payment.setStatusDetail(result.statusDetail());
+        if (result.pixQrCode() != null) {
+            payment.setPixQrCode(result.pixQrCode());
+        }
+        if (result.pixQrCodeBase64() != null) {
+            payment.setPixQrCodeBase64(result.pixQrCodeBase64());
+        }
         if (result.expiresAt() != null) {
             payment.setExpiresAt(result.expiresAt());
         }
@@ -269,20 +295,13 @@ public class PaymentService {
         }
     }
 
-    /** Meio escolhido no checkout; outros tipos (ex.: saldo em conta) continuam como CHECKOUT_PRO. */
-    static PaymentMethod methodOf(String paymentTypeId) {
-        if (paymentTypeId == null) return null;
-        return switch (paymentTypeId) {
-            case "bank_transfer" -> PaymentMethod.PIX;
-            case "credit_card" -> PaymentMethod.CREDIT_CARD;
-            case "debit_card" -> PaymentMethod.DEBIT_CARD;
-            default -> null;
-        };
+    static PaymentDto toDto(Payment p) {
+        return toDto(p, null);
     }
 
-    static PaymentDto toDto(Payment p) {
+    private static PaymentDto toDto(Payment p, ThreeDsChallenge challenge) {
         return new PaymentDto(p.getId(), p.getMethod(), p.getStatus(), p.getStatusDetail(), p.getAmount(),
-                p.getCardLastDigits(), p.getInstallments(), p.getExpiresAt(), p.getPaidAt(), p.getCreatedAt(),
-                p.getCheckoutUrl());
+                p.getPixQrCode(), p.getPixQrCodeBase64(), p.getCardLastDigits(), p.getInstallments(),
+                p.getExpiresAt(), p.getPaidAt(), p.getCreatedAt(), challenge);
     }
 }
