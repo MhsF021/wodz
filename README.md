@@ -12,14 +12,15 @@ e o status das suas baterias e acompanha o leaderboard ao vivo.
 | Banco | PostgreSQL 16, com tabelas, functions, procedures, triggers e views versionadas no Flyway |
 | Frontend | React 19, TypeScript, Vite, React Router 7, TanStack Query |
 | Tempo real | Server-Sent Events (baterias e leaderboard atualizam sozinhos) |
-| Pagamentos | Mercado Pago (Checkout Transparente: Pix e cartão de crédito/débito tokenizado, com 3DS) ou sandbox simulado |
+| Pagamentos | Mercado Pago Checkout Pro (SDK Java oficial): Pix e cartão de crédito/débito escolhidos no Mercado Pago |
 
 ## Como rodar
 
 ### Com Docker (recomendado)
 
 ```bash
-cp .env.example .env        # opcional
+cp .env.example .env
+# Preencha MP_ACCESS_TOKEN no .env: sem ele a API não sobe
 docker compose up --build
 ```
 
@@ -58,7 +59,7 @@ docker compose up db
 
 # 2. API (porta 8080)
 cd backend
-SEED_DEMO=true mvn spring-boot:run
+MP_ACCESS_TOKEN=APP_USR-... SEED_DEMO=true mvn spring-boot:run
 
 # 3. Frontend (porta 5173; o Vite repassa /api para a 8080)
 cd frontend
@@ -93,40 +94,42 @@ Deixe a variável vazia para desligar o login com Google.
 
 ## Pagamentos
 
-As formas de pagamento são **Pix** e **cartão**. No cartão, a pessoa escolhe
-**crédito** (à vista ou parcelado) ou **débito** (sempre à vista) antes de o
-formulário do cartão aparecer. Boleto não é mais aceito: cobranças antigas
-continuam no histórico, mas a API e o banco recusam boletos novos.
+O pagamento é feito no **Checkout Pro do Mercado Pago**, integrado pelo SDK Java
+oficial (`com.mercadopago:sdk-java`):
 
-Por padrão o provedor é o **sandbox**: cartão é aprovado na hora (cartões com
-final 0002 são recusados) e Pix fica pendente até você clicar em
-"Simular pagamento aprovado".
-
-Para cobrar de verdade com o **Mercado Pago**:
+1. Depois da inscrição, a página `/pagamento/{código}` pede os dados de quem
+   paga: nome, e-mail, CPF e celular com DDD (já preenchidos com os dados da
+   inscrição e do perfil).
+2. "Seguir para pagamento" cria uma preferência no Mercado Pago com esses dados
+   e redireciona o navegador para o checkout (`init_point`).
+3. Lá o pagador escolhe **Pix ou cartão de crédito/débito** e informa os dados
+   de pagamento. O Wodz não recebe dados de cartão. Boleto fica fora do checkout.
+4. Ao voltar, a página consulta o status no servidor até a confirmação. Pagamento
+   aprovado confirma a equipe **por trigger no banco**.
 
 ```env
-PAYMENT_PROVIDER=mercadopago
-MP_ACCESS_TOKEN=APP_USR-...          # credencial de produção ou de teste
-MP_PUBLIC_KEY=APP_USR-...            # usada pelo Card Brick no navegador
+MP_ACCESS_TOKEN=APP_USR-...          # obrigatório (veja abaixo qual credencial usar)
 MP_WEBHOOK_SECRET=...                # "Assinatura secreta" do painel de webhooks
 MP_NOTIFICATION_URL=https://seu-dominio.com/api/webhooks/mercadopago
-MP_THREE_D_SECURE=true               # 3DS 2.0 nos cartões (padrão: ligado)
+FRONTEND_URL=https://seu-dominio.com # URLs de retorno do Checkout Pro
 ```
 
-- O cartão é digitado no **Card Payment Brick** do Mercado Pago (iframe) e
-  tokenizado no navegador; o número do cartão nunca passa pela API.
-- O Brick só aceita cartões do tipo escolhido (crédito ou débito) e a API
-  confere de novo no catálogo de meios de pagamento do Mercado Pago antes de
-  cobrar. Débito é sempre em 1 parcela (validado na API e por constraint no banco).
-- Com `MP_THREE_D_SECURE=true` o pagamento vai com `three_d_secure_mode=optional`:
-  se o emissor pedir autenticação, a página abre o desafio do banco num iframe
-  isolado e acompanha o resultado pelo polling.
-- O webhook tem a assinatura `x-signature` validada (HMAC-SHA256) e o status é
-  sempre **reconsultado na API do Mercado Pago**, nunca lido do corpo da notificação.
-- Enquanto a página de pagamento está aberta, ela também consulta o status a
-  cada 5 s. Isso funciona mesmo em ambiente local, sem URL pública para o webhook.
-- Pagamento aprovado confirma a equipe **por trigger no banco**; Pix (e boletos
-  antigos) vencidos expiram por um job que chama uma procedure.
+- **Testes:** use a credencial de produção do **usuário de teste vendedor**
+  (`APP_USR-...`) e pague logado com um **usuário de teste comprador**, com os
+  cartões de teste do Mercado Pago. Credenciais `TEST-...` abrem o `sandbox_init_point`.
+- **Retorno ao site:** com `FRONTEND_URL` em HTTPS público, o Mercado Pago volta
+  sozinho para o Wodz após a aprovação (`auto_return`). Em `localhost` ele não
+  aceita o retorno automático: o pagador volta pelo botão "Voltar ao site" do checkout.
+- **Confirmação:** enquanto a página está aberta, a API busca o pagamento no
+  Mercado Pago pela referência externa (funciona sem webhook, inclusive em
+  `localhost`). Em produção, configure `MP_NOTIFICATION_URL` (HTTPS público) e o
+  evento de pagamentos no painel: o webhook valida `x-signature` quando
+  `MP_WEBHOOK_SECRET` está configurado e sempre reconsulta o pagamento na API.
+- Num mesmo checkout o pagador pode tentar mais de uma vez (ex.: cartão recusado
+  e depois Pix); vale a tentativa aprovada, e uma segunda aprovação para a mesma
+  equipe não é gravada (fica no log para estorno).
+- O SDK 2.1.21 declara ferramentas de build (Maven, Velocity) como dependências
+  de runtime; o `pom.xml` as exclui e declara só o que o SDK usa.
 
 ## Banco de dados
 
@@ -188,7 +191,7 @@ Documentação interativa em `/swagger-ui`. Resumo:
 | Autenticação | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/google` (ID token do botão do Google; no primeiro acesso sem `role` devolve `pending` para escolher o perfil), `GET /api/auth/me` |
 | Minha conta | `PUT /api/auth/me` (trocar o e-mail exige a senha atual), `PUT /api/auth/me/password`, `DELETE /api/auth/me` (anonimiza a conta; recusa se houver campeonato ativo ou equipe confirmada em campeonato não encerrado) |
 | Público | `GET /api/public/championships?q=&state=`, `GET /api/public/championships/{slug}`, `GET .../{slug}/schedule`, `GET .../{slug}/leaderboard?categoryId=`, `GET .../{slug}/stream` (SSE) |
-| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../payments`, `GET .../payments/{id}`, `POST .../payments/{id}/simulate-approval` (sandbox) |
+| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../payments`, `GET .../payments/{id}` |
 | Webhook | `POST /api/webhooks/mercadopago` |
 | Atleta | `POST /api/athlete/championships/{slug}/teams`, `GET /api/athlete/teams`, `GET /api/athlete/heats` |
 | Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `POST /workouts/{id}/heats/generate` refaz uma prova, até 8 equipes por bateria; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/{teamId}`, só com a bateria da equipe concluída e com o nome do judge da raia) |
@@ -206,7 +209,7 @@ backend/
     repository/   Spring Data
     dto/          contratos da API (records)
     service/      regras de negócio, consultas às views, SSE, seed
-    payment/      gateway (Mercado Pago e sandbox) e verificação de webhook
+    payment/      gateway do Checkout Pro (SDK Mercado Pago) e verificação de webhook
     web/          controllers REST
   src/main/resources/db/migration/   V1 tabelas, V2 functions/procedures, V3 triggers, V4 views
 frontend/

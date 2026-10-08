@@ -3,9 +3,11 @@ export type ChampionshipStatus = 'DRAFT' | 'PUBLISHED' | 'IN_PROGRESS' | 'FINISH
 export type ScoringSystem = 'POINTS_TABLE' | 'RANK_SUM';
 export type WorkoutType = 'FOR_TIME' | 'AMRAP' | 'MAX_LOAD' | 'MAX_REPS';
 export type TeamStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED';
-/** BOLETO só aparece em cobranças antigas; novas cobranças são Pix ou cartão. */
-export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
-export type CardMethod = 'CREDIT_CARD' | 'DEBIT_CARD';
+/**
+ * Toda cobrança nasce CHECKOUT_PRO e vira PIX ou cartão quando o Mercado Pago informa o meio
+ * escolhido. BOLETO só aparece em cobranças antigas.
+ */
+export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'CHECKOUT_PRO' | 'BOLETO';
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
 export type HeatStatus = 'UPCOMING' | 'IN_PROGRESS' | 'FINISHED';
 export type ScoreStatus = 'VALID' | 'CAPPED' | 'DNS' | 'DQ';
@@ -338,20 +340,13 @@ export interface Payment {
   status: PaymentStatus;
   statusDetail?: string | null;
   amount: number;
-  pixQrCode?: string | null;
-  pixQrCodeBase64?: string | null;
   cardLastDigits?: string | null;
   installments?: number | null;
   expiresAt?: string | null;
   paidAt?: string | null;
   createdAt?: string | null;
-  /** Autenticação 3DS pedida pelo emissor; só vem na resposta da criação. */
-  threeDsChallenge?: ThreeDsChallenge | null;
-}
-
-export interface ThreeDsChallenge {
-  url: string;
-  creq: string;
+  /** Checkout Pro do Mercado Pago; serve também para retomar um pagamento pendente. */
+  checkoutUrl?: string | null;
 }
 
 export interface RegistrationSummary {
@@ -368,31 +363,27 @@ export interface RegistrationSummary {
   lastPayment?: Payment | null;
 }
 
+/** Quem paga: pré-preenche o Checkout Pro. A forma de pagamento é escolhida no Mercado Pago. */
 export interface PayerInput {
   firstName: string;
   lastName: string;
   email: string;
   cpf: string;
-}
-
-export interface CardInput {
-  token: string;
-  paymentMethodId?: string;
-  issuerId?: string;
-  installments?: number;
-  lastFourDigits?: string;
+  phone: string;
 }
 
 export interface CreatePaymentInput {
-  method: PaymentMethod;
   payer: PayerInput;
-  card?: CardInput;
+}
+
+/** Enviado da inscrição para a página de pagamento (state da navegação) para não digitar de novo. */
+export interface PayerPrefill {
+  fullName?: string;
+  email?: string;
+  cpf?: string;
 }
 
 export interface PublicConfig {
-  paymentProvider: string;
-  mercadoPagoPublicKey?: string | null;
-  paymentSimulation: boolean;
   /** Client ID do login com Google; nulo quando desligado. */
   googleClientId?: string | null;
 }

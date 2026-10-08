@@ -1,33 +1,25 @@
 package br.com.wodz.payment;
 
+import java.util.Optional;
+
 /**
- * Porta de saída para o provedor de pagamentos. A implementação ativa é
- * escolhida por app.payment.provider (sandbox | mercadopago).
+ * Porta de saída para o provedor de pagamentos (Checkout Pro do Mercado Pago):
+ * o pagador escolhe o meio e informa os dados na página do provedor.
  */
 public interface PaymentGateway {
 
     /** Nome gravado em payment.provider. */
     String providerName();
 
-    GatewayPayment create(PaymentCommand command);
+    /** Cria o checkout e devolve a URL para onde o pagador é redirecionado. */
+    String createCheckout(PaymentCommand command);
 
-    /** Consulta o status atual direto no provedor */
-    default boolean supportsRemoteFetch() {
-        return false;
-    }
+    /** Consulta um pagamento pelo id do provedor (usado pelo webhook). */
+    GatewayPayment fetch(String providerPaymentId);
 
-    /** Consulta com as credenciais de quem recebeu o pagamento. */
-    default GatewayPayment fetch(String providerPaymentId, SellerAccount seller) {
-        throw new UnsupportedOperationException("Este provedor não consulta pagamentos remotamente");
-    }
-
-    /** Só o sandbox permite simular a aprovação de um pagamento pendente. */
-    default boolean supportsSimulation() {
-        return false;
-    }
-
-    /** Chave pública da plataforma usada pelo navegador para tokenizar cartões. */
-    default String publicKey() {
-        return null;
-    }
+    /**
+     * Pagamento mais relevante feito no checkout com essa referência externa;
+     * vazio enquanto o pagador não concluiu nenhuma tentativa.
+     */
+    Optional<GatewayPayment> findByExternalReference(String externalReference);
 }
