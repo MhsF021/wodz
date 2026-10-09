@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { Field } from '../components/Field';
 import { InlineError } from '../components/States';
 import { GoogleButton } from '../components/GoogleButton';
+import { PayoutAccountSection } from '../components/PayoutAccountSection';
 
 const ROLE_LABEL: Record<Role, string> = { ATHLETE: 'Atleta', ORGANIZER: 'Organizador' };
 
@@ -27,6 +28,7 @@ export default function MyProfilePage() {
       </div>
       <div className="stack">
         <ProfileSection user={user} />
+        {user.role === 'ORGANIZER' && <PayoutAccountSection />}
         <PasswordSection user={user} />
         <DeleteAccountSection user={user} />
       </div>
@@ -89,7 +91,7 @@ function ProfileSection({ user }: { user: User }) {
         <p className="panel__lead">O organizador usa esses dados para falar com você sobre as inscrições.</p>
       )}
       <form className="form" onSubmit={submit} noValidate>
-        <Field label="Nome completo" htmlFor="acc-name">
+        <Field label="Nome completo" htmlFor="acc-name" uppercase>
           <input id="acc-name" className="input" autoComplete="name" required maxLength={120}
             value={form.name} onChange={set('name')} />
         </Field>

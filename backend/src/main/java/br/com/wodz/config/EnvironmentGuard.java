@@ -40,6 +40,12 @@ public class EnvironmentGuard {
             return problems;
         }
         AppProperties.MercadoPagoProps mp = props.payment().mercadopago();
+        if (mp.testMode() && !"mercadopago".equalsIgnoreCase(props.payment().provider())) {
+            problems.add("MP_TEST_MODE=true exige PAYMENT_PROVIDER=mercadopago (APIs oficiais)");
+        }
+        if (mp.testMode() && env.equals("prod")) {
+            problems.add("MP_TEST_MODE=false em produção");
+        }
         if (mp.platformFeePercent() != null && (mp.platformFeePercent().signum() < 0
                 || mp.platformFeePercent().compareTo(new BigDecimal("50")) > 0)) {
             problems.add("MP_PLATFORM_FEE_PERCENT deve ficar entre 0 e 50");
@@ -69,7 +75,7 @@ public class EnvironmentGuard {
             problems.add("MP_CLIENT_ID e MP_CLIENT_SECRET da aplicação do Mercado Pago deste ambiente");
         }
         if (blank(mp.publicKey())) {
-            problems.add("MP_PUBLIC_KEY (credencial de produção da aplicação)");
+            problems.add("MP_PUBLIC_KEY (credencial da aplicação no mesmo modo de teste/produção)");
         }
         if (blank(mp.webhookSecret())) {
             problems.add("MP_WEBHOOK_SECRET (assinatura secreta do webhook)");

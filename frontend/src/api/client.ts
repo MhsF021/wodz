@@ -1,3 +1,5 @@
+import { beginActivity } from '../lib/activity';
+
 export const API_BASE: string = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 
 const TOKEN_KEY = 'wodz.token';
@@ -25,7 +27,7 @@ interface RequestOptions {
   body?: unknown;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function sendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -63,6 +65,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (response.status === 204) return undefined as T;
   const text = await response.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const finish = beginActivity();
+  try {
+    return await sendRequest<T>(path, options);
+  } finally {
+    finish();
+  }
 }
 
 export const http = {

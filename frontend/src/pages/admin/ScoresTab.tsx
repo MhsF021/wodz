@@ -204,7 +204,7 @@ function initialState(entry: ScoreEntry, workout: Workout) {
   const rpr = workout.repsPerRound ?? 0;
   const reps = entry.reps ?? null;
   return {
-    judge: entry.judgeName ?? '',
+    judge: entry.judgeName?.toUpperCase() ?? '',
     status: (entry.status ?? 'VALID') as ScoreStatus,
     time: entry.timeMs ? formatDuration(entry.timeMs) : '',
     reps: reps === null ? '' : String(rpr ? reps % rpr : reps),
@@ -303,8 +303,8 @@ function ScoreRow({
         </td>
         <td data-label="Judge">
           <label className="sr-only" htmlFor={`${id}-judge`}>Judge da raia {entry.lane}</label>
-          <input id={`${id}-judge`} className="input input--judge" list={judgesListId} autoComplete="off"
-            placeholder="Nome do judge" value={form.judge} onChange={(e) => setForm({ ...form, judge: e.target.value })}
+          <input id={`${id}-judge`} className="input input--judge" list={judgesListId} autoComplete="off" autoCapitalize="characters"
+            placeholder="Nome do judge" value={form.judge} onChange={(e) => setForm({ ...form, judge: e.target.value.toUpperCase() })}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();

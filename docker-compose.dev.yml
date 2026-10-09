@@ -1,0 +1,9 @@
+# Opcional: publica o banco e a API para ferramentas de desenvolvimento no Windows.
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+  backend:
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8080}:8080"

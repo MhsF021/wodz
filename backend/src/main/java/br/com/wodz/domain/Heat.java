@@ -47,6 +47,12 @@ public class Heat {
     @Column(nullable = false)
     private Instant scheduledAt;
 
+    /** Duração planejada da prova, fixada ao gerar a grade. */
+    private Integer durationSeconds;
+
+    /** Descanso contado a partir do término desta bateria. */
+    private int intervalMinutes;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private HeatStatus status = HeatStatus.UPCOMING;

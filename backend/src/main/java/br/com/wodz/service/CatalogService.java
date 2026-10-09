@@ -75,8 +75,8 @@ public class CatalogService {
     }
 
     private static void apply(Category c, CategoryRequest req) {
-        c.setName(req.name().trim());
-        c.setDescription(Codes.blankToNull(req.description()));
+        c.setName(Codes.uppercase(req.name().trim()));
+        c.setDescription(Codes.uppercase(Codes.blankToNull(req.description())));
         c.setTeamSize(req.teamSize());
         c.setMaxTeams(req.maxTeams());
         c.setPrice(req.price());
@@ -134,8 +134,8 @@ public class CatalogService {
 
     private static void apply(Workout w, WorkoutRequest req) {
         w.setNumber(req.number());
-        w.setName(req.name().trim());
-        w.setDescription(Codes.blankToNull(req.description()));
+        w.setName(Codes.uppercase(req.name().trim()));
+        w.setDescription(Codes.uppercase(Codes.blankToNull(req.description())));
         w.setType(req.type());
         w.setTimeCapSeconds(req.timeCapSeconds());
         w.setRepsPerRound(req.type() == WorkoutType.AMRAP ? req.repsPerRound() : null);

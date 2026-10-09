@@ -42,7 +42,7 @@ public class AuthService {
             throw ApiException.conflict("Este e-mail já tem cadastro. Entre com sua senha.");
         }
         AppUser user = new AppUser();
-        user.setName(req.name().trim());
+        user.setName(Codes.uppercase(req.name().trim()));
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         user.setRole(req.role());
@@ -89,10 +89,10 @@ public class AuthService {
             return signedIn(user);
         }
         if (req.role() == null) {
-            return new GoogleLoginResult(null, new PendingGoogleSignup(profile.email(), profile.name()));
+            return new GoogleLoginResult(null, new PendingGoogleSignup(profile.email(), Codes.uppercase(profile.name())));
         }
         AppUser user = new AppUser();
-        user.setName(profile.name());
+        user.setName(Codes.uppercase(profile.name()));
         user.setEmail(profile.email());
         user.setGoogleSub(profile.sub());
         user.setRole(req.role());

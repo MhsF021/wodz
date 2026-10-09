@@ -39,14 +39,16 @@ public class AccountService {
     private final TeamRepository teams;
     private final PasswordEncoder passwordEncoder;
     private final GoogleTokenVerifier google;
+    private final PayoutAccountService payoutAccounts;
 
     public AccountService(AppUserRepository users, ChampionshipRepository championships, TeamRepository teams,
-                          PasswordEncoder passwordEncoder, GoogleTokenVerifier google) {
+                          PasswordEncoder passwordEncoder, GoogleTokenVerifier google, PayoutAccountService payoutAccounts) {
         this.users = users;
         this.championships = championships;
         this.teams = teams;
         this.passwordEncoder = passwordEncoder;
         this.google = google;
+        this.payoutAccounts = payoutAccounts;
     }
 
     @Transactional
@@ -66,7 +68,7 @@ public class AccountService {
             }
             user.setEmail(email);
         }
-        user.setName(req.name().trim());
+        user.setName(Codes.uppercase(req.name().trim()));
         user.setPhone(Codes.blankToNull(req.phone()));
         return Mappers.user(user);
     }
@@ -106,6 +108,8 @@ public class AccountService {
         }
         teams.findByCaptainIdAndStatus(userId, TeamStatus.PENDING_PAYMENT)
                 .forEach(team -> team.setStatus(TeamStatus.CANCELLED));
+
+        payoutAccounts.eraseUserData(userId);
 
         user.setName("Conta excluída");
         user.setEmail("excluida-" + user.getId() + "@wodz.invalid");

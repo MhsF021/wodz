@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CardInput, CardMethod } from '../api/types';
+import { ActionFeedback } from './ActionFeedback';
+import { Loading } from './States';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -52,25 +54,42 @@ export function MercadoPagoCardBrick({
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let controller: any;
     let cancelled = false;
     setError(null);
+    setReady(false);
+    setSubmitting(false);
     const debit = cardType === 'DEBIT_CARD';
     loadSdk()
       .then(async () => {
         if (cancelled) return;
         const mp = new window.MercadoPago(publicKey, { locale: 'pt-BR' });
+        const colors = getComputedStyle(document.documentElement);
+        const accent = colors.getPropertyValue('--accent').trim();
+        const accentInk = colors.getPropertyValue('--accent-ink').trim();
         controller = await mp.bricks().create('cardPayment', containerId, {
           initialization: { amount: Number(amount), payer: { email } },
           customization: {
             paymentMethods: { types: { included: [MP_CARD_TYPE[cardType]] }, maxInstallments: debit ? 1 : 6 },
-            visual: { style: { theme: 'dark' } },
+            visual: {
+              style: {
+                theme: 'dark',
+                customVariables: {
+                  baseColor: accent,
+                  baseColorFirstVariant: accent,
+                  baseColorSecondVariant: accent,
+                  buttonTextColor: accentInk,
+                },
+              },
+            },
           },
           callbacks: {
-            onReady: () => undefined,
-            onSubmit: (data: any, additional: any) => {
+            onReady: () => { if (!cancelled) setReady(true); },
+            onSubmit: async (data: any, additional: any) => {
               if (additional?.paymentTypeId && additional.paymentTypeId !== MP_CARD_TYPE[cardType]) {
                 const message = debit
                   ? 'Este cartão não pode ser usado na função débito. Escolha "Crédito" ou use outro cartão.'
@@ -79,20 +98,26 @@ export function MercadoPagoCardBrick({
                 return Promise.reject(new Error(message));
               }
               setError(null);
+              setSubmitting(true);
               const lastFour = String(additional?.lastFourDigits ?? '');
-              return onTokenRef.current({
-                token: data.token,
-                paymentMethodId: data.payment_method_id,
-                issuerId: data.issuer_id ? String(data.issuer_id) : undefined,
-                installments: debit ? 1 : Number(data.installments) || 1,
-                lastFourDigits: /^\d{4}$/.test(lastFour) ? lastFour : undefined,
-              });
+              try {
+                return await onTokenRef.current({
+                  token: data.token,
+                  paymentMethodId: data.payment_method_id,
+                  issuerId: data.issuer_id ? String(data.issuer_id) : undefined,
+                  installments: debit ? 1 : Number(data.installments) || 1,
+                  lastFourDigits: /^\d{4}$/.test(lastFour) ? lastFour : undefined,
+                });
+              } finally {
+                if (!cancelled) setSubmitting(false);
+              }
             },
-            onError: (e: any) => setError(e?.message ?? 'Erro no formulário de cartão'),
+            onError: (e: any) => { if (!cancelled) setError(e?.message ?? 'Erro no formulário de cartão'); },
           },
         });
+        if (cancelled) controller?.unmount?.();
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => { if (!cancelled) setError(e.message); });
     return () => {
       cancelled = true;
       controller?.unmount?.();
@@ -100,8 +125,11 @@ export function MercadoPagoCardBrick({
   }, [publicKey, amount, email, cardType, containerId]);
 
   return (
-    <div>
+    <div aria-busy={!ready && !error || submitting}>
+      {!ready && !error && <Loading label="Carregando formulário de cartão…" />}
       <div id={containerId} />
+      {submitting && <Loading label="Processando pagamento…" />}
+      {error && <ActionFeedback status="error" label="Confira os dados do cartão e tente novamente." />}
       {error && <p className="form-error" role="alert">{error}</p>}
     </div>
   );

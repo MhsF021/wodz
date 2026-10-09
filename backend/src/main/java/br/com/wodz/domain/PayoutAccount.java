@@ -19,8 +19,8 @@ import java.time.Instant;
 /**
  * Conta do organizador que recebe os pagamentos das inscrições (conta Mercado
  * Pago conectada por OAuth). Os tokens ficam cifrados (TokenCipher). Ao desconectar
- * ou trocar de conta a linha fica como histórico, sem tokens: pagamentos antigos
- * continuam apontando para ela.
+ * a linha fica como histórico ao desconectar: as credenciais cifradas permitem
+ * conciliar pagamentos antigos, mas não podem originar novas cobranças.
  */
 @Entity
 @Table(name = "payout_account")

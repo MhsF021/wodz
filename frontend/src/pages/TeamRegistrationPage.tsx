@@ -134,15 +134,15 @@ export default function TeamRegistrationPage() {
         <fieldset className="form-section">
           <legend className="form-section__title">Equipe</legend>
           <div className="grid-3">
-            <Field label="Nome da equipe" htmlFor="team-name" error={errors.teamName}>
+            <Field label="Nome da equipe" htmlFor="team-name" error={errors.teamName} uppercase>
               <input id="team-name" className="input" maxLength={80} value={team.name}
                 onChange={(e) => setTeam({ ...team, name: e.target.value })} />
             </Field>
-            <Field label="Box (opcional)" htmlFor="team-box">
+            <Field label="Box (opcional)" htmlFor="team-box" uppercase>
               <input id="team-box" className="input" maxLength={120} value={team.boxName}
                 onChange={(e) => setTeam({ ...team, boxName: e.target.value })} />
             </Field>
-            <Field label="Cidade (opcional)" htmlFor="team-city">
+            <Field label="Cidade (opcional)" htmlFor="team-city" uppercase>
               <input id="team-city" className="input" maxLength={100} value={team.city}
                 onChange={(e) => setTeam({ ...team, city: e.target.value })} />
             </Field>
@@ -155,7 +155,7 @@ export default function TeamRegistrationPage() {
               Atleta {i + 1}{i === 0 ? ' (capitão, você)' : ''}
             </legend>
             <div className="grid-2">
-              <Field label="Nome completo" htmlFor={`m${i}-name`} error={errors[`m${i}.fullName`]}>
+              <Field label="Nome completo" htmlFor={`m${i}-name`} error={errors[`m${i}.fullName`]} uppercase>
                 <input id={`m${i}-name`} className="input" value={m.fullName}
                   onChange={(e) => updateMember(i, { fullName: e.target.value })} />
               </Field>

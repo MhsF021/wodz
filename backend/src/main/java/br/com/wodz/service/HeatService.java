@@ -18,7 +18,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -77,7 +76,7 @@ public class HeatService {
     /**
      * Gera as baterias de todas as provas do campeonato de uma vez, com até 8
      * equipes por bateria: Prova 1 de cada categoria, depois Prova 2, e assim
-     * por diante, uma bateria a cada intervalMinutes a partir de firstStart.
+     * por diante. O próximo início soma duração da prova e intervalo de descanso.
      */
     @Transactional
     public List<HeatView> generateAll(Long championshipId, Long userId, GenerateAllHeatsRequest req) {
@@ -109,7 +108,7 @@ public class HeatService {
             jdbc.update("CALL sp_generate_heats(?, ?, ?, ?)", workout.getId(), MAX_LANES,
                     OffsetDateTime.ofInstant(start, ZoneOffset.UTC), req.intervalMinutes());
             long count = heats.countByWorkoutId(workout.getId());
-            start = start.plus(Duration.ofMinutes(count * req.intervalMinutes()));
+            start = start.plusSeconds(count * (durationSeconds(workout) + req.intervalMinutes() * 60L));
             created += count;
         }
         if (created == 0) {
@@ -126,6 +125,8 @@ public class HeatService {
         heat.setWorkout(workout);
         heat.setNumber(heats.maxNumber(workoutId) + 1);
         heat.setScheduledAt(req.scheduledAt());
+        heat.setDurationSeconds(durationSeconds(workout));
+        heat.setIntervalMinutes(req.intervalMinutes() == null ? 0 : req.intervalMinutes());
         assignLanes(heat, req.teamIds());
         heats.saveAndFlush(heat);
         publish(workout.getCategory().getChampionship().getId());
@@ -135,7 +136,11 @@ public class HeatService {
     @Transactional
     public HeatView update(Long heatId, Long userId, HeatRequest req) {
         Heat heat = guard.heat(heatId, userId);
+        if (heat.getStatus() != HeatStatus.UPCOMING) {
+            throw ApiException.unprocessable("Só é possível alterar o horário de baterias que ainda não começaram");
+        }
         heat.setScheduledAt(req.scheduledAt());
+        if (req.intervalMinutes() != null) heat.setIntervalMinutes(req.intervalMinutes());
         if (req.teamIds() != null) {
             if (heat.getStatus() != HeatStatus.UPCOMING) {
                 throw ApiException.unprocessable("Só é possível trocar as equipes de baterias que ainda não começaram");
@@ -165,6 +170,7 @@ public class HeatService {
     @Transactional
     public HeatView start(Long heatId, Long userId, boolean finishRunning) {
         Heat heat = guard.heat(heatId, userId);
+        lockChampionship(heat.getWorkout().getCategory().getChampionship().getId());
         jdbc.update("CALL sp_start_heat(?, ?)", heatId, finishRunning);
         publish(heat.getWorkout().getCategory().getChampionship().getId());
         return scheduleQuery.byId(heatId);
@@ -173,7 +179,9 @@ public class HeatService {
     /** Ajuste manual: Próxima / Em andamento / Concluída. */
     @Transactional
     public HeatView changeStatus(Long heatId, Long userId, HeatStatus status) {
+        if (status == HeatStatus.IN_PROGRESS) return start(heatId, userId, true);
         Heat heat = guard.heat(heatId, userId);
+        lockChampionship(heat.getWorkout().getCategory().getChampionship().getId());
         heat.setStatus(status);
         heats.saveAndFlush(heat);
         publish(heat.getWorkout().getCategory().getChampionship().getId());
@@ -201,5 +209,17 @@ public class HeatService {
 
     private void publish(Long championshipId) {
         events.publishEvent(new ChampionshipUpdatedEvent(championshipId, ChampionshipUpdatedEvent.HEATS));
+    }
+
+    private void lockChampionship(Long championshipId) {
+        jdbc.queryForObject("SELECT id FROM championship WHERE id = ? FOR UPDATE", Long.class, championshipId);
+    }
+
+    static int durationSeconds(Workout workout) {
+        if (workout.getTimeCapSeconds() == null || workout.getTimeCapSeconds() <= 0) {
+            throw ApiException.unprocessable("Informe a duração / time cap da prova " + workout.getNumber()
+                    + " (" + workout.getName() + ") antes de montar as baterias.");
+        }
+        return workout.getTimeCapSeconds();
     }
 }

@@ -23,7 +23,19 @@ public final class HeatDtos {
                            Instant finishedAt, Long workoutId, int workoutNumber, String workoutName,
                            WorkoutType workoutType, Integer timeCapSeconds, Long categoryId, String categoryName,
                            Long championshipId, String championshipSlug, String championshipName,
-                           List<LaneView> lanes) {
+                           List<LaneView> lanes, Integer durationSeconds, int intervalMinutes) {
+
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public Instant expectedFinishAt() {
+            Instant start = startedAt == null ? scheduledAt : startedAt;
+            return durationSeconds == null ? null : start.plusSeconds(durationSeconds);
+        }
+
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public Long actualDurationSeconds() {
+            return startedAt == null || finishedAt == null ? null
+                    : Math.max(0, java.time.Duration.between(startedAt, finishedAt).getSeconds());
+        }
     }
 
     public record GenerateHeatsRequest(
@@ -39,7 +51,8 @@ public final class HeatDtos {
     }
 
     /** teamIds na ordem das raias (1, 2, 3...). Null = mantém as raias atuais. */
-    public record HeatRequest(@NotNull Instant scheduledAt, List<Long> teamIds) {
+    public record HeatRequest(@NotNull Instant scheduledAt, List<Long> teamIds,
+                              @Min(0) @Max(240) Integer intervalMinutes) {
     }
 
     public record HeatStatusRequest(@NotNull HeatStatus status) {

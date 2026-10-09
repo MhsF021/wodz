@@ -5,6 +5,7 @@ import { CategoryPicker, PlateChip } from './Plate';
 import { HeatBadge } from './StatusBadge';
 import { LiveHeat } from './LiveHeat';
 import { Empty } from './States';
+import { HeatTiming } from './HeatTiming';
 
 interface CategoryOption {
   id: number;
@@ -115,6 +116,7 @@ export function ScheduleBoard({
                       <HeatBadge status={heat.status} />
                       {heat.heatId === upNextId && <span className="up-next">Chamada a seguir</span>}
                     </div>
+                    <HeatTiming heat={heat} />
                     <ul className="lanes">
                       {heat.lanes.map((lane) => (
                         <li key={lane.lane} className={highlightTeamIds.includes(lane.teamId) ? 'is-mine' : undefined}>

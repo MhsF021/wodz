@@ -21,7 +21,7 @@ export default function HomePage() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const uf = params.get('uf') ?? '';
-  const [term, setTerm] = useState(q);
+  const [term, setTerm] = useState(q.toUpperCase());
   const [state, setState] = useState(uf);
 
   const query = useQuery({
@@ -57,8 +57,9 @@ export default function HomePage() {
             className="input search__input"
             placeholder="Nome do campeonato, cidade ou local"
             value={term}
-            onChange={(e) => setTerm(e.target.value)}
+            onChange={(e) => setTerm(e.target.value.toUpperCase())}
             autoComplete="off"
+            autoCapitalize="characters"
           />
           <label className="sr-only" htmlFor="search-uf">
             Estado

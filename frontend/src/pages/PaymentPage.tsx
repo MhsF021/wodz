@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, QrCode } from 'lucide-react';
+import { CreditCard, ExternalLink, QrCode } from 'lucide-react';
 import { paymentApi, publicApi } from '../api/endpoints';
 import type { CardInput, CardMethod, Payment, PaymentMethod, PayerInput, ThreeDsChallenge } from '../api/types';
 import { dateTime, isValidCpf, maskCpf, methodLabel, money, onlyDigits } from '../lib/format';
@@ -11,8 +11,11 @@ import { CopyButton } from '../components/CopyButton';
 import { PaymentBadge } from '../components/StatusBadge';
 import { MercadoPagoCardBrick } from '../components/MercadoPagoCardBrick';
 import { ErrorState, InlineError, Loading } from '../components/States';
+import { ActionFeedback } from '../components/ActionFeedback';
+import { openExternalWindow, publishExternalResult, subscribeExternalResult } from '../lib/externalWindow';
 
 type Choice = 'PIX' | 'CARD';
+type WindowNotice = { status: 'pending' | 'error'; label: string };
 
 const METHODS: { id: Choice; label: string; icon: typeof QrCode }[] = [
   { id: 'PIX', label: 'Pix', icon: QrCode },
@@ -26,30 +29,55 @@ const CARD_TYPES: { id: CardMethod; label: string; hint: string }[] = [
 
 export default function PaymentPage() {
   const { code = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  const checkoutWindow = searchParams.get('checkout') === '1';
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const paymentWindow = useRef<Window | null>(null);
+  const [windowActive, setWindowActive] = useState(false);
+  const [windowNotice, setWindowNotice] = useState<WindowNotice | null>(null);
 
-  const summary = useQuery({ queryKey: ['registration', code], queryFn: () => paymentApi.summary(code) });
+  const summary = useQuery({
+    queryKey: ['registration', code],
+    queryFn: () => paymentApi.summary(code),
+    refetchInterval: (query) => !checkoutWindow && (windowActive || query.state.data?.lastPayment?.status === 'PENDING')
+      ? 5000 : false,
+    refetchIntervalInBackground: true,
+  });
   const config = useQuery({ queryKey: ['public-config'], queryFn: publicApi.config, staleTime: Infinity });
 
   const [choice, setChoice] = useState<Choice>('PIX');
   // no cartão, crédito ou débito é escolha explícita: o formulário só aparece depois dela
   const [cardType, setCardType] = useState<CardMethod | null>(null);
   const [payer, setPayer] = useState<PayerInput>(() => {
-    const [first = '', ...rest] = (user?.name ?? '').split(' ');
+    const [first = '', ...rest] = (user?.name ?? '').toUpperCase().split(' ');
     return { firstName: first, lastName: rest.join(' '), email: user?.email ?? '', cpf: '' };
   });
+  const payerInitialized = useRef(Boolean(user));
   const [payment, setPayment] = useState<Payment | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [resumeChecked, setResumeChecked] = useState(false);
 
+  // A nova janela carrega a sessão novamente; preenche sem sobrescrever o que o atleta digitou.
+  useEffect(() => {
+    if (!user || payerInitialized.current) return;
+    payerInitialized.current = true;
+    const [first = '', ...rest] = user.name.toUpperCase().split(' ');
+    setPayer((current) => ({
+      ...current,
+      firstName: current.firstName || first,
+      lastName: current.lastName || rest.join(' '),
+      email: current.email || user.email,
+    }));
+  }, [user]);
+
   // Retoma uma única vez um Pix ou cartão pendente (ex.: atleta voltou pelo link). Boletos antigos não.
   useEffect(() => {
-    if (resumeChecked || !summary.data) return;
+    if (!summary.data || (checkoutWindow && resumeChecked)) return;
     setResumeChecked(true);
     const last = summary.data.lastPayment;
-    if (last && last.status === 'PENDING' && last.method !== 'BOLETO') {
-      setPayment(last);
+    if (last && last.method !== 'BOLETO') {
+      setPayment((current) => current?.id === last.id && current.status === last.status ? current : last);
       if (last.method === 'PIX') {
         setChoice('PIX');
       } else {
@@ -57,7 +85,7 @@ export default function PaymentPage() {
         setCardType(last.method);
       }
     }
-  }, [summary.data, resumeChecked]);
+  }, [summary.data, resumeChecked, checkoutWindow]);
 
   // Polling enquanto o pagamento está pendente (Pix, ou cartão em análise/3DS)
   const poll = useQuery({
@@ -65,6 +93,7 @@ export default function PaymentPage() {
     queryFn: () => paymentApi.status(code, payment!.id),
     enabled: payment?.status === 'PENDING',
     refetchInterval: 5000,
+    refetchIntervalInBackground: true,
   });
   useEffect(() => {
     if (poll.data && payment && poll.data.id === payment.id && poll.data.status !== payment.status) {
@@ -75,16 +104,79 @@ export default function PaymentPage() {
   useEffect(() => {
     if (payment?.status === 'APPROVED') {
       queryClient.invalidateQueries({ queryKey: ['registration', code] });
+      queryClient.invalidateQueries({ queryKey: ['my-teams'] });
     }
   }, [payment?.status, code, queryClient]);
 
+  // A mensagem da outra janela é só um sinal: a confirmação continua vindo da API.
+  useEffect(() => {
+    if (checkoutWindow) return;
+    return subscribeExternalResult('payment', (result) => {
+      if (result.code !== code) return;
+      setWindowNotice(result.status === 'error'
+        ? { status: 'error', label: 'O pagamento não foi concluído. Confira os dados na janela de pagamento.' } : null);
+      queryClient.invalidateQueries({ queryKey: ['registration', code] });
+      queryClient.invalidateQueries({ queryKey: ['payment', code] });
+    });
+  }, [checkoutWindow, code, queryClient]);
+
+  useEffect(() => {
+    if (!checkoutWindow || !payment) return;
+    publishExternalResult({
+      kind: 'payment',
+      code,
+      status: payment.status === 'APPROVED' ? 'success' : payment.status === 'PENDING' ? 'pending' : 'error',
+    });
+  }, [checkoutWindow, code, payment?.id, payment?.status]);
+
+  useEffect(() => {
+    if (!checkoutWindow) return;
+    const notifyClosed = () => publishExternalResult({
+      kind: 'payment',
+      code,
+      status: payment?.status === 'APPROVED' ? 'success' : payment && payment.status !== 'PENDING' ? 'error' : 'pending',
+    });
+    window.addEventListener('pagehide', notifyClosed);
+    return () => window.removeEventListener('pagehide', notifyClosed);
+  }, [checkoutWindow, code, payment]);
+
+  useEffect(() => {
+    if (!windowActive) return;
+    const timer = window.setInterval(() => {
+      if (!paymentWindow.current?.closed) return;
+      setWindowActive(false);
+      paymentWindow.current = null;
+      setWindowNotice({ status: 'pending', label: 'Pagamento ainda não concluído. Você pode retomar na nova janela.' });
+      queryClient.invalidateQueries({ queryKey: ['registration', code] });
+      queryClient.invalidateQueries({ queryKey: ['payment', code] });
+    }, 750);
+    return () => window.clearInterval(timer);
+  }, [windowActive, code, queryClient]);
+
+  useEffect(() => {
+    if (checkoutWindow) return;
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ['registration', code] });
+      queryClient.invalidateQueries({ queryKey: ['payment', code] });
+    };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [checkoutWindow, code, queryClient]);
+
   const create = useMutation({
     mutationFn: ({ method, card }: { method: PaymentMethod; card?: CardInput }) =>
-      paymentApi.create(code, { method, payer: { ...payer, cpf: onlyDigits(payer.cpf) }, card }),
+      paymentApi.create(code, {
+        method,
+        payer: { ...payer, firstName: payer.firstName.toUpperCase(), lastName: payer.lastName.toUpperCase(), cpf: onlyDigits(payer.cpf) },
+        card,
+      }),
     onSuccess: (created) => {
       setPayment(created);
       // a nova cobrança cancela as pendentes anteriores; atualiza o resumo
       queryClient.invalidateQueries({ queryKey: ['registration', code] });
+    },
+    onError: () => {
+      if (checkoutWindow) publishExternalResult({ kind: 'payment', code, status: 'error' });
     },
   });
 
@@ -102,7 +194,31 @@ export default function PaymentPage() {
     );
   }
   const s = summary.data;
-  const approved = s.teamStatus === 'CONFIRMED' || payment?.status === 'APPROVED';
+  const latestPayment = payment && (!s.lastPayment || payment.id >= s.lastPayment.id) ? payment : s.lastPayment;
+  // Para a mesma cobrança, usa a consulta mais recente em vez de uma aprovação antiga no resumo.
+  const verifiedPayment = latestPayment && poll.data?.id === latestPayment.id && poll.dataUpdatedAt >= summary.dataUpdatedAt
+    ? poll.data
+    : latestPayment && s.lastPayment?.id === latestPayment.id && summary.dataUpdatedAt > poll.dataUpdatedAt
+      ? s.lastPayment : latestPayment;
+  const paymentApproved = verifiedPayment?.status === 'APPROVED';
+  const confirmedWithoutPayment = s.teamStatus === 'CONFIRMED' && !verifiedPayment;
+  const approved = s.teamStatus !== 'CANCELLED' && (paymentApproved || confirmedWithoutPayment);
+
+  function openPayment() {
+    if (paymentWindow.current && !paymentWindow.current.closed) {
+      paymentWindow.current.focus();
+      return;
+    }
+    const url = `${window.location.origin}/pagamento/${encodeURIComponent(code)}?checkout=1`;
+    const opened = openExternalWindow(url, `wodz-payment-${code}`);
+    if (!opened) {
+      setWindowNotice({ status: 'error', label: 'Permita novas janelas no navegador para abrir o pagamento.' });
+      return;
+    }
+    paymentWindow.current = opened;
+    setWindowNotice(null);
+    setWindowActive(true);
+  }
 
   function payerValid(): boolean {
     if (!payer.firstName.trim() || !payer.lastName.trim()) return fail('Informe nome e sobrenome do pagador');
@@ -133,6 +249,10 @@ export default function PaymentPage() {
   return (
     <div className="page page--form">
       <h1 className="page-title">Pagamento da inscrição</h1>
+      {config.data?.mercadoPagoTestMode && (
+        <p className="note" role="status"><strong>Modo de teste do Mercado Pago.</strong> Use cartões e dados
+          de teste nas novas cobranças. Cobranças anteriores mantêm seu modo original.</p>
+      )}
 
       <section className="pay-summary" aria-label="Resumo da inscrição">
         <div>
@@ -145,23 +265,71 @@ export default function PaymentPage() {
       </section>
 
       {approved ? (
-        <section className="result result--ok" aria-live="polite">
+        <section className={`result${paymentApproved ? ' result--ok' : ''}`} aria-live="polite">
+          {paymentApproved && <ActionFeedback status="success" label="Pagamento aprovado." />}
           <h2 className="result__title">Inscrição confirmada</h2>
-          <p>O pagamento foi aprovado e a equipe {s.teamName} já está confirmada no campeonato.</p>
+          <p>{paymentApproved ? 'O pagamento foi aprovado e a equipe' : 'A equipe'} {s.teamName} já está confirmada no campeonato.</p>
           <div className="result__actions">
+            {checkoutWindow && (
+              <button type="button" className="btn btn--secondary" onClick={() => window.close()}>Fechar janela de pagamento</button>
+            )}
             <Link className="btn btn--primary" to="/minhas-equipes">Ver minhas equipes</Link>
             <Link className="btn btn--secondary" to={`/c/${s.championshipSlug}`}>Página do campeonato</Link>
           </div>
         </section>
       ) : s.teamStatus === 'CANCELLED' ? (
         <section className="result result--warn">
+          <ActionFeedback status="error" label="Esta inscrição foi cancelada." />
           <h2 className="result__title">Inscrição cancelada</h2>
           <p>Esta inscrição foi cancelada. Fale com a organização do campeonato.</p>
         </section>
-      ) : pendingOrResult && payment.status !== 'REJECTED' ? (
+      ) : s.teamStatus === 'CONFIRMED' && verifiedPayment ? (
+        <section className="result result--warn" aria-live="polite">
+          <ActionFeedback status={verifiedPayment.status === 'PENDING' ? 'pending' : 'error'}
+            label={verifiedPayment.status === 'REFUNDED' ? 'O pagamento foi devolvido.'
+              : verifiedPayment.status === 'REJECTED' ? 'O pagamento foi recusado.'
+                : verifiedPayment.status === 'EXPIRED' ? 'A cobrança expirou.'
+                  : verifiedPayment.status === 'CANCELLED' ? 'A cobrança foi cancelada.' : 'O pagamento está pendente.'} />
+          <h2 className="result__title">Confira o pagamento da inscrição</h2>
+          <p>Fale com a organização para conferir o pagamento desta inscrição antes de realizar uma nova cobrança.</p>
+          <div className="result__actions">
+            {checkoutWindow && <button type="button" className="btn btn--secondary" onClick={() => window.close()}>Fechar janela de pagamento</button>}
+            <Link className="btn btn--secondary" to="/minhas-equipes">Ver minhas equipes</Link>
+            <Link className="btn btn--secondary" to={`/c/${s.championshipSlug}`}>Página do campeonato</Link>
+          </div>
+        </section>
+      ) : !checkoutWindow ? (
+        <section className="pending" aria-label="Abrir pagamento">
+          <h2 className="section-title">Pagamento em uma nova janela</h2>
+          {payment && windowNotice?.status !== 'error' && payment.status !== 'REFUNDED' && payment.status !== 'APPROVED' && (
+            <ActionFeedback
+              key={`${payment.id}-${payment.status}`}
+              status={payment.status === 'PENDING' ? 'pending' : 'error'}
+              label={payment.status === 'PENDING' ? 'Aguardando confirmação do pagamento.'
+                : payment.status === 'REJECTED' ? 'Pagamento recusado. Você pode tentar outra forma de pagamento.'
+                  : payment.status === 'EXPIRED' ? 'A cobrança expirou. Gere uma nova na janela de pagamento.'
+                    : 'A cobrança foi cancelada. Você pode tentar novamente.'}
+            />
+          )}
+          {payment?.status === 'REFUNDED' && <ActionFeedback status="error" label="O pagamento foi devolvido." />}
+          {windowNotice && (!payment || windowNotice.status === 'error') && <ActionFeedback status={windowNotice.status} label={windowNotice.label} />}
+          {windowActive && !payment && !windowNotice && <ActionFeedback status="pending" label="Conclua o pagamento na nova janela." />}
+          <p className="note">Escolha Pix ou cartão na janela de pagamento. A confirmação da inscrição aparece aqui automaticamente.</p>
+          {s.championshipStarted && !payment ? (
+            <p className="note">As inscrições estão encerradas. Fale com a organização do campeonato.</p>
+          ) : (
+            <div className="row-actions">
+              <button type="button" className="btn btn--primary" onClick={openPayment}>
+                <ExternalLink size={16} aria-hidden />
+                {windowActive ? 'Voltar à janela de pagamento' : payment?.status === 'PENDING' ? 'Continuar pagamento' : 'Abrir pagamento'}
+              </button>
+            </div>
+          )}
+        </section>
+      ) : pendingOrResult && payment.status !== 'REJECTED' && payment.status !== 'REFUNDED' ? (
         <PendingPayment
           payment={payment}
-          canSimulate={Boolean(config.data?.paymentSimulation)}
+          canSimulate={Boolean(config.data?.paymentSimulation && !config.data.mercadoPagoTestMode)}
           onSimulate={() => simulate.mutate()}
           simulating={simulate.isPending}
           simulateError={simulate.error}
@@ -176,13 +344,15 @@ export default function PaymentPage() {
         <form className="form form--wide" onSubmit={submit} noValidate>
           {payment?.status === 'REJECTED' && (
             <div className="result result--warn" role="alert">
+              <ActionFeedback status="error" label="Pagamento recusado." />
               <h2 className="result__title">Pagamento recusado</h2>
               <p>{payment.statusDetail ?? 'O emissor recusou a transação.'} Tente outro cartão ou outra forma de pagamento.</p>
             </div>
           )}
           {payment && (payment.status === 'EXPIRED' || payment.status === 'CANCELLED') && (
-            <p className="note">A cobrança anterior expirou. Gere uma nova abaixo.</p>
+            <ActionFeedback status="error" label={payment.status === 'EXPIRED' ? 'A cobrança anterior expirou. Gere uma nova abaixo.' : 'A cobrança anterior foi cancelada. Gere uma nova abaixo.'} />
           )}
+          {payment?.status === 'REFUNDED' && <ActionFeedback status="error" label="O pagamento anterior foi devolvido." />}
           {legacyBoleto && (
             <p className="note">
               Há um boleto gerado antes aguardando compensação. Se você já pagou, aguarde: a confirmação é
@@ -193,13 +363,13 @@ export default function PaymentPage() {
           <fieldset className="form-section">
             <legend className="form-section__title">Quem está pagando</legend>
             <div className="grid-2">
-              <Field label="Nome" htmlFor="payer-first">
+              <Field label="Nome" htmlFor="payer-first" uppercase>
                 <input id="payer-first" className="input" autoComplete="given-name" value={payer.firstName}
-                  onChange={(e) => setPayer({ ...payer, firstName: e.target.value })} />
+                  onChange={(e) => setPayer({ ...payer, firstName: e.target.value.toUpperCase() })} />
               </Field>
-              <Field label="Sobrenome" htmlFor="payer-last">
+              <Field label="Sobrenome" htmlFor="payer-last" uppercase>
                 <input id="payer-last" className="input" autoComplete="family-name" value={payer.lastName}
-                  onChange={(e) => setPayer({ ...payer, lastName: e.target.value })} />
+                  onChange={(e) => setPayer({ ...payer, lastName: e.target.value.toUpperCase() })} />
               </Field>
               <Field label="E-mail" htmlFor="payer-email">
                 <input id="payer-email" className="input" type="email" autoComplete="email" value={payer.email}
@@ -257,7 +427,7 @@ export default function PaymentPage() {
                     cardType={cardType}
                     onToken={(card) => payWithCard(cardType, card)}
                   />
-                ) : (
+                ) : config.data?.paymentSimulation && !config.data.mercadoPagoTestMode ? (
                   <SandboxCardForm
                     key={cardType}
                     cardType={cardType}
@@ -266,17 +436,24 @@ export default function PaymentPage() {
                       payWithCard(cardType, card).catch(() => undefined);
                     }}
                   />
+                ) : config.isLoading ? (
+                  <Loading />
+                ) : (
+                  <p className="form-error" role="alert">Não foi possível carregar o formulário de cartão.
+                    Tente novamente em instantes.</p>
                 )}
               </>
             )}
           </fieldset>
 
           {formError && <p className="form-error" role="alert">{formError}</p>}
+          {create.error && <ActionFeedback status="error" label="Não foi possível concluir o pagamento. Confira a mensagem abaixo." />}
           <InlineError error={create.error} />
 
           {choice === 'PIX' && (
             <div className="form-actions">
               <button type="submit" className="btn btn--primary btn--large" disabled={create.isPending}>
+                {create.isPending && <span className="spinner spinner--small" aria-hidden />}
                 {create.isPending ? 'Gerando…' : 'Gerar Pix'}
               </button>
             </div>
@@ -304,6 +481,7 @@ function PendingPayment({
 }) {
   return (
     <section className="pending" aria-live="polite">
+      <ActionFeedback status="pending" label="Aguardando confirmação do pagamento." />
       <div className="pending__head">
         <h2 className="section-title">
           {payment.method === 'PIX'
@@ -349,6 +527,7 @@ function PendingPayment({
       <div className="row-actions">
         {canSimulate && (
           <button type="button" className="btn btn--primary" onClick={onSimulate} disabled={simulating}>
+            {simulating && <span className="spinner spinner--small" aria-hidden />}
             {simulating ? 'Aprovando…' : 'Simular pagamento aprovado (sandbox)'}
           </button>
         )}
@@ -445,9 +624,9 @@ function SandboxCardForm({
           <input id="cc-number" className="input" inputMode="numeric" autoComplete="cc-number" value={card.number}
             onChange={(e) => setCard({ ...card, number: e.target.value })} />
         </Field>
-        <Field label="Nome impresso no cartão" htmlFor="cc-holder">
+        <Field label="Nome impresso no cartão" htmlFor="cc-holder" uppercase>
           <input id="cc-holder" className="input" autoComplete="cc-name" value={card.holder}
-            onChange={(e) => setCard({ ...card, holder: e.target.value })} />
+            onChange={(e) => setCard({ ...card, holder: e.target.value.toUpperCase() })} />
         </Field>
         <Field label="Validade (MM/AA)" htmlFor="cc-exp">
           <input id="cc-exp" className="input" autoComplete="cc-exp" placeholder="12/29" value={card.expiry}
@@ -468,6 +647,7 @@ function SandboxCardForm({
       </div>
       <div className="form-actions">
         <button type="button" className="btn btn--primary btn--large" disabled={!ready || busy} onClick={pay}>
+          {busy && <span className="spinner spinner--small" aria-hidden />}
           {busy ? 'Processando…' : debit ? 'Pagar no débito' : 'Pagar no crédito'}
         </button>
       </div>

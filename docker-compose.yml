@@ -1,3 +1,5 @@
+name: wodz
+
 services:
   db:
     image: postgres:16-alpine
@@ -5,8 +7,7 @@ services:
       POSTGRES_DB: wodz
       POSTGRES_USER: wodz
       POSTGRES_PASSWORD: wodz
-    ports:
-      - "5432:5432"
+    # Acesso pelo backend via db:5432, na rede interna do Compose.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,25 +26,30 @@ services:
       DB_USER: wodz
       DB_PASSWORD: wodz
       JWT_SECRET: ${JWT_SECRET:-troque-por-um-segredo-longo-e-aleatorio-com-32+caracteres}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8081}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:${FRONTEND_HOST_PORT:-8081}}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_HOST_PORT:-8081},http://localhost:5173}
       SEED_DEMO: ${SEED_DEMO:-true}
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-sandbox}
-      MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
+      APP_ENV: ${APP_ENV:-dev}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
+      MP_CLIENT_ID: ${MP_CLIENT_ID:-}
+      MP_CLIENT_SECRET: ${MP_CLIENT_SECRET:-}
+      MP_TEST_MODE: ${MP_TEST_MODE:-false}
       MP_PUBLIC_KEY: ${MP_PUBLIC_KEY:-}
       MP_WEBHOOK_SECRET: ${MP_WEBHOOK_SECRET:-}
       MP_NOTIFICATION_URL: ${MP_NOTIFICATION_URL:-}
       MP_THREE_D_SECURE: ${MP_THREE_D_SECURE:-true}
+      MP_PLATFORM_FEE_PERCENT: ${MP_PLATFORM_FEE_PERCENT:-0}
+      MP_CARD_PUBLIC_KEY_SOURCE: ${MP_CARD_PUBLIC_KEY_SOURCE:-platform}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-84072245662-m7cc1brb2fb7lkv92i9dqm5o1phnagr9.apps.googleusercontent.com}
-    ports:
-      - "8080:8080"
+    # Acesso pelo frontend via backend:8080, na rede interna do Compose.
 
   frontend:
     build: ./frontend
     depends_on:
       - backend
     ports:
-      - "8081:80"
+      - "${FRONTEND_HOST_PORT:-8081}:80"
 
 volumes:
   pgdata:

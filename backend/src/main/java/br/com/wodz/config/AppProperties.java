@@ -35,10 +35,11 @@ public record AppProperties(
      * threeDSecure envia three_d_secure_mode=optional. platformFeePercent vira o
      * application_fee de cada pagamento (0 = tudo para o organizador).
      * cardPublicKeySource: "platform" (padrão, como na documentação do split) ou "seller".
+     * testMode solicita credenciais de teste no OAuth, usando as APIs oficiais.
      */
     public record MercadoPagoProps(String publicKey, String webhookSecret, String notificationUrl,
                                    boolean threeDSecure, String clientId, String clientSecret,
-                                   BigDecimal platformFeePercent, String cardPublicKeySource) {
+                                   BigDecimal platformFeePercent, String cardPublicKeySource, boolean testMode) {
 
         public boolean useSellerPublicKey() {
             return "seller".equalsIgnoreCase(cardPublicKeySource);

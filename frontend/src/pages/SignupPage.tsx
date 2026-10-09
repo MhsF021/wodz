@@ -44,7 +44,7 @@ export default function SignupPage() {
       <h1 className="page-title">Criar conta</h1>
       <form className="form" onSubmit={submit} noValidate>
         <RoleChoice value={role} onChange={setRole} />
-        <Field label="Nome completo" htmlFor="su-name">
+        <Field label="Nome completo" htmlFor="su-name" uppercase>
           <input id="su-name" className="input" autoComplete="name" required value={form.name} onChange={set('name')} />
         </Field>
         <Field label="E-mail" htmlFor="su-email">

@@ -106,7 +106,7 @@ public class ScoreService {
         score.setTiebreakMs(req.tiebreakMs());
         score.setNotes(Codes.blankToNull(req.notes()));
         scores.saveAndFlush(score);
-        jdbc.update("UPDATE heat_lane SET judge_name = ? WHERE id = ?", req.judgeName().trim(), lane.laneId());
+        jdbc.update("UPDATE heat_lane SET judge_name = ? WHERE id = ?", Codes.uppercase(req.judgeName().trim()), lane.laneId());
 
         publish(workout);
         return entry(team, loadRows(workoutId, teamId).get(teamId), loadLanes(workoutId, teamId).get(teamId));
