@@ -4,14 +4,23 @@ import { Menu, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { firstName } from '../lib/format';
 import { applyRoleTheme, logoFor } from '../lib/theme';
+import { Footer } from './Footer';
+import { ActivityIndicator } from './ActivityIndicator';
 
 export function Layout() {
-  const { user, logout } = useAuth();
-  const { pathname } = useLocation();
+  const { user, logout, loading } = useAuth();
+  const { pathname, hash } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => applyRoleTheme(user?.role), [user?.role]);
+  useEffect(() => {
+    if (!hash) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, hash, user]);
 
   // No celular o menu fecha ao trocar de página e com Esc.
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -32,6 +41,7 @@ export function Layout() {
         Pular para o conteúdo
       </a>
       <header className="topbar">
+        <ActivityIndicator initializing={loading} />
         <div className="topbar__inner">
           <Link to="/" className="wordmark" aria-label="WODZ, página inicial">
             <img className="wordmark__logo" src={logoFor(user?.role)} alt="" width={32} height={32} />
@@ -72,9 +82,7 @@ export function Layout() {
       <main id="conteudo" className="main" tabIndex={-1}>
         <Outlet />
       </main>
-      <footer className="footer">
-        <div className="footer__inner">WODZ: campeonatos de CrossFit.</div>
-      </footer>
+      <Footer />
     </>
   );
 }

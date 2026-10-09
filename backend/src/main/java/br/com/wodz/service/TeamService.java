@@ -89,9 +89,9 @@ public class TeamService {
         Team team = new Team();
         team.setCategory(category);
         team.setCaptain(users.getReferenceById(userId));
-        team.setName(req.name().trim());
-        team.setBoxName(Codes.blankToNull(req.boxName()));
-        team.setCity(Codes.blankToNull(req.city()));
+        team.setName(Codes.uppercase(req.name().trim()));
+        team.setBoxName(Codes.uppercase(Codes.blankToNull(req.boxName())));
+        team.setCity(Codes.uppercase(Codes.blankToNull(req.city())));
         team.setRegistrationCode(Codes.registrationCode());
         if (category.getPrice().signum() == 0) {
             team.setStatus(TeamStatus.CONFIRMED);
@@ -100,7 +100,7 @@ public class TeamService {
         for (int i = 0; i < req.members().size(); i++) {
             MemberRequest m = req.members().get(i);
             TeamMember member = new TeamMember();
-            member.setFullName(m.fullName().trim());
+            member.setFullName(Codes.uppercase(m.fullName().trim()));
             member.setEmail(m.email().trim().toLowerCase());
             member.setCpf(Codes.digits(m.cpf()));
             member.setBirthDate(m.birthDate());

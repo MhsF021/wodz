@@ -84,10 +84,10 @@ export function ChampionshipForm({
     <form className="form form--wide" onSubmit={submit} noValidate>
       <fieldset className="form-section">
         <legend className="form-section__title">Campeonato</legend>
-        <Field label="Nome" htmlFor="ch-name">
+        <Field label="Nome" htmlFor="ch-name" uppercase>
           <input id="ch-name" className="input" maxLength={150} value={form.name} onChange={set('name')} />
         </Field>
-        <Field label="Descrição (opcional)" htmlFor="ch-desc" hint="Regulamento resumido, kit atleta, horários de check-in.">
+        <Field label="Descrição (opcional)" htmlFor="ch-desc" hint="Regulamento resumido, kit atleta, horários de check-in." uppercase>
           <textarea id="ch-desc" className="input" rows={4} value={form.description} onChange={set('description')} />
         </Field>
       </fieldset>
@@ -95,13 +95,13 @@ export function ChampionshipForm({
       <fieldset className="form-section">
         <legend className="form-section__title">Local e data</legend>
         <div className="grid-3">
-          <Field label="Local" htmlFor="ch-venue" hint="Box, arena ou ginásio" className="span-2">
+          <Field label="Local" htmlFor="ch-venue" hint="Box, arena ou ginásio" className="span-2" uppercase>
             <input id="ch-venue" className="input" maxLength={150} value={form.venueName} onChange={set('venueName')} />
           </Field>
-          <Field label="Endereço (opcional)" htmlFor="ch-address">
+          <Field label="Endereço (opcional)" htmlFor="ch-address" uppercase>
             <input id="ch-address" className="input" maxLength={255} value={form.address} onChange={set('address')} />
           </Field>
-          <Field label="Cidade" htmlFor="ch-city">
+          <Field label="Cidade" htmlFor="ch-city" uppercase>
             <input id="ch-city" className="input" maxLength={100} value={form.city} onChange={set('city')} />
           </Field>
           <Field label="Estado" htmlFor="ch-state">

@@ -41,4 +41,9 @@ public final class Codes {
     public static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
+
+    /** Nomes próprios e descrições: mantém acentos, números e quebras de linha. */
+    public static String uppercase(String value) {
+        return value == null ? null : value.toUpperCase(Locale.ROOT);
+    }
 }

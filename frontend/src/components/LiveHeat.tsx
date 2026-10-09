@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { HeatView } from '../api/types';
 import { formatClock } from '../lib/format';
+import { HeatTiming } from './HeatTiming';
 
 export function useElapsed(startedAt?: string | null): number {
   const [now, setNow] = useState(() => Date.now());
@@ -41,6 +42,7 @@ export function LiveHeat({ heat, highlightTeamIds = [] }: { heat: HeatView; high
             Prova {heat.workoutNumber}: {heat.workoutName}
           </h3>
           <p className="live__subtitle">Bateria {heat.heatNumber}</p>
+          <HeatTiming heat={heat} />
           <ol className="live__lanes">
             {heat.lanes.map((lane) => (
               <li key={lane.lane} className={highlightTeamIds.includes(lane.teamId) ? 'is-mine' : undefined}>

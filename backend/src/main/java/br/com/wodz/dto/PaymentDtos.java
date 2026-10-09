@@ -64,6 +64,6 @@ public final class PaymentDtos {
 
     /** Configuração pública do frontend: pagamento e o Client ID do login com Google (nulo se desligado). */
     public record PublicConfig(String paymentProvider, String mercadoPagoPublicKey, boolean paymentSimulation,
-                               String googleClientId) {
+                               String googleClientId, boolean mercadoPagoTestMode) {
     }
 }

@@ -19,6 +19,7 @@ import type {
   Leaderboard,
   MyHeats,
   Payment,
+  PayoutAccount,
   PublicConfig,
   RegisterInput,
   RegistrationSummary,
@@ -79,6 +80,9 @@ export const athleteApi = {
 };
 
 export const adminApi = {
+  payoutAccount: () => http.get<PayoutAccount>('/api/admin/payout-account'),
+  connectPayoutAccount: () => http.post<{ authorizationUrl: string }>('/api/admin/payout-account/connect'),
+  disconnectPayoutAccount: () => http.del('/api/admin/payout-account'),
   championships: () => http.get<AdminChampionshipSummary[]>('/api/admin/championships'),
   championship: (id: number) => http.get<ChampionshipDetail>(`/api/admin/championships/${id}`),
   create: (input: ChampionshipInput) => http.post<ChampionshipDetail>('/api/admin/championships', input),
@@ -107,7 +111,7 @@ export const adminApi = {
     http.post<HeatView[]>(`/api/admin/championships/${championshipId}/heats/generate`, input),
   generateHeats: (workoutId: number, input: GenerateHeatsInput) =>
     http.post<HeatView[]>(`/api/admin/workouts/${workoutId}/heats/generate`, input),
-  createHeat: (workoutId: number, input: { scheduledAt: string; teamIds: number[] }) =>
+  createHeat: (workoutId: number, input: { scheduledAt: string; teamIds: number[]; intervalMinutes?: number }) =>
     http.post<HeatView>(`/api/admin/workouts/${workoutId}/heats`, input),
   updateHeat: (id: number, input: { scheduledAt: string; teamIds?: number[] | null }) =>
     http.put<HeatView>(`/api/admin/heats/${id}`, input),

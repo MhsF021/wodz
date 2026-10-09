@@ -23,6 +23,19 @@ export interface User {
   googleLinked: boolean;
 }
 
+export interface PayoutAccount {
+  configured: boolean;
+  sandbox: boolean;
+  connected: boolean;
+  accountLabel?: string | null;
+  providerUserId?: string | null;
+  liveMode: boolean;
+  connectedAt?: string | null;
+  testMode: boolean;
+  /** Versão da conta para confirmar novas autorizações e renovações no servidor. */
+  updatedAt?: string | null;
+}
+
 export interface AuthResponse {
   token: string;
   expiresAt: string;
@@ -217,6 +230,10 @@ export interface HeatView {
   status: HeatStatus;
   startedAt?: string | null;
   finishedAt?: string | null;
+  durationSeconds?: number | null;
+  intervalMinutes: number;
+  expectedFinishAt?: string | null;
+  actualDurationSeconds?: number | null;
   workoutId: number;
   workoutNumber: number;
   workoutName: string;
@@ -395,6 +412,7 @@ export interface PublicConfig {
   paymentSimulation: boolean;
   /** Client ID do login com Google; nulo quando desligado. */
   googleClientId?: string | null;
+  mercadoPagoTestMode: boolean;
 }
 
 export interface ScoreEntry {

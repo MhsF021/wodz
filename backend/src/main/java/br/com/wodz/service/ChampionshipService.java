@@ -41,16 +41,18 @@ public class ChampionshipService {
     private final AppUserRepository users;
     private final OwnershipGuard guard;
     private final JdbcTemplate jdbc;
+    private final PayoutAccountService payoutAccounts;
 
     public ChampionshipService(ChampionshipRepository championships, CategoryRepository categories,
                                WorkoutRepository workouts, AppUserRepository users, OwnershipGuard guard,
-                               JdbcTemplate jdbc) {
+                               JdbcTemplate jdbc, PayoutAccountService payoutAccounts) {
         this.championships = championships;
         this.categories = categories;
         this.workouts = workouts;
         this.users = users;
         this.guard = guard;
         this.jdbc = jdbc;
+        this.payoutAccounts = payoutAccounts;
     }
 
     // ------------------------------------------------------------------ público
@@ -133,6 +135,7 @@ public class ChampionshipService {
     public ChampionshipDetail setRegistrationOpen(Long id, Long userId, boolean open) {
         Championship c = guard.championship(id, userId);
         if (open) {
+            payoutAccounts.requireConnected(userId);
             if (categories.findByChampionshipIdOrderByDisplayOrderAscNameAsc(id).isEmpty()) {
                 throw ApiException.unprocessable("Cadastre ao menos uma categoria antes de abrir as inscrições");
             }
@@ -153,6 +156,7 @@ public class ChampionshipService {
     @Transactional
     public ChampionshipDetail setStatus(Long id, Long userId, ChampionshipStatus status) {
         Championship c = guard.championship(id, userId);
+        if (status == ChampionshipStatus.PUBLISHED) payoutAccounts.requireConnected(userId);
         c.setStatus(status);
         if (status != ChampionshipStatus.PUBLISHED) {
             c.setRegistrationOpen(false);
@@ -181,11 +185,11 @@ public class ChampionshipService {
     }
 
     private static void apply(Championship c, ChampionshipRequest req) {
-        c.setName(req.name().trim());
-        c.setDescription(Codes.blankToNull(req.description()));
-        c.setVenueName(req.venueName().trim());
-        c.setAddress(Codes.blankToNull(req.address()));
-        c.setCity(req.city().trim());
+        c.setName(Codes.uppercase(req.name().trim()));
+        c.setDescription(Codes.uppercase(Codes.blankToNull(req.description())));
+        c.setVenueName(Codes.uppercase(req.venueName().trim()));
+        c.setAddress(Codes.uppercase(Codes.blankToNull(req.address())));
+        c.setCity(Codes.uppercase(req.city().trim()));
         c.setState(req.state().toUpperCase(Locale.ROOT));
         c.setStartDate(req.startDate());
         c.setEndDate(req.endDate());

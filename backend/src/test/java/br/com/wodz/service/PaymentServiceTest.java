@@ -1,7 +1,6 @@
 package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
-import br.com.wodz.common.TokenCipher;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.config.AppProperties.PaymentProps;
 import br.com.wodz.domain.Category;
@@ -16,11 +15,17 @@ import br.com.wodz.dto.PaymentDtos.CreatePaymentRequest;
 import br.com.wodz.dto.PaymentDtos.Payer;
 import br.com.wodz.dto.PaymentDtos.PaymentDto;
 import br.com.wodz.payment.SandboxPaymentGateway;
+import br.com.wodz.payment.MercadoPagoGateway;
+import br.com.wodz.payment.PaymentCommand;
+import br.com.wodz.payment.PaymentGateway;
+import org.springframework.web.client.RestClient;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import br.com.wodz.repository.PaymentRepository;
 import br.com.wodz.repository.PayoutAccountRepository;
 import br.com.wodz.repository.TeamRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
@@ -32,6 +37,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -49,11 +55,10 @@ class PaymentServiceTest {
     private final TeamRepository teams = mock(TeamRepository.class);
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final PayoutAccountRepository payoutAccounts = mock(PayoutAccountRepository.class);
-    private final TokenCipher tokenCipher = mock(TokenCipher.class);
     private final AppProperties props = new AppProperties(null, null, null,
             new PaymentProps("sandbox", Duration.ofMinutes(30), null), null, null, null, null);
     private final PaymentService service = new PaymentService(teams, payments, payoutAccounts,
-            new SandboxPaymentGateway(), props, tokenCipher);
+            new SandboxPaymentGateway(), props, mock(PayoutTokenService.class));
 
     @BeforeEach
     void setUp() {
@@ -135,11 +140,54 @@ class PaymentServiceTest {
     }
 
     @Test
+    void normalizaNomeDoPagadorAntesDoGatewayPreservandoEmailCpfEToken() {
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        when(gateway.providerName()).thenReturn("SANDBOX");
+        when(gateway.create(any(PaymentCommand.class)))
+                .thenAnswer(invocation -> new SandboxPaymentGateway().create(invocation.getArgument(0)));
+        PaymentService checkout = new PaymentService(teams, payments, payoutAccounts, gateway, props,
+                mock(PayoutTokenService.class));
+        Payer payer = new Payer(" João ", " D'Ávila ", "Joao.DAvila+MP@Example.test", "529.982.247-25");
+        CardData card = new CardData("AbCd_123-Test", "visa", "123", 3, "4242");
+
+        checkout.create(CODE, new CreatePaymentRequest(PaymentMethod.CREDIT_CARD, payer, card));
+
+        ArgumentCaptor<PaymentCommand> sent = ArgumentCaptor.forClass(PaymentCommand.class);
+        verify(gateway).create(sent.capture());
+        PaymentCommand command = sent.getValue();
+        assertEquals("JOÃO", command.payer().firstName());
+        assertEquals("D'ÁVILA", command.payer().lastName());
+        assertEquals(payer.email(), command.payer().email());
+        assertEquals(payer.cpf(), command.payer().cpf());
+        assertSame(card, command.card());
+        assertEquals("AbCd_123-Test", command.card().token());
+        assertEquals(3, command.installments());
+    }
+
+    @Test
     void pixFicaPendenteComValidade() {
         PaymentDto dto = service.create(CODE, new CreatePaymentRequest(PaymentMethod.PIX, PAYER, null));
         assertEquals(PaymentStatus.PENDING, dto.status());
         assertNotNull(dto.pixQrCode());
         assertNotNull(dto.expiresAt());
         assertNull(dto.installments());
+    }
+
+    @Test
+    void testeOficialUsaGatewayRemotoENaoPermiteAprovacaoSimulada() {
+        AppProperties testProps = new AppProperties(null,null,null,
+                new PaymentProps("mercadopago",Duration.ofMinutes(30),
+                        new AppProperties.MercadoPagoProps("TEST-public-key","secret",null,true,"client","secret",
+                                BigDecimal.ZERO,"platform",true)),null,null,"dev",null);
+        PaymentService official = new PaymentService(teams,payments,payoutAccounts,
+                new MercadoPagoGateway(testProps,RestClient.builder().requestFactory(new SimpleClientHttpRequestFactory())),
+                testProps,mock(PayoutTokenService.class));
+        assertEquals("MERCADO_PAGO",official.publicConfig().paymentProvider());
+        assertEquals("TEST-public-key",official.publicConfig().mercadoPagoPublicKey());
+        assertEquals(false,official.publicConfig().paymentSimulation());
+        assertEquals(true,official.publicConfig().mercadoPagoTestMode());
+        assertEquals(HttpStatus.NOT_FOUND,assertThrows(ApiException.class,
+                () -> official.simulateApproval(CODE,1L)).getStatus());
+        verify(payments,never()).findByIdAndTeamId(anyLong(),anyLong());
     }
 }

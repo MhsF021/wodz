@@ -6,6 +6,15 @@
     <meta name="theme-color" content="#0B0F19" />
     <meta name="color-scheme" content="dark" />
     <meta name="description" content="WODZ: inscreva seu time, organize seu campeonato e acompanhe o leaderboard ao vivo." />
+    <!-- Visível enquanto o bundle carrega; o primeiro render do React substitui este conteúdo. -->
+    <style>
+      body { margin: 0; background: #0b0f19; }
+      #boot-preloader { position: fixed; inset: 0 0 auto; height: 2px; overflow: hidden; pointer-events: none; }
+      #boot-preloader::after { content: ''; display: block; width: 30%; height: 100%; background: #94a3b8; animation: boot-progress 1.4s ease-in-out infinite; }
+      .boot-preloader__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      @keyframes boot-progress { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+      @media (prefers-reduced-motion: reduce) { #boot-preloader::after { animation: none; margin: 0 auto; } }
+    </style>
     <!-- Verde para atletas e visitantes; o Layout troca para o laranja quando entra um organizador. -->
     <link rel="icon" type="image/png" href="/favicon-athlete.png" />
     <link rel="apple-touch-icon" href="/favicon-athlete.png" />
@@ -15,7 +24,15 @@
     <title>WODZ</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-preloader" role="status" aria-live="polite">
+        <span class="boot-preloader__label">Carregando WODZ…</span>
+      </div>
+    </div>
+    <noscript>
+      <style>#boot-preloader { display: none; }</style>
+      <p style="color: #f8fafc; padding: 20px; font-family: system-ui, sans-serif">Ative o JavaScript para acessar o WODZ.</p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

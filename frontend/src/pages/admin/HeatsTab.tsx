@@ -9,6 +9,7 @@ import { CategoryPicker } from '../../components/Plate';
 import { Field } from '../../components/Field';
 import { HeatBadge } from '../../components/StatusBadge';
 import { LiveHeat } from '../../components/LiveHeat';
+import { HeatTiming } from '../../components/HeatTiming';
 import { Empty, ErrorState, InlineError, Loading } from '../../components/States';
 
 /** Limite de equipes por bateria (o mesmo da API e do banco). */
@@ -60,6 +61,7 @@ export function HeatsTab({ championship }: { championship: ChampionshipDetail })
 
       {workout && (
         <WorkoutHeats
+          key={workout.id}
           championship={championship}
           workout={workout}
           heats={all.filter((h) => h.workoutId === workout.id)}
@@ -97,7 +99,8 @@ function GenerateAllPanel({ championship, heats }: { championship: ChampionshipD
       <p className="panel__lead">
         Monta a grade inteira com as equipes confirmadas, até {MAX_LANES} equipes por bateria, divididas de forma
         equilibrada. A Prova 1 de cada categoria vem primeiro, depois a Prova 2, e assim por diante. Em cada prova,
-        as equipes com pior colocação correm primeiro.
+        as equipes com pior colocação correm primeiro. Cada horário soma a duração / time cap da prova e o intervalo
+        após seu término. Ao iniciar uma bateria, atrasos ajustam automaticamente as seguintes.
       </p>
       {started ? (
         <p className="note">
@@ -111,7 +114,7 @@ function GenerateAllPanel({ championship, heats }: { championship: ChampionshipD
               <input id="gen-all-start" className="input" type="datetime-local" value={form.start}
                 onChange={(e) => setForm({ ...form, start: e.target.value })} />
             </Field>
-            <Field label="Intervalo entre baterias (min)" htmlFor="gen-all-interval">
+            <Field label="Intervalo após o término (min)" htmlFor="gen-all-interval" hint="Ex.: 13 min de prova + 8 min de intervalo = próxima bateria em 21 min.">
               <input id="gen-all-interval" className="input" type="number" min={0} max={240} value={form.interval}
                 onChange={(e) => setForm({ ...form, interval: e.target.value })} />
             </Field>
@@ -163,7 +166,8 @@ function WorkoutHeats({
     onSuccess: refresh,
   });
   const create = useMutation({
-    mutationFn: () => adminApi.createHeat(workout.id, { scheduledAt: fromLocalInput(manual.start)!, teamIds: manual.teamIds }),
+    mutationFn: () => adminApi.createHeat(workout.id, { scheduledAt: fromLocalInput(manual.start)!, teamIds: manual.teamIds,
+      intervalMinutes: Number(gen.interval) }),
     onSuccess: () => {
       refresh();
       setManual((m) => ({ ...m, teamIds: [] }));
@@ -201,6 +205,7 @@ function WorkoutHeats({
           <h2 id="gen-title" className="panel__title">Gerar só esta prova</h2>
           <p className="note">
             Distribui as {teams.length} equipes confirmadas. Equipes com pior colocação no leaderboard correm primeiro.
+            O próximo início considera a duração da prova mais o intervalo após o término.
           </p>
           <form className="form" onSubmit={submitGenerate} noValidate>
             <div className="grid-2">
@@ -208,7 +213,7 @@ function WorkoutHeats({
                 <input id="gen-lanes" className="input" type="number" min={1} max={MAX_LANES} value={gen.lanes}
                   onChange={(e) => setGen({ ...gen, lanes: e.target.value })} />
               </Field>
-              <Field label="Intervalo (min)" htmlFor="gen-interval">
+              <Field label="Intervalo após o término (min)" htmlFor="gen-interval">
                 <input id="gen-interval" className="input" type="number" min={0} max={240} value={gen.interval}
                   onChange={(e) => setGen({ ...gen, interval: e.target.value })} />
               </Field>
@@ -231,6 +236,8 @@ function WorkoutHeats({
               <input id="manual-start" className="input" type="datetime-local" value={manual.start}
                 onChange={(e) => setManual({ ...manual, start: e.target.value })} />
             </Field>
+            <p className="note">Duração: {capLabel(workout.timeCapSeconds) ?? 'defina a duração na aba Provas'}.
+              Intervalo após o término: {gen.interval} min (configurado acima).</p>
             {free.length === 0 ? (
               <p className="note">Todas as equipes confirmadas já estão em alguma bateria desta prova.</p>
             ) : (
@@ -297,6 +304,8 @@ function HeatCard({ heat, onChanged }: { heat: HeatView; onChanged: () => void }
         </div>
         <HeatBadge status={heat.status} />
       </header>
+
+      <HeatTiming heat={heat} />
 
       <ol className="lanes lanes--admin">
         {heat.lanes.map((l) => (

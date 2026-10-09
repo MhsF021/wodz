@@ -7,6 +7,7 @@ import br.com.wodz.dto.AuthDtos.AuthResponse;
 import br.com.wodz.dto.AuthDtos.GoogleLoginRequest;
 import br.com.wodz.dto.AuthDtos.GoogleLoginResult;
 import br.com.wodz.dto.AuthDtos.LoginRequest;
+import br.com.wodz.dto.AuthDtos.RegisterRequest;
 import br.com.wodz.repository.AppUserRepository;
 import br.com.wodz.service.GoogleTokenVerifier.GoogleProfile;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -56,7 +58,7 @@ class AuthServiceGoogleTest {
 
         assertNull(result.auth());
         assertEquals("ana@gmail.com", result.pending().email());
-        assertEquals("Ana Lima", result.pending().name());
+        assertEquals("ANA LIMA", result.pending().name());
         verify(users, never()).save(any());
     }
 
@@ -69,9 +71,23 @@ class AuthServiceGoogleTest {
         assertSame(issued, result.auth());
         assertNull(result.pending());
         assertEquals("ana@gmail.com", saved.getValue().getEmail());
+        assertEquals("ANA LIMA", saved.getValue().getName());
         assertEquals("google-123", saved.getValue().getGoogleSub());
         assertEquals(Role.ORGANIZER, saved.getValue().getRole());
         assertFalse(saved.getValue().hasPassword());
+    }
+
+    @Test
+    void cadastroNormalizaNomeComAcentosSemAlterarSenha() {
+        String password = "sEnHa-CaseSensitive";
+        service.register(new RegisterRequest("  João D'Ávila  ", "JOAO@wodz.dev", password, Role.ATHLETE, null));
+
+        ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
+        verify(users).save(saved.capture());
+        assertEquals("JOÃO D'ÁVILA", saved.getValue().getName());
+        assertEquals("joao@wodz.dev", saved.getValue().getEmail());
+        assertTrue(encoder.matches(password, saved.getValue().getPasswordHash()));
+        assertFalse(encoder.matches(password.toUpperCase(java.util.Locale.ROOT), saved.getValue().getPasswordHash()));
     }
 
     @Test

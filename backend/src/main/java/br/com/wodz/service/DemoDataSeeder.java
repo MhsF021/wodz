@@ -200,7 +200,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 .filter(h -> h.workoutNumber() == 3 && h.categoryName().equals("RX"))
                 .findFirst().map(h -> h.lanes().get(0).teamId()).orElse(null);
         for (HeatView heat : heats) {
-            finish(heat, true);
+            finish(heat);
             for (LaneView lane : heat.lanes()) {
                 ScoreRequest result = heat.workoutNumber() == 3 && lane.teamId().equals(noShow)
                         ? new ScoreRequest(ScoreStatus.DNS, null, null, null, null, null, JUDGES_PAST[lane.lane() - 1])
@@ -209,6 +209,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 scoreService.save(heat.workoutId(), lane.teamId(), result, organizer.getId());
             }
         }
+        restoreSchedule(heats);
     }
 
     /**
@@ -244,7 +245,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         List<HeatView> heats = heatService.generateAll(c.getId(), organizer.getId(),
                 new GenerateAllHeatsRequest(at(today, 8), HEAT_INTERVAL_MINUTES));
         for (HeatView heat : heats.stream().filter(h -> h.workoutNumber() == 1).toList()) {
-            finish(heat, false);
+            finish(heat);
             for (LaneView lane : heat.lanes()) {
                 scoreService.save(heat.workoutId(), lane.teamId(),
                         result(byId.get(heat.workoutId()), level(heat.categoryName()), random,
@@ -253,7 +254,8 @@ public class DemoDataSeeder implements ApplicationRunner {
             }
         }
         List<HeatView> secondWorkout = heats.stream().filter(h -> h.workoutNumber() == 2).toList();
-        finish(secondWorkout.get(0), false);
+        finish(secondWorkout.get(0));
+        restoreSchedule(heats);
         jdbc.update("CALL sp_start_heat(?, ?)", secondWorkout.get(1).heatId(), false);
     }
 
@@ -359,12 +361,19 @@ public class DemoDataSeeder implements ApplicationRunner {
                    AND t.status = 'CONFIRMED'""", OffsetDateTime.ofInstant(paidAt, ZoneOffset.UTC), c.getId());
     }
 
-    /** Conclui a bateria; no campeonato encerrado, usa o horário previsto como início e fim. */
-    private void finish(HeatView heat, boolean useSchedule) {
+    /** Os eventos passados do seed têm início e término fictícios na grade original. */
+    private void finish(HeatView heat) {
         jdbc.update("UPDATE heat SET status = 'FINISHED' WHERE id = ?", heat.heatId());
-        if (useSchedule) {
-            jdbc.update("UPDATE heat SET started_at = scheduled_at, finished_at = scheduled_at + interval '12 minutes' "
-                    + "WHERE id = ?", heat.heatId());
+        OffsetDateTime start = OffsetDateTime.ofInstant(heat.scheduledAt(), ZoneOffset.UTC);
+        jdbc.update("UPDATE heat SET scheduled_at = ?, started_at = ?, finished_at = ?, schedule_end_at = ? WHERE id = ?",
+                start, start, start.plusSeconds(heat.durationSeconds()), start.plusSeconds(heat.durationSeconds()), heat.heatId());
+    }
+
+    /** O replay dos eventos históricos não deve adiar a grade de demonstração para a data do seed. */
+    private void restoreSchedule(List<HeatView> heats) {
+        for (HeatView heat : heats) {
+            jdbc.update("UPDATE heat SET scheduled_at = ? WHERE id = ?",
+                    OffsetDateTime.ofInstant(heat.scheduledAt(), ZoneOffset.UTC), heat.heatId());
         }
     }
 

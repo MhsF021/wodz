@@ -2,7 +2,6 @@ package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
-import br.com.wodz.common.TokenCipher;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.Category;
 import br.com.wodz.domain.Championship;
@@ -14,6 +13,7 @@ import br.com.wodz.domain.PayoutAccountStatus;
 import br.com.wodz.domain.Team;
 import br.com.wodz.domain.TeamStatus;
 import br.com.wodz.dto.PaymentDtos.CreatePaymentRequest;
+import br.com.wodz.dto.PaymentDtos.Payer;
 import br.com.wodz.dto.PaymentDtos.PaymentDto;
 import br.com.wodz.dto.PaymentDtos.PublicConfig;
 import br.com.wodz.dto.PaymentDtos.RegistrationSummary;
@@ -50,21 +50,22 @@ public class PaymentService {
     private final PayoutAccountRepository payoutAccounts;
     private final PaymentGateway gateway;
     private final AppProperties props;
-    private final TokenCipher tokenCipher;
+    private final PayoutTokenService payoutTokens;
 
     public PaymentService(TeamRepository teams, PaymentRepository payments, PayoutAccountRepository payoutAccounts,
-                          PaymentGateway gateway, AppProperties props, TokenCipher tokenCipher) {
+                          PaymentGateway gateway, AppProperties props, PayoutTokenService payoutTokens) {
         this.teams = teams;
         this.payments = payments;
         this.payoutAccounts = payoutAccounts;
         this.gateway = gateway;
         this.props = props;
-        this.tokenCipher = tokenCipher;
+        this.payoutTokens = payoutTokens;
     }
 
     public PublicConfig publicConfig() {
         String googleClientId = props.google() == null ? null : Codes.blankToNull(props.google().clientId());
-        return new PublicConfig(gateway.providerName(), gateway.publicKey(), gateway.supportsSimulation(), googleClientId);
+        return new PublicConfig(gateway.providerName(), gateway.publicKey(), gateway.supportsSimulation(), googleClientId,
+                "mercadopago".equalsIgnoreCase(props.payment().provider()) && props.payment().mercadopago().testMode());
     }
 
     @Transactional(readOnly = true)
@@ -134,7 +135,8 @@ public class PaymentService {
                 amount,
                 description,
                 req.method(),
-                req.payer(),
+                new Payer(Codes.uppercase(req.payer().firstName().trim()),
+                        Codes.uppercase(req.payer().lastName().trim()), req.payer().email(), req.payer().cpf()),
                 req.card(),
                 payment.getInstallments(),
                 payment.getExpiresAt(),
@@ -218,7 +220,7 @@ public class PaymentService {
         PayoutAccount account = payoutAccounts.findFirstByUserIdAndStatus(ownerId, PayoutAccountStatus.ACTIVE)
                 .orElseThrow(() -> ApiException.unprocessable(
                         "O organizador ainda não conectou uma conta Mercado Pago para receber pagamentos."));
-        return seller(account);
+        return payoutTokens.seller(account.getId(), true);
     }
 
     /** Mantém as consultas e webhooks vinculados à conta que recebeu a cobrança original. */
@@ -240,7 +242,7 @@ public class PaymentService {
         if (account.getAccessToken() == null || account.getAccessToken().isBlank()) {
             throw ApiException.unprocessable("A conta Mercado Pago do organizador não está mais conectada.");
         }
-        return new SellerAccount(account.getId(), account.getProviderUserId(), tokenCipher.decrypt(account.getAccessToken()));
+        return payoutTokens.seller(account.getId());
     }
 
     /** Calcula a parte da plataforma em centavos exatos; nula significa que não há retenção. */

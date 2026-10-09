@@ -98,7 +98,7 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
       <section aria-labelledby="cat-form" className="panel">
         <h2 id="cat-form" className="panel__title">{editing ? `Editar ${editing.name}` : 'Nova categoria'}</h2>
         <form className="form" onSubmit={submit} noValidate>
-          <Field label="Nome" htmlFor="cat-name">
+          <Field label="Nome" htmlFor="cat-name" uppercase>
             <input id="cat-name" className="input" maxLength={80} placeholder="Ex.: Scaled" value={form.name} onChange={set('name')} />
           </Field>
           <div className="grid-2">
@@ -115,7 +115,7 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
               <input id="cat-order" className="input" type="number" min={0} value={form.displayOrder} onChange={set('displayOrder')} />
             </Field>
           </div>
-          <Field label="Descrição (opcional)" htmlFor="cat-desc">
+          <Field label="Descrição (opcional)" htmlFor="cat-desc" uppercase>
             <textarea id="cat-desc" className="input" rows={3} value={form.description} onChange={set('description')} />
           </Field>
           {localError && <p className="form-error" role="alert">{localError}</p>}

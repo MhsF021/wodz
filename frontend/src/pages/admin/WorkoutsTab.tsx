@@ -169,12 +169,13 @@ export function WorkoutsTab({ championship }: { championship: ChampionshipDetail
             </Field>
           </div>
           <p className="note">{TYPE_HINT[form.type]}</p>
-          <Field label="Nome" htmlFor="wk-name">
+          <Field label="Nome" htmlFor="wk-name" uppercase>
             <input id="wk-name" className="input" maxLength={120} placeholder="Ex.: Abertura" value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
           <div className="grid-2">
-            <Field label={form.type === 'AMRAP' ? 'Duração (mm:ss)' : 'Time cap (mm:ss)'} htmlFor="wk-cap">
+            <Field label={form.type === 'AMRAP' ? 'Duração (mm:ss)' : 'Duração / time cap (mm:ss)'} htmlFor="wk-cap"
+              hint="Necessária para calcular o término e os horários das baterias. Defina antes de gerar a grade.">
               <input id="wk-cap" className="input" placeholder="12:00" value={form.timeCap}
                 onChange={(e) => setForm({ ...form, timeCap: e.target.value })} />
             </Field>
@@ -190,7 +191,7 @@ export function WorkoutsTab({ championship }: { championship: ChampionshipDetail
               onChange={(e) => setForm({ ...form, hasTiebreak: e.target.checked })} />
             Prova com tempo de desempate (tiebreak)
           </label>
-          <Field label="Descrição do WOD" htmlFor="wk-desc">
+          <Field label="Descrição do WOD" htmlFor="wk-desc" uppercase>
             <textarea id="wk-desc" className="input" rows={6} placeholder={'21-15-9\nThrusters 43/30 kg\nPull-ups'}
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </Field>

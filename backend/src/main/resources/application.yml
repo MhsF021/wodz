@@ -42,6 +42,8 @@ app:
       # a própria conta por OAuth; o dinheiro das inscrições cai direto na conta deles.
       client-id: ${MP_CLIENT_ID:}
       client-secret: ${MP_CLIENT_SECRET:}
+      # APIs oficiais com credenciais de teste (OAuth test_token=true), sem o simulador local.
+      test-mode: ${MP_TEST_MODE:false}
       public-key: ${MP_PUBLIC_KEY:}
       webhook-secret: ${MP_WEBHOOK_SECRET:}
       notification-url: ${MP_NOTIFICATION_URL:}

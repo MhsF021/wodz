@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 class AccountServiceTest {
 
@@ -44,7 +45,8 @@ class AccountServiceTest {
     private final TeamRepository teams = mock(TeamRepository.class);
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final GoogleTokenVerifier google = mock(GoogleTokenVerifier.class);
-    private final AccountService service = new AccountService(users, championships, teams, encoder, google);
+    private final PayoutAccountService payoutAccounts = mock(PayoutAccountService.class);
+    private final AccountService service = new AccountService(users, championships, teams, encoder, google, payoutAccounts);
 
     private AppUser user;
 
@@ -64,7 +66,8 @@ class AccountServiceTest {
     void atualizaNomeECelularSemPedirSenha() {
         UserDto dto = service.update(7L, new UpdateProfileRequest("  Ana Paula Souza ", "ANA@wodz.dev", " ", null));
 
-        assertEquals("Ana Paula Souza", dto.name());
+        assertEquals("ANA PAULA SOUZA", dto.name());
+        assertEquals("ANA PAULA SOUZA", user.getName());
         assertEquals("ana@wodz.dev", dto.email());
         assertNull(dto.phone());
     }
@@ -206,6 +209,7 @@ class AccountServiceTest {
 
         assertTrue(user.isDeleted());
         assertNull(user.getGoogleSub());
+        verify(payoutAccounts).eraseUserData(7L);
     }
 
     @Test

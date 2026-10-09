@@ -76,7 +76,9 @@ public class ScheduleQueryService {
                 rs.getLong("championship_id"),
                 rs.getString("championship_slug"),
                 rs.getString("championship_name"),
-                lanes(rs.getString("lanes")));
+                lanes(rs.getString("lanes")),
+                JdbcSupport.integer(rs, "duration_seconds"),
+                rs.getInt("interval_minutes"));
     }
 
     private List<LaneView> lanes(String json) {

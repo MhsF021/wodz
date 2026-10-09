@@ -31,9 +31,11 @@ public class MercadoPagoOAuthClient {
 
     private final RestClient client;
     private final AppProperties.MercadoPagoProps config;
+    private final boolean production;
 
     public MercadoPagoOAuthClient(AppProperties props, RestClient.Builder builder) {
         this.config = props.payment().mercadopago();
+        this.production = "prod".equalsIgnoreCase(props.environment());
         this.client = builder.baseUrl("https://api.mercadopago.com").build();
     }
 
@@ -53,27 +55,37 @@ public class MercadoPagoOAuthClient {
     }
 
     public OAuthTokens exchangeCode(String code, String codeVerifier, String redirectUri) {
-        Map<String, Object> body = base("authorization_code");
+        Map<String, Object> body = base("authorization_code", config.testMode());
         body.put("code", code);
         body.put("redirect_uri", redirectUri);
         body.put("code_verifier", codeVerifier);
         return token(body, "O Mercado Pago não confirmou a autorização. Tente conectar a conta de novo.");
     }
 
-    public OAuthTokens refresh(String refreshToken) {
-        Map<String, Object> body = base("refresh_token");
+    public OAuthTokens refresh(String refreshToken, boolean testMode) {
+        // Renova no modo da conta original, mesmo após alterar a configuração do ambiente.
+        Map<String, Object> body = base("refresh_token", testMode);
         body.put("refresh_token", refreshToken);
         return token(body, "Não foi possível renovar a autorização da conta Mercado Pago. Conecte a conta de novo.");
     }
 
     /** Nome e e-mail da conta conectada, para o organizador conferir para onde vai o dinheiro. */
-    public String accountLabel(String accessToken) {
+    public String validateAccount(OAuthTokens tokens) {
         try {
             JsonNode me = client.get().uri("/users/me")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.accessToken())
                     .retrieve().body(JsonNode.class);
-            if (me == null) {
-                return null;
+            if (me == null || !tokens.userId().equals(MercadoPagoGateway.text(me.path("id")))
+                    || !"MLB".equals(me.path("site_id").asText())
+                    || !"active".equals(me.path("status").path("site_status").asText())) {
+                throw ApiException.unprocessable("Use uma conta Mercado Pago brasileira ativa para receber inscrições.");
+            }
+            if (production) {
+                for (JsonNode tag : me.path("tags")) {
+                    if ("test_user".equals(tag.asText())) {
+                        throw ApiException.unprocessable("Use uma conta de produção do Mercado Pago.");
+                    }
+                }
             }
             String first = MercadoPagoGateway.text(me.path("first_name"));
             String last = MercadoPagoGateway.text(me.path("last_name"));
@@ -86,17 +98,18 @@ public class MercadoPagoOAuthClient {
             String label = email == null ? name : name + " (" + email + ")";
             return label.length() > 200 ? label.substring(0, 200) : label;
         } catch (RestClientException e) {
-            log.warn("Não foi possível ler os dados da conta Mercado Pago conectada", e);
-            return null;
+            log.warn("Não foi possível validar a conta Mercado Pago conectada (HTTP/API)");
+            throw ApiException.badGateway("Não foi possível validar a conta no Mercado Pago. Tente conectar novamente.");
         }
     }
 
-    private Map<String, Object> base(String grantType) {
+    private Map<String, Object> base(String grantType, boolean testMode) {
         requireConfigured();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("client_id", config.clientId());
         body.put("client_secret", config.clientSecret());
         body.put("grant_type", grantType);
+        body.put("test_token", testMode);
         return body;
     }
 
@@ -107,7 +120,10 @@ public class MercadoPagoOAuthClient {
                     .body(body)
                     .retrieve()
                     .body(JsonNode.class);
-            if (n == null || MercadoPagoGateway.text(n.path("access_token")) == null) {
+            if (n == null || MercadoPagoGateway.text(n.path("access_token")) == null
+                    || MercadoPagoGateway.text(n.path("refresh_token")) == null
+                    || MercadoPagoGateway.text(n.path("user_id")) == null || n.path("expires_in").asLong(0) <= 0
+                    || !n.path("live_mode").isBoolean()) {
                 throw ApiException.badGateway(errorMessage);
             }
             return new OAuthTokens(
@@ -118,9 +134,7 @@ public class MercadoPagoOAuthClient {
                     n.path("expires_in").asLong(0),
                     n.path("live_mode").asBoolean(false));
         } catch (RestClientResponseException e) {
-            // o corpo de erro do OAuth não traz segredos (só error/message)
-            log.warn("OAuth do Mercado Pago recusou {}: {} {}", body.get("grant_type"), e.getStatusCode(),
-                    e.getResponseBodyAsString());
+            log.warn("OAuth do Mercado Pago recusou {}: {}", body.get("grant_type"), e.getStatusCode());
             throw e.getStatusCode().is4xxClientError()
                     ? ApiException.unprocessable(errorMessage)
                     : ApiException.badGateway("O Mercado Pago não respondeu. Tente de novo em instantes.");

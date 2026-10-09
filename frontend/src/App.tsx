@@ -12,6 +12,7 @@ import MyProfilePage from './pages/MyProfilePage';
 import AdminHome from './pages/admin/AdminHome';
 import NewChampionshipPage from './pages/admin/NewChampionshipPage';
 import AdminChampionshipPage from './pages/admin/AdminChampionshipPage';
+import MercadoPagoReturnPage from './pages/MercadoPagoReturnPage';
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
           }
         />
         <Route path="pagamento/:code" element={<PaymentPage />} />
+        <Route path="mercadopago/retorno" element={<MercadoPagoReturnPage />} />
         <Route path="entrar" element={<LoginPage />} />
         <Route path="cadastro" element={<SignupPage />} />
         <Route
