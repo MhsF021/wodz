@@ -1,183 +1,132 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { Link } from 'react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { athleteApi, paymentApi } from '../api/endpoints';
-import type { HeatView } from '../api/types';
-import { clockTime, dateRange, dayLabel, money } from '../lib/format';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { athleteApi, publicApi } from '../api/endpoints';
+import type { HeatView, Team } from '../api/types';
+import { capLabel, clockTime, dayLabel, money, workoutTypeLabel } from '../lib/format';
+import { teamSchedule } from '../lib/teamSchedule';
+import { Dialog } from '../components/Dialog';
 import { HeatBadge, TeamBadge } from '../components/StatusBadge';
-import { LiveHeat } from '../components/LiveHeat';
 import { HeatTiming } from '../components/HeatTiming';
 import { Empty, ErrorState, Loading } from '../components/States';
-import { ActionFeedback } from '../components/ActionFeedback';
-import { openExternalWindow, subscribeExternalResult } from '../lib/externalWindow';
 
 export default function MyTeamsPage() {
-  const queryClient = useQueryClient();
-  const [paymentCode, setPaymentCode] = useState<string | null>(null);
-  const paymentWindow = useRef<Window | null>(null);
-  const [windowActive, setWindowActive] = useState(false);
-  const [popupError, setPopupError] = useState<string | null>(null);
-  const teams = useQuery({ queryKey: ['my-teams'], queryFn: athleteApi.teams });
-  const heats = useQuery({ queryKey: ['my-heats'], queryFn: athleteApi.heats, refetchInterval: 20_000 });
-  const returnedPayment = useQuery({
-    queryKey: ['my-team-payment', paymentCode],
-    queryFn: async () => {
-      const registration = await paymentApi.summary(paymentCode!);
-      const payment = registration.lastPayment;
-      return payment?.status === 'PENDING' ? paymentApi.status(paymentCode!, payment.id) : payment ?? null;
-    },
-    enabled: Boolean(paymentCode),
-    refetchInterval: (query) => windowActive && !query.state.data || query.state.data?.status === 'PENDING' ? 5000 : false,
-    refetchIntervalInBackground: true,
-  });
+  const [params, setParams] = useSearchParams();
+  const teams = useQuery({ queryKey: ['my-teams'], queryFn: athleteApi.teams,
+    staleTime: 0, refetchInterval: params.has('equipe') ? 20_000 : false });
+  const selectedTeam = teams.data?.find((team) => String(team.id) === params.get('equipe'));
 
-  useEffect(() => subscribeExternalResult('payment', (result) => {
-    if (!teams.data?.some((team) => team.registrationCode === result.code)) return;
-    setPaymentCode(result.code!);
-    queryClient.invalidateQueries({ queryKey: ['my-team-payment', result.code] });
-    queryClient.invalidateQueries({ queryKey: ['my-teams'] });
-  }), [teams.data, queryClient]);
-
-  useEffect(() => {
-    if (returnedPayment.data?.status === 'APPROVED') {
-      queryClient.invalidateQueries({ queryKey: ['my-teams'] });
-    }
-  }, [returnedPayment.data?.status, queryClient]);
-
-  useEffect(() => {
-    if (!windowActive) return;
-    const timer = window.setInterval(() => {
-      if (!paymentWindow.current?.closed) return;
-      setWindowActive(false);
-      paymentWindow.current = null;
-      queryClient.invalidateQueries({ queryKey: ['my-team-payment', paymentCode] });
-      queryClient.invalidateQueries({ queryKey: ['my-teams'] });
-    }, 750);
-    return () => window.clearInterval(timer);
-  }, [windowActive, paymentCode, queryClient]);
-
-  function openPayment(event: MouseEvent<HTMLAnchorElement>, registrationCode: string) {
-    event.preventDefault();
-    if (paymentCode === registrationCode && paymentWindow.current && !paymentWindow.current.closed) {
-      paymentWindow.current.focus();
-      return;
-    }
-    const opened = openExternalWindow(event.currentTarget.href, `wodz-payment-${registrationCode}`);
-    if (!opened) {
-      setPopupError('Permita novas janelas no navegador para abrir o pagamento.');
-      return;
-    }
-    paymentWindow.current = opened;
-    setPaymentCode(registrationCode);
-    setWindowActive(true);
-    setPopupError(null);
+  function selectTeam(id?: number) {
+    const next = new URLSearchParams(params);
+    if (id === undefined) next.delete('equipe'); else next.set('equipe', String(id));
+    setParams(next, { replace: true });
   }
 
   if (teams.isLoading) return <Loading />;
-  if (teams.error) return <div className="page"><ErrorState error={teams.error} /></div>;
-
-  const myTeamIds = heats.data?.teamIds ?? [];
-  const allHeats = heats.data?.heats ?? [];
-  const live = allHeats.filter((h) => h.status === 'IN_PROGRESS');
+  if (teams.error && !teams.data) return <div className="page"><ErrorState error={teams.error}
+    action={<button className="btn btn--secondary" onClick={() => teams.refetch()}>Tentar novamente</button>} /></div>;
 
   return (
     <div className="page">
       <h1 className="page-title">Minhas equipes</h1>
-      {popupError && <ActionFeedback status="error" label={popupError} />}
-      {paymentCode && (
-        <ActionFeedback
-          key={`${paymentCode}-${returnedPayment.data?.status ?? 'waiting'}`}
-          status={returnedPayment.data?.status === 'APPROVED' ? 'success'
-            : returnedPayment.error || returnedPayment.data && returnedPayment.data.status !== 'PENDING' ? 'error' : 'pending'}
-          label={returnedPayment.data?.status === 'APPROVED' ? 'Pagamento aprovado. Inscrição confirmada.'
-            : returnedPayment.data?.status === 'REJECTED' ? 'Pagamento recusado. Tente outra forma de pagamento.'
-              : returnedPayment.data?.status === 'CANCELLED' ? 'Pagamento cancelado.'
-                : returnedPayment.data?.status === 'EXPIRED' ? 'A cobrança expirou. Você pode gerar uma nova.'
-                  : returnedPayment.data?.status === 'REFUNDED' ? 'O pagamento foi devolvido.'
-                    : returnedPayment.error ? 'Não foi possível conferir o pagamento. Tente novamente em instantes.'
-                      : windowActive ? 'Aguardando confirmação do pagamento na nova janela.' : 'Pagamento ainda não concluído. Você pode retomar na nova janela.'}
-        />
-      )}
-
-      {live.map((heat) => (
-        <LiveHeat key={heat.heatId} heat={heat} highlightTeamIds={myTeamIds} />
-      ))}
-
-      <section aria-labelledby="my-heats-title" className="stack">
-        <h2 id="my-heats-title" className="section-title">Suas baterias</h2>
-        {heats.isLoading && <Loading />}
-        {heats.error && <ErrorState error={heats.error} />}
-        {heats.data && allHeats.length === 0 && (
-          <Empty title="Nenhuma bateria definida ainda">
-            <p>Quando a organização montar as baterias, o horário e a raia de cada prova aparecem aqui.</p>
-          </Empty>
-        )}
-        {allHeats.length > 0 && (
-          <ol className="my-heats">
-            {allHeats.map((heat) => (
-              <MyHeatRow key={heat.heatId} heat={heat} teamIds={myTeamIds} />
-            ))}
-          </ol>
-        )}
-      </section>
-
-      <section aria-labelledby="my-teams-title" className="stack">
-        <h2 id="my-teams-title" className="section-title">Inscrições</h2>
-        {teams.data && teams.data.length === 0 && (
-          <Empty title="Você ainda não inscreveu nenhuma equipe">
-            <Link className="btn btn--primary" to="/">Encontrar um campeonato</Link>
-          </Empty>
-        )}
-        <ul className="team-list">
-          {teams.data?.map((team) => (
-            <li key={team.id} className="team-card">
-              <div className="team-card__head">
-                <div>
-                  <p className="team-card__name">{team.name}</p>
-                  <p className="team-card__meta">
-                    <Link to={`/c/${team.championship.slug}`}>{team.championship.name}</Link>
-                    {', '}categoria {team.category.name}, {dateRange(team.championship.startDate, team.championship.endDate)}
-                  </p>
-                </div>
-                <TeamBadge status={team.status} />
-              </div>
-              <p className="team-card__members">{team.members.map((m) => m.fullName).join(', ')}</p>
-              {team.status === 'PENDING_PAYMENT' && (
-                <div className="team-card__actions">
-                  <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}?checkout=1`}
-                    target="_blank" rel="noopener noreferrer" onClick={(event) => openPayment(event, team.registrationCode)}>
-                    Pagar inscrição ({money(team.category.price)})
-                  </Link>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
+      <p className="my-teams__intro">Selecione uma equipe para ver sua inscrição, os horários das baterias e as provas.</p>
+      {teams.error && <ErrorState error={teams.error}
+        action={<button className="btn btn--secondary" onClick={() => teams.refetch()}>Tentar novamente</button>} />}
+      {teams.data?.length === 0 && <Empty title="Você ainda não inscreveu nenhuma equipe">
+        <Link className="btn btn--primary" to="/">Encontrar um campeonato</Link>
+      </Empty>}
+      <ul className="team-mini-cards" aria-label="Suas equipes">
+        {teams.data?.map((team) => (
+          <li key={team.id}>
+            <button type="button" className="team-mini-card" aria-haspopup="dialog"
+              onClick={() => selectTeam(team.id)}>
+              <span className="team-mini-card__championship">{team.championship.name}</span>
+              <span className="team-mini-card__name">{team.name}</span>
+              <span className="team-mini-card__category">{team.category.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {selectedTeam && <TeamDetails key={selectedTeam.id} team={selectedTeam} onClose={() => selectTeam()} />}
     </div>
   );
 }
 
-function MyHeatRow({ heat, teamIds }: { heat: HeatView; teamIds: number[] }) {
-  const lane = heat.lanes.find((l) => teamIds.includes(l.teamId));
+function LocalLoading({ label }: { label: string }) {
+  return <div className="details-dialog__loading" role="status" aria-label={label}><span className="spinner" aria-hidden /></div>;
+}
+
+export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void }) {
+  const [heatId, setHeatId] = useState<number | null>(null);
+  const heats = useQuery({ queryKey: ['my-heats'], queryFn: athleteApi.heats,
+    enabled: team.status === 'CONFIRMED', refetchInterval: 20_000, meta: { activity: false } });
+  const schedule = teamSchedule(heats.data?.heats ?? [], team);
+  const selectedHeat = schedule.find((heat) => heat.heatId === heatId);
+  const workoutHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { workoutHeading.current?.focus(); }, [selectedHeat?.heatId]);
+  const championship = useQuery({ queryKey: ['championship', team.championship.slug],
+    queryFn: () => publicApi.championship(team.championship.slug), enabled: !!selectedHeat, meta: { activity: false } });
+  const workout = championship.data?.categories.find((category) => category.id === team.category.id)
+    ?.workouts.find((item) => item.id === selectedHeat?.workoutId);
+
+  function backToSchedule() {
+    setHeatId(null);
+    requestAnimationFrame(() => document.getElementById(`team-heat-${heatId}`)?.focus());
+  }
+
   return (
-    <li className={`my-heat my-heat--${heat.status.toLowerCase()}`}>
-      <div className="my-heat__time">
-        <span className="my-heat__clock">{clockTime(heat.scheduledAt)}</span>
-        <span className="my-heat__day">{dayLabel(heat.scheduledAt)}</span>
+    <Dialog title={team.championship.name} subtitle={`${team.name} · ${team.category.name}`} onClose={onClose}>
+      <div className="team-details__registration">
+        <TeamBadge status={team.status} />
+        {team.status === 'PENDING_PAYMENT' && <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}`}>
+          Pagar inscrição · {money(team.category.price)}
+        </Link>}
       </div>
-      <div className="my-heat__main">
-        <p className="my-heat__title">
-          Prova {heat.workoutNumber}: {heat.workoutName}
-        </p>
-        <p className="my-heat__meta">
-          <Link to={`/c/${heat.championshipSlug}?aba=baterias`}>{heat.championshipName}</Link>, {heat.categoryName},
-          bateria {heat.heatNumber}
-          {lane ? `, raia ${lane.lane} (${lane.teamName})` : ''}
-        </p>
-        <HeatTiming heat={heat} />
-      </div>
-      <HeatBadge status={heat.status} />
-    </li>
+      {team.status === 'PENDING_PAYMENT' ? (
+        <div className="team-details__empty"><h3>Confirme sua inscrição</h3><p>Sua equipe já está inscrita. Após a confirmação do pagamento, a organização poderá incluí-la nas baterias.</p></div>
+      ) : team.status === 'CANCELLED' ? (
+        <div className="team-details__empty"><h3>Inscrição cancelada</h3><p>Fale com a organização se precisar de informações sobre esta inscrição.</p></div>
+      ) : selectedHeat ? (
+        <section className="team-workout" aria-label={`Prova ${selectedHeat.workoutNumber}`}>
+          <button className="team-details__back" type="button" onClick={backToSchedule}><ArrowLeft size={16} aria-hidden /> Voltar aos horários</button>
+          <div className="team-workout__heading"><div><p className="team-workout__eyebrow">Prova {selectedHeat.workoutNumber} · Bateria {selectedHeat.heatNumber}</p>
+            <h3 ref={workoutHeading} tabIndex={-1}>{selectedHeat.workoutName}</h3></div><HeatBadge status={selectedHeat.status} /></div>
+          <p className="team-workout__schedule">{dayLabel(selectedHeat.scheduledAt)} · {clockTime(selectedHeat.scheduledAt)} · Raia {selectedHeat.lanes.find((lane) => lane.teamId === team.id)?.lane}</p>
+          <HeatTiming heat={selectedHeat} />
+          {championship.isPending && <LocalLoading label="Carregando prova" />}
+          {championship.error && <ErrorState error={championship.error}
+            action={<button className="btn btn--secondary" onClick={() => championship.refetch()}>Tentar novamente</button>} />}
+          {workout && <div className="team-workout__content">
+            <dl className="team-workout__facts">
+              <div><dt>Formato</dt><dd>{workoutTypeLabel[workout.type]}</dd></div>
+              {workout.timeCapSeconds != null && <div><dt>Time cap</dt><dd>{capLabel(workout.timeCapSeconds)}</dd></div>}
+              {workout.repsPerRound != null && <div><dt>Repetições por round</dt><dd>{workout.repsPerRound}</dd></div>}
+              {workout.hasTiebreak && <div><dt>Desempate</dt><dd>Com tiebreak</dd></div>}
+            </dl>
+            <h4>Descrição da prova</h4><p className="team-workout__description">{workout.description?.trim() || 'A organização ainda não publicou a descrição desta prova.'}</p>
+          </div>}
+          {championship.data && !workout && !championship.error && <p className="note">Esta prova foi atualizada pela organização. Volte aos horários para consultar a grade atual.</p>}
+        </section>
+      ) : (
+        <section aria-labelledby="team-schedule-title" className="team-schedule">
+          <div className="team-schedule__heading"><h3 id="team-schedule-title">Horários das baterias</h3><p>Horário de Brasília · Selecione uma bateria para ver a prova.</p></div>
+          {heats.isPending && <LocalLoading label="Carregando baterias" />}
+          {heats.error && <ErrorState error={heats.error}
+            action={<button className="btn btn--secondary" onClick={() => heats.refetch()}>Tentar novamente</button>} />}
+          {heats.data && schedule.length === 0 && <div className="team-details__empty"><p>A organização ainda não definiu as baterias desta equipe.</p></div>}
+          <ol className="team-schedule__list">{schedule.map((heat) => <TeamHeat key={heat.heatId} heat={heat} teamId={team.id} onSelect={() => setHeatId(heat.heatId)} />)}</ol>
+        </section>
+      )}
+    </Dialog>
   );
+}
+
+function TeamHeat({ heat, teamId, onSelect }: { heat: HeatView; teamId: number; onSelect: () => void }) {
+  const lane = heat.lanes.find((item) => item.teamId === teamId);
+  return <li><button id={`team-heat-${heat.heatId}`} type="button" className="team-schedule__heat" onClick={onSelect}>
+    <span className="team-schedule__time"><strong>{clockTime(heat.scheduledAt)}</strong><span>{dayLabel(heat.scheduledAt)}</span></span>
+    <span className="team-schedule__label"><strong>Bateria {heat.heatNumber}</strong><span>Prova {heat.workoutNumber}{lane ? ` · Raia ${lane.lane}` : ''}</span></span>
+    <HeatBadge status={heat.status} /><ChevronRight size={18} className="team-schedule__arrow" aria-hidden />
+  </button></li>;
 }

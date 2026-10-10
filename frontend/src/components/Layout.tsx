@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import { Menu, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
@@ -6,14 +6,25 @@ import { firstName } from '../lib/format';
 import { applyRoleTheme, logoFor } from '../lib/theme';
 import { Footer } from './Footer';
 import { ActivityIndicator } from './ActivityIndicator';
+import { useForegroundActivity } from '../lib/useActivity';
+import { navigationActivity, pageNavigationKey } from '../lib/activity';
 
 export function Layout() {
   const { user, logout, loading } = useAuth();
-  const { pathname, hash } = useLocation();
+  const requesting = useForegroundActivity();
+  const { pathname, hash, search } = useLocation();
+  const navigationKey = pageNavigationKey(pathname, search);
+  const previousLocation = useRef<string | null>(null);
+  const busy = requesting || loading || previousLocation.current !== navigationKey;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => applyRoleTheme(user?.role), [user?.role]);
+  useLayoutEffect(() => applyRoleTheme(user?.role), [user?.role]);
+  useLayoutEffect(() => {
+    if (previousLocation.current === navigationKey) return;
+    previousLocation.current = navigationKey;
+    navigationActivity();
+  }, [navigationKey]);
   useEffect(() => {
     if (!hash) return;
     const frame = window.requestAnimationFrame(() => {
@@ -41,7 +52,6 @@ export function Layout() {
         Pular para o conteúdo
       </a>
       <header className="topbar">
-        <ActivityIndicator initializing={loading} />
         <div className="topbar__inner">
           <Link to="/" className="wordmark" aria-label="WODZ, página inicial">
             <img className="wordmark__logo" src={logoFor(user?.role)} alt="" width={32} height={32} />
@@ -69,7 +79,7 @@ export function Layout() {
                 <NavLink to="/minha-conta" className="topnav__greeting" aria-label={`Olá, ${firstName(user.name)}: minha conta`}>
                   Olá, {firstName(user.name)}
                 </NavLink>
-                <button type="button" className="topnav__button" onClick={logout}>
+                <button type="button" className="topnav__button" onClick={() => logout()}>
                   Sair
                 </button>
               </>
@@ -79,8 +89,12 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main id="conteudo" className="main" tabIndex={-1}>
-        <Outlet />
+      <main id="conteudo" className="main" tabIndex={-1} aria-busy={busy}>
+        <ActivityIndicator active={busy} />
+        {/* Mantém consultas e formulários montados enquanto aguarda os dados. */}
+        <div className="main__content" aria-hidden={busy} inert={busy}>
+          <Outlet />
+        </div>
       </main>
       <Footer />
     </>

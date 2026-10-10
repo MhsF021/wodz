@@ -1,4 +1,5 @@
 import { API_BASE, http } from './client';
+import type { ChampionshipFilter } from '../lib/championshipFilters';
 import type {
   AdminChampionshipSummary,
   AuthResponse,
@@ -9,8 +10,9 @@ import type {
   ChampionshipInput,
   ChampionshipStatus,
   ChampionshipSummary,
-  CreatePaymentInput,
+  Checkout,
   DeleteAccountInput,
+  DisconnectGoogleInput,
   GenerateAllHeatsInput,
   GenerateHeatsInput,
   GoogleLoginResult,
@@ -47,12 +49,13 @@ export const authApi = {
   updateMe: (input: UpdateProfileInput) => http.put<User>('/api/auth/me', input),
   changePassword: (input: ChangePasswordInput) => http.put<void>('/api/auth/me/password', input),
   deleteMe: (input: DeleteAccountInput) => http.del('/api/auth/me', input),
+  disconnectGoogle: (input: DisconnectGoogleInput) => http.del('/api/auth/me/google', input),
 };
 
 export const publicApi = {
   config: () => http.get<PublicConfig>('/api/public/config'),
-  search: (q: string, state: string) =>
-    http.get<ChampionshipSummary[]>(`/api/public/championships?${new URLSearchParams({ q, state })}`),
+  search: (q: string, state: string, status: ChampionshipFilter = 'ALL') =>
+    http.get<ChampionshipSummary[]>(`/api/public/championships?${new URLSearchParams({ q, state, status })}`),
   championship: (slug: string) => http.get<ChampionshipDetail>(`/api/public/championships/${enc(slug)}`),
   schedule: (slug: string) => http.get<HeatView[]>(`/api/public/championships/${enc(slug)}/schedule`),
   leaderboard: (slug: string, categoryId?: number) =>
@@ -64,12 +67,11 @@ export const publicApi = {
 
 export const paymentApi = {
   summary: (code: string) => http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}`),
-  create: (code: string, input: CreatePaymentInput) =>
-    http.post<Payment>(`/api/public/registrations/${enc(code)}/payments`, input),
+  checkout: (code: string) => http.post<Checkout>(`/api/public/registrations/${enc(code)}/checkout`),
+  checkoutStatus: (code: string, checkoutId: number, paymentId?: string) =>
+    http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}/checkout/${checkoutId}${paymentId ? `?paymentId=${enc(paymentId)}` : ''}`),
   status: (code: string, paymentId: number) =>
     http.get<Payment>(`/api/public/registrations/${enc(code)}/payments/${paymentId}`),
-  simulate: (code: string, paymentId: number) =>
-    http.post<Payment>(`/api/public/registrations/${enc(code)}/payments/${paymentId}/simulate-approval`),
 };
 
 export const athleteApi = {

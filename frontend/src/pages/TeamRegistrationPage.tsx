@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { athleteApi, publicApi } from '../api/endpoints';
-import type { Gender, MemberInput, ShirtSize, User } from '../api/types';
+import type { Gender, MemberInput, ShirtSize, Team, User } from '../api/types';
 import { isValidCpf, maskCpf, money, onlyDigits } from '../lib/format';
 import { useAuth } from '../auth/AuthContext';
+import { existingRegistration } from '../lib/teamSchedule';
 import { Field } from '../components/Field';
 import { PlateChip } from '../components/Plate';
 import { ErrorState, InlineError, Loading } from '../components/States';
@@ -24,7 +25,10 @@ export default function TeamRegistrationPage() {
   const { slug = '' } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const cache = useQueryClient();
   const query = useQuery({ queryKey: ['championship', slug], queryFn: () => publicApi.championship(slug) });
+  const registrations = useQuery({ queryKey: ['my-teams'], queryFn: athleteApi.teams,
+    enabled: user?.role === 'ATHLETE', staleTime: 0 });
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [team, setTeam] = useState({ name: '', boxName: '', city: '' });
@@ -55,13 +59,30 @@ export default function TeamRegistrationPage() {
           shirtSize: m.shirtSize === '' ? null : m.shirtSize,
         })),
       }),
-    onSuccess: (created) =>
-      navigate(created.status === 'CONFIRMED' ? '/minhas-equipes' : `/pagamento/${created.registrationCode}`),
+    onSuccess: (created) => {
+      cache.setQueryData<Team[]>(['my-teams'], (previous = []) => [created, ...previous.filter((item) => item.id !== created.id)]);
+      navigate(created.status === 'CONFIRMED' ? `/minhas-equipes?equipe=${created.id}` : `/pagamento/${created.registrationCode}`);
+    },
+    onError: () => { void cache.invalidateQueries({ queryKey: ['my-teams'] }); },
   });
 
-  if (query.isLoading) return <Loading />;
+  if (query.isLoading || registrations.isLoading) return <Loading />;
   if (query.error || !query.data) return <div className="page"><ErrorState error={query.error} /></div>;
   const c = query.data;
+  if (registrations.error) return <div className="page"><ErrorState error={registrations.error}
+    action={<button className="btn btn--secondary" onClick={() => registrations.refetch()}>Tentar novamente</button>} /></div>;
+  const existing = existingRegistration(registrations.data ?? [], c.id);
+  if (existing) return (
+    <div className="page page--narrow">
+      <p className="crumb"><Link to={`/c/${c.slug}`}>{c.name}</Link></p>
+      <h1 className="page-title">Você já possui uma inscrição para esse campeonato</h1>
+      <p className="lead">{existing.name} · {existing.category.name}</p>
+      <div className="form-actions">
+        {existing.status === 'PENDING_PAYMENT' && <Link className="btn btn--primary" to={`/pagamento/${existing.registrationCode}`}>Continuar pagamento</Link>}
+        <Link className="btn btn--secondary" to={`/minhas-equipes?equipe=${existing.id}`}>Ver minha equipe</Link>
+      </div>
+    </div>
+  );
 
   if (!c.registrationOpen) {
     return (

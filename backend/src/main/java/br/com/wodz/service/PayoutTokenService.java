@@ -43,6 +43,10 @@ public class PayoutTokenService {
         if ((requireActive && !account.isActive()) || account.getAccessToken() == null) {
             throw ApiException.unprocessable("A conta Mercado Pago precisa ser conectada novamente.");
         }
+        String accessToken = cipher.decrypt(account.getAccessToken());
+        if (!accessToken.startsWith("APP_USR-")) {
+            throw ApiException.unprocessable("O organizador precisa reconectar sua conta Mercado Pago para usar Checkout Pro.");
+        }
         if (requireActive && account.isLiveMode() == testMode) {
             throw ApiException.unprocessable(testMode
                     ? "Renove a autorização da conta Mercado Pago em Minha conta para usar credenciais de teste."
@@ -53,20 +57,24 @@ public class PayoutTokenService {
             if (client == null || account.getRefreshToken() == null) {
                 throw ApiException.unprocessable("Conecte a conta Mercado Pago novamente para renovar a autorização.");
             }
-            OAuthTokens tokens = client.refresh(cipher.decrypt(account.getRefreshToken()), !account.isLiveMode());
+            OAuthTokens tokens = client.refreshCheckout(cipher.decrypt(account.getRefreshToken()), !account.isLiveMode());
             if (!account.getProviderUserId().equals(tokens.userId()) || tokens.liveMode() != account.isLiveMode()) {
                 throw ApiException.unprocessable("O Mercado Pago não confirmou a mesma conta. Conecte novamente.");
             }
             storeTokens(account, tokens);
             accounts.saveAndFlush(account);
+            accessToken = tokens.accessToken();
         }
-        return new SellerAccount(account.getId(), account.getProviderUserId(), cipher.decrypt(account.getAccessToken()));
+        if (requireActive && !accessToken.startsWith("APP_USR-"))
+            throw ApiException.unprocessable("O organizador precisa reconectar sua conta Mercado Pago para usar Checkout Pro.");
+        return new SellerAccount(account.getId(), account.getProviderUserId(), accessToken);
     }
 
     public void storeTokens(PayoutAccount account, OAuthTokens tokens) {
         account.setAccessToken(cipher.encrypt(tokens.accessToken()));
         account.setRefreshToken(cipher.encrypt(tokens.refreshToken()));
-        account.setPublicKey(tokens.publicKey());
+        // Checkout Pro não tokeniza cartões no WODZ nem usa chave pública no navegador.
+        account.setPublicKey(null);
         account.setExpiresAt(Instant.now().plusSeconds(tokens.expiresInSeconds()));
         account.setLiveMode(tokens.liveMode());
     }

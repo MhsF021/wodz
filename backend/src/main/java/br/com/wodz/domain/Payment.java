@@ -55,13 +55,9 @@ public class Payment {
 
     private String providerPaymentId;
 
+    private Long checkoutSessionId;
+
     private String statusDetail;
-
-    private String pixQrCode;
-
-    private String pixQrCodeBase64;
-
-    private String cardLastDigits;
 
     /** Conta do organizador que recebeu (split); nula em cobranças anteriores ao split. */
     @Column(name = "payout_account_id")

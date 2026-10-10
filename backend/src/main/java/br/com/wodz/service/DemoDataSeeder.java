@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
  *   <li>Arena 911 - 2026: acontecendo hoje. Prova 1 concluída com resultados,
  *       1ª bateria da Prova 2 concluída aguardando resultados e a 2ª em andamento.</li>
  *   <li>TCB 2026 (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para testar
- *       pagamentos. 8 duplas pagas por categoria e o "Time da Ana" (Scaled) aguardando pagamento.</li>
+ *       Checkout Pro. As equipes aguardam pagamento; nenhum pagamento é criado pelo seed.</li>
  * </ul>
  * Nos dois primeiros, cada categoria tem 16 duplas. Ninguém aparece em duas equipes
  * de um mesmo campeonato: nome, e-mail e CPF são únicos em todo o seed (só a atleta
@@ -173,7 +173,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 "Campeonato de verão em duplas no Sítio Histórico. Três provas em dois dias, com premiação para os "
                         + "três primeiros de cada categoria.",
                 "Ginásio Olinda Arena", "Rua do Sol, 250 - Carmo", "Olinda", "PE");
-        List<Category> cats = categories(c, new String[]{"150.00", "190.00", "230.00"});
+        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
             ws.add(workout(cat, 1, "Largada", WorkoutType.FOR_TIME, 10 * 60, null,
@@ -183,13 +183,12 @@ public class DemoDataSeeder implements ApplicationRunner {
             ws.add(workout(cat, 3, "Snatch do Alto da Sé", WorkoutType.MAX_LOAD, 10 * 60, null,
                     "Em 10 minutos, cada atleta busca o maior snatch.\nResultado: soma das cargas da dupla."));
         }
-        Instant paidAt = start.minusDays(20).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
+        Instant registeredAt = start.minusDays(20).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
             for (int i = 0; i < TEAMS_PER_CATEGORY; i++) {
-                roster.team(cat, null, paidAt);
+                roster.team(cat, null, registeredAt);
             }
         }
-        payAll(c, paidAt);
         close(c, start, ChampionshipStatus.FINISHED);
 
         Map<Long, Workout> byId = ws.stream().collect(Collectors.toMap(Workout::getId, Function.identity()));
@@ -221,7 +220,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 "Campeonato em duplas com três provas em dois dias. Kit atleta com camiseta e squeeze. "
                         + "Aquecimento liberado 30 minutos antes de cada bateria.",
                 "Arena Boa Viagem", "Av. Boa Viagem, 1000 - Boa Viagem", "Recife", "PE");
-        List<Category> cats = categories(c, new String[]{"180.00", "220.00", "260.00"});
+        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
                         ws.add(workout(cat, 1, "The Grind", WorkoutType.FOR_TIME, 12 * 60, null,
@@ -231,14 +230,13 @@ public class DemoDataSeeder implements ApplicationRunner {
             ws.add(workout(cat, 3, "Last Dance", WorkoutType.MAX_LOAD, 13 * 60, null,
                     "For time - 5 minutos (0' a 5')\n1RM de clean e jerk\n\nRest 2 minutos (5' a 7')\n\nFor time - 5 minutos (7' a 12')\n1RM de snatch"));
         }
-        Instant paidAt = today.minusDays(10).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
+        Instant registeredAt = today.minusDays(10).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
             for (int i = 0; i < TEAMS_PER_CATEGORY; i++) {
                 boolean anasTeam = cat.getName().equals("Scaled") && i == 0;
-                roster.team(cat, anasTeam ? athlete : null, paidAt);
+                roster.team(cat, anasTeam ? athlete : null, registeredAt);
             }
         }
-        payAll(c, paidAt);
         close(c, today, ChampionshipStatus.IN_PROGRESS);
 
         Map<Long, Workout> byId = ws.stream().collect(Collectors.toMap(Workout::getId, Function.identity()));
@@ -261,7 +259,7 @@ public class DemoDataSeeder implements ApplicationRunner {
 
     /**
      * Inscrições abertas e ainda não começou (início daqui a 30 dias), para testar pagamentos:
-     * metade das vagas com duplas pagas e o "Time da Ana" (Scaled) aguardando pagamento, com o
+     * metade das vagas com duplas aguardando pagamento e o "Time da Ana" (Scaled), com o
      * botão de pagar em "Minhas equipes". Ainda há vagas para inscrever equipes novas.
      */
     private void seedRegistrationOpen(AppUser organizer, AppUser athlete, Roster roster, LocalDate today) {
@@ -278,16 +276,15 @@ public class DemoDataSeeder implements ApplicationRunner {
             workout(cat, 3, "Terraço Itália", WorkoutType.MAX_LOAD, 10 * 60, null,
                     "Em 10 minutos, cada atleta busca o maior clean.\nResultado: soma das cargas da dupla.");
         }
-        Instant paidAt = today.minusDays(3).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
+        Instant registeredAt = today.minusDays(3).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
             for (int i = 0; i < TEAMS_PER_CATEGORY / 2; i++) {
-                roster.team(cat, null, paidAt, SAO_PAULO);
+                roster.team(cat, null, registeredAt, SAO_PAULO);
             }
         }
         roster.team(cats.get(1), athlete, null, SAO_PAULO);
-        payAll(c, paidAt);
     }
-    
+
     // --------------------------------------------------------------- helpers
 
     /** Inscrições só entram antes do início (trigger): o campeonato nasce marcado para daqui a 30 dias. */
@@ -345,20 +342,6 @@ public class DemoDataSeeder implements ApplicationRunner {
         workout.setRepsPerRound(repsPerRound);
         workout.setDescription(description);
         return workouts.save(workout);
-    }
-
-    /**
-     * Pix aprovado para todas as equipes confirmadas (a trigger de pagamento não muda
-     * equipes já confirmadas). Equipes aguardando pagamento ficam sem cobrança.
-     */
-    private void payAll(Championship c, Instant paidAt) {
-        teams.flush();
-        jdbc.update("""
-                INSERT INTO payment (team_id, amount, method, status, provider, paid_at)
-                SELECT t.id, cat.price, 'PIX', 'APPROVED', 'sandbox', ?
-                  FROM team t JOIN category cat ON cat.id = t.category_id
-                 WHERE cat.championship_id = ?
-                   AND t.status = 'CONFIRMED'""", OffsetDateTime.ofInstant(paidAt, ZoneOffset.UTC), c.getId());
     }
 
     /** Os eventos passados do seed têm início e término fictícios na grade original. */
@@ -444,7 +427,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         }
 
         /**
-         * Dupla da região, confirmada em confirmedAt; com confirmedAt nulo, aguardando pagamento.
+         * Dupla da região: inscrição gratuita confirmada; inscrição paga aguarda Checkout Pro.
          * Com athlete, ele é o capitão (o "Time da Ana"), sempre com o mesmo CPF.
          */
         Team team(Category category, AppUser athlete, Instant confirmedAt, Region region) {
@@ -460,8 +443,9 @@ public class DemoDataSeeder implements ApplicationRunner {
             team.setBoxName(region.boxes()[random.nextInt(region.boxes().length)]);
             team.setCity(region.cities()[random.nextInt(region.cities().length)]);
             team.setRegistrationCode(Codes.registrationCode());
-            team.setStatus(confirmedAt == null ? TeamStatus.PENDING_PAYMENT : TeamStatus.CONFIRMED);
-            team.setConfirmedAt(confirmedAt);
+            boolean free = category.getPrice().signum() == 0;
+            team.setStatus(free ? TeamStatus.CONFIRMED : TeamStatus.PENDING_PAYMENT);
+            team.setConfirmedAt(free ? confirmedAt : null);
             List<Member> members = List.of(captain, person());
             for (int m = 0; m < members.size(); m++) {
                 Member p = members.get(m);

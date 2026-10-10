@@ -13,6 +13,7 @@ import AdminHome from './pages/admin/AdminHome';
 import NewChampionshipPage from './pages/admin/NewChampionshipPage';
 import AdminChampionshipPage from './pages/admin/AdminChampionshipPage';
 import MercadoPagoReturnPage from './pages/MercadoPagoReturnPage';
+import GoogleReturnPage from './pages/GoogleReturnPage';
 
 export function App() {
   return (
@@ -30,6 +31,7 @@ export function App() {
         />
         <Route path="pagamento/:code" element={<PaymentPage />} />
         <Route path="mercadopago/retorno" element={<MercadoPagoReturnPage />} />
+        <Route path="google/retorno" element={<GoogleReturnPage />} />
         <Route path="entrar" element={<LoginPage />} />
         <Route path="cadastro" element={<SignupPage />} />
         <Route

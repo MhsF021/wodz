@@ -3,7 +3,7 @@
 Sistema para campeonatos de CrossFit. O **organizador** cadastra o campeonato,
 as categorias e as provas, abre o formulário de inscrição, acompanha as equipes,
 monta e controla as baterias e lança os resultados. O **atleta** busca
-campeonatos, inscreve a equipe, paga online (Pix ou cartão de crédito/débito), vê o horário
+campeonatos, inscreve a equipe, paga no checkout do Mercado Pago, vê o horário
 e o status das suas baterias e acompanha o leaderboard ao vivo.
 
 | Camada | Tecnologia |
@@ -12,7 +12,7 @@ e o status das suas baterias e acompanha o leaderboard ao vivo.
 | Banco | PostgreSQL 16, com tabelas, functions, procedures, triggers e views versionadas no Flyway |
 | Frontend | React 19, TypeScript, Vite, React Router 7, TanStack Query |
 | Tempo real | Server-Sent Events (baterias e leaderboard atualizam sozinhos) |
-| Pagamentos | Mercado Pago (Checkout Transparente: Pix e cartão de crédito/débito tokenizado, com 3DS) ou sandbox simulado |
+| Pagamentos | Mercado Pago Checkout Pro, com redirecionamento na mesma aba |
 
 ## Como rodar
 
@@ -106,9 +106,31 @@ confere assinatura, emissor, destinatário (o Client ID), validade e e-mail
 verificado com as chaves públicas do Google.
 
 - **Conta já vinculada:** entra direto.
-- **E-mail já cadastrado com senha:** a conta é vinculada ao Google.
+- **E-mail já cadastrado com senha:** o vínculo automático exige que o Google
+  seja responsável pelo endereço (Gmail ou Google Workspace com domínio validado).
+  Para endereços de outros provedores, entre com a senha existente.
 - **Primeiro acesso:** a tela pede o perfil (atleta ou organizador) antes de criar a conta. No cadastro, vale o perfil já marcado na página.
-- **Conta criada pelo Google:** não tem senha. Em "Minha conta" a pessoa pode criar uma; a exclusão da conta é confirmada com um novo login no Google.
+- **Conta vinculada ao Google:** "Minha conta" mostra "Desvincular conta Google"
+  no lugar da seção de senha. A confirmação usa a mesma conta Google, nesta aba.
+- **Desvincular Google:** `DELETE /api/auth/me/google` recebe uma nova credencial
+  da mesma conta Google. Com senha local, mantém a conta e exige novo login por
+  e-mail/senha, bloqueando novo vínculo automático. Sem senha local, encerra a
+  conta WODZ pelas mesmas regras de exclusão; campeonatos/inscrições ativos podem
+  impedir a operação. Os dados de inscrições/resultados seguem a retenção
+  descrita na [matriz de privacidade](docs/SECURITY_LGPD.md).
+
+A remoção do vínculo no WODZ e a revogação da permissão no Google são etapas
+separadas. Após a API confirmar a operação, o navegador tenta `accounts.id.revoke`
+para a identidade confirmada. Falha do Google não desfaz a operação local: a tela
+informa a pendência e permite concluir pela
+[página de conexões da Conta Google](https://myaccount.google.com/connections).
+O logout local acontece imediatamente; a confirmação Google continua em segundo
+plano por até sete segundos e informa seu resultado na tela de login, somente em
+memória. Durante essa tentativa o login Google fica suspenso para evitar que
+as duas operações disputem a configuração global do SDK.
+`disableAutoSelect` evita seleção automática ao sair, sem substituir revogação.
+Consulte o [guia de revogação Google](https://developers.google.com/identity/gsi/web/guides/revoke)
+e a [referência GIS](https://developers.google.com/identity/gsi/web/reference/js-reference).
 
 Configuração (`GOOGLE_CLIENT_ID`, já com o Client ID do projeto como padrão):
 
@@ -119,115 +141,96 @@ GOOGLE_CLIENT_ID=84072245662-m7cc1brb2fb7lkv92i9dqm5o1phnagr9.apps.googleusercon
 No Google Cloud, em "Origens JavaScript autorizadas" do Client ID, cadastre
 `http://localhost:5173`, `http://localhost:8081` e, depois, o domínio de
 produção (com `https`). O frontend recebe o Client ID por `GET /api/public/config`.
+Em **URIs de redirecionamento autorizados**, cadastre também a URL exata de
+cada origem: `http://localhost:5173/api/public/google/callback`,
+`http://localhost:8081/api/public/google/callback` e
+`https://SEU-DOMINIO/api/public/google/callback` em produção.
+O botão usa `ux_mode: redirect`, conforme a
+[referência oficial GIS](https://developers.google.com/identity/gsi/web/reference/js-reference).
+O retorno POST valida o cookie anti-CSRF, assinatura e nonce. Uma ponte na mesma
+origem entrega a credencial ao frontend, sem tokens na URL: o estado e a resposta
+temporários em `sessionStorage` são consumidos e apagados no retorno. O fluxo expira
+em 15 minutos. O primeiro acesso pede o perfil antes de criar a conta; erro ou
+confirmação expirada pede uma nova tentativa. Mantenha `FRONTEND_URL` na mesma origem
+em que o usuário iniciou a conexão, inclusive para o retorno do Mercado Pago.
 Deixe a variável vazia para desligar o login com Google.
 
 ## Pagamentos
 
-As formas de pagamento são **Pix** e **cartão**. No cartão, a pessoa escolhe
-**crédito** (à vista ou parcelado) ou **débito** (sempre à vista) antes de o
-formulário do cartão aparecer. Boleto não é mais aceito: cobranças antigas
-continuam no histórico, mas a API e o banco recusam boletos novos.
+O WODZ cria uma preferência de **Checkout Pro** no servidor e redireciona o comprador
+para o Mercado Pago na mesma aba. Não existem formulário de cartão, QR Code Pix,
+tokenização, SDK de pagamentos, desafio 3DS incorporado ou simulador local no WODZ.
+Os meios disponíveis são definidos pelo Mercado Pago no checkout hospedado.
 
-Por padrão o provedor é o **sandbox local**: cartão é aprovado na hora (cartões com
-final 0002 são recusados) e Pix fica pendente até você clicar em
-"Simular pagamento aprovado".
-
-### Testar localmente nas APIs oficiais do Mercado Pago
-
-Use `PAYMENT_PROVIDER=mercadopago` e `MP_TEST_MODE=true`. O sistema chama as APIs
-oficiais (`api.mercadopago.com`), solicita `test_token=true` no OAuth e usa o
-Card Payment Brick; não existe aprovação pelo simulador local nesse modo.
-O Mercado Pago também chama suas credenciais de teste de "sandbox", mas isso
-é diferente do `PAYMENT_PROVIDER=sandbox` do WODZ.
-
-1. Na aplicação Marketplace da **conta real** no Mercado Pago Developers, obtenha
-   **Client ID**, **Client Secret** e a **Public Key de teste** da aplicação
-   integradora. No checkout atual (Bricks), testes de cartão usam uma conta real
-   com credenciais de teste, sem movimentar dinheiro. As contas fictícias de
-   vendedor/comprador são para outros fluxos, como o redirecionamento para o
-   checkout do Mercado Pago. Veja [testes de Bricks](https://www.mercadopago.com.br/developers/pt/docs/checkout-bricks/integration-test/test-payment-flow).
-2. Exponha o frontend local por um túnel HTTPS. Com Docker, o destino é
-   `http://localhost:8081`, pois o frontend também encaminha `/api` para o backend.
-   Por exemplo, após instalar/configurar o [ngrok](https://ngrok.com/docs/getting-started/quickstart),
-   execute `ngrok http 8081` e mantenha o túnel aberto. O servidor e o banco
-   continuam no seu computador. Substitua `https://seu-tunel` abaixo pelo endereço
-   HTTPS fornecido pelo túnel.
-3. No painel da aplicação, habilite **Authorization Code com PKCE** e cadastre
-   exatamente `https://seu-tunel/api/public/mercadopago/callback` como Redirect URL.
-   Em **Webhooks → Modo teste**, cadastre
-   `https://seu-tunel/api/webhooks/mercadopago`, selecione **Pagamentos** (`payment`)
-   e obtenha a assinatura secreta. Consulte [OAuth](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation)
-   e [webhooks Payments](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/additional-content/your-integrations/notifications/webhooks).
-4. Preencha o `.env` da raiz (sem publicar suas chaves):
-
-   ```env
-   APP_ENV=dev
-   PAYMENT_PROVIDER=mercadopago
-   MP_TEST_MODE=true
-   MP_CLIENT_ID=seu-application-id
-   MP_CLIENT_SECRET=seu-client-secret
-   MP_PUBLIC_KEY=sua-public-key-de-teste
-   MP_CARD_PUBLIC_KEY_SOURCE=platform
-   MP_PLATFORM_FEE_PERCENT=0
-   MP_WEBHOOK_SECRET=sua-assinatura-secreta
-   FRONTEND_URL=https://seu-tunel
-   CORS_ORIGINS=https://seu-tunel,http://localhost:8081,http://localhost:5173
-   MP_NOTIFICATION_URL=https://seu-tunel/api/webhooks/mercadopago
-   APP_ENCRYPTION_KEY=sua-chave-estavel-de-32-bytes-em-base64
-   ```
-
-   Preserve `APP_ENCRYPTION_KEY` depois da primeira vinculação. Para gerar uma
-   chave no PowerShell: `[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`.
-   O Docker Compose lê o `.env` automaticamente; executar Maven diretamente
-   exige exportar essas variáveis no terminal.
-5. Execute `docker compose up --build -d` na raiz; os dados existentes do banco
-   são mantidos. Entre como Organizador e, em **Minha conta → Recebimentos**,
-   autorize sua conta real. O botão **Conectar Mercado Pago** abre diretamente
-   a autorização oficial em `https://auth.mercadopago.com/authorization`.
-   Ao usar ngrok gratuito, acesse previamente a URL HTTPS do túnel no mesmo
-   navegador e clique em **Visit Site** caso apareça o aviso de acesso.
-   Assim, o aviso já terá sido resolvido quando o Mercado Pago retornar ao callback.
-   Mantenha a página original aberta: ela consulta a API e confirma o vínculo,
-   mesmo quando o WODZ foi aberto em `localhost` e o retorno chega pelo túnel.
-   O WODZ mostra **Teste** na credencial conectada.
-   Se havia uma autorização de produção, clique em **Renovar autorização**;
-   novas cobranças com essa credencial antiga são bloqueadas no modo de testes.
-6. Entre como Atleta, inscreva uma equipe em um campeonato com inscrições abertas
-   e pague com um [cartão de teste oficial](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/additional-content/your-integrations/test/cards).
-   Para o cenário aprovado, use titular `APRO` e CPF `12345678909`. O e-mail do
-   pagador deve ser diferente do e-mail da conta Mercado Pago autorizada e
-   **não pode ser e-mail de usuário fictício de teste**, conforme as regras do Brick.
-   Confira a resposta de pagamento e a confirmação da equipe, consultadas na API.
-
-No fluxo `/v1/payments` atual, testes de meios offline podem permanecer
-**pendentes**. Não use "Simular pagamento aprovado" para validar o Mercado Pago
-nem pague o Pix de teste em um banco real. A aprovação de cartão com os dados
-oficiais é o primeiro cenário para validar o fluxo completo. Testar Pix aprovado
-depende do suporte do provedor para este produto; a regra `APRO` de Pix da Orders
-API não se aplica ao endpoint atual.
-
-Se o endereço do túnel mudar, atualize as duas URLs no painel, `FRONTEND_URL`,
-`CORS_ORIGINS` e `MP_NOTIFICATION_URL`, recrie o backend e conecte novamente.
-Erros de autorização geram uma mensagem no log do backend sem expor tokens;
-consulte `docker compose logs backend`. Uma URL ou uma chave incorreta pode
-impedir a vinculação ou a tokenização. A execução real precisa dessas credenciais;
-os testes automatizados do projeto não substituem a validação no seu painel.
-
-Para cobrar de verdade com o **Mercado Pago**:
+Configure a aplicação Mercado Pago para **Checkout Pro / Marketplace**, mantendo
+Authorization Code com PKCE e a URL OAuth `FRONTEND_URL/api/public/mercadopago/callback`.
+Para testar, use vendedor/comprador de teste conforme a
+[documentação oficial do Checkout Pro](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/integration-test).
+O Checkout Pro usa **init_point** tanto nos testes quanto em produção. Credenciais
+`TEST-` e `sandbox_init_point` não são usadas neste fluxo. No modo de teste,
+conecte por OAuth uma **conta de vendedor de teste**; o WODZ solicita `APP_USR-`
+e confirma a tag `test_user` consultando `/users/me`. Uma conta real é recusada
+nesse modo, mesmo se o retorno OAuth informar `live_mode=false`.
+Use outro usuário de teste brasileiro como comprador. Não misture compradores
+reais e vendedores de teste. Autorizações antigas com `TEST-` precisam ser
+reconectadas; não há renovação nem uso de credenciais `TEST-`, inclusive para consultas.
+Os registros financeiros existentes permanecem preservados.
+Após atualizar uma autorização, checkouts antigos com URL sandbox não são
+reutilizados: solicite novamente o pagamento pelo WODZ, sem editar URLs à mão.
 
 ```env
 PAYMENT_PROVIDER=mercadopago
-MP_TEST_MODE=false                   # true usa credenciais de teste nas APIs oficiais
-MP_CLIENT_ID=...                     # Application ID da aplicação Marketplace
-MP_CLIENT_SECRET=...                 # segredo OAuth da aplicação
-MP_PUBLIC_KEY=APP_USR-...            # usada pelo Card Brick no navegador
-MP_WEBHOOK_SECRET=...                # "Assinatura secreta" do painel de webhooks
-MP_NOTIFICATION_URL=https://seu-dominio.com/api/webhooks/mercadopago
-MP_THREE_D_SECURE=true               # 3DS 2.0 nos cartões (padrão: ligado)
-FRONTEND_URL=https://seu-dominio.com
-APP_ENCRYPTION_KEY=...               # 32 bytes aleatórios em Base64, mantenha a chave estável
-MP_PLATFORM_FEE_PERCENT=0            # sem comissão da plataforma por padrão
+CHECKOUT_EXPIRATION=30m
+MP_TEST_MODE=true
+MP_CLIENT_ID=...
+MP_CLIENT_SECRET=...
+MP_WEBHOOK_SECRET=...
+MP_NOTIFICATION_URL=https://seu-tunel/api/webhooks/mercadopago
+FRONTEND_URL=https://seu-tunel
+CORS_ORIGINS=https://seu-tunel,http://localhost:8081,http://localhost:5173
+APP_ENCRYPTION_KEY=...
+MP_PLATFORM_FEE_PERCENT=0
 ```
+
+O retorno exige uma origem pública HTTPS, sem caminho. Exponha o frontend Docker
+(`ngrok http 8081`), cadastre a mesma origem e reconstrua com
+`docker compose up --build -d`, preservando o volume PostgreSQL e a chave de cifra.
+Com `PAYMENT_PROVIDER=disabled`, não há pagamentos fictícios nem aprovação local.
+As variáveis `MP_PUBLIC_KEY`, `MP_THREE_D_SECURE`, `MP_CARD_PUBLIC_KEY_SOURCE`
+e `PIX_EXPIRATION` deixaram de ser usadas.
+
+A preferência contém valor/categoria do servidor, referência aleatória, URLs de
+sucesso/pendência/falha e `marketplace_fee` para o split 1:1
+([referência oficial](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/how-tos/integrate-marketplace)).
+Cliques repetidos consultam a preferência no Mercado Pago antes de retomá-la:
+aplicação OAuth, vendedor, referência, valor, taxa e retorno precisam corresponder.
+Preferências expiradas ou com retorno antigo são recriadas depois da consulta dos
+pagamentos anteriores; falhas de acesso ou dados incompatíveis interrompem o fluxo.
+Cada tentativa financeira tem um
+registro próprio; uma recusa seguida de aprovação preserva ambas no histórico.
+
+O seed de demonstração não cria pagamentos. Os eventos demonstrativos passados ou
+em andamento têm inscrições gratuitas; os eventos futuros pagos ficam aguardando
+pagamento pelo Checkout Pro. O seed não modifica registros de bancos já existentes.
+
+Se o Checkout Pro exibir apenas “Ops, ocorreu um erro”, essa tela não confirma que
+houve pagamento. Confira se a aplicação em Minhas integrações usa Checkout Pro,
+reconstrua backend/frontend e reconecte o vendedor de teste em Recebimentos quando
+a autorização for antiga. Inicie o pagamento pelo WODZ e entre no checkout com
+outro comprador de teste brasileiro, em sessão separada da conta vendedora.
+Não edite o endereço retornado pelo Mercado Pago. Para obter o diagnóstico seguro
+do backend, use `docker compose logs --since 10m backend | grep -E 'Checkout Pro recusado|Checkout Pro indisponível|Vinculação Mercado Pago'`.
+Os logs identificam HTTP e motivos fixos, sem registrar tokens ou o corpo privado
+da resposta. A configuração da conta/aplicação e o pagamento completo precisam
+ser verificados no Mercado Pago; testes locais não substituem essa verificação.
+
+O parâmetro `status=approved` do navegador nunca confirma uma equipe. Retorno,
+polling, webhook assinado e conciliação consultam o provedor com o OAuth da conta
+original. Antes de registrar o pagamento, conferem valor, moeda BRL, referência,
+recebedor e modo de teste/produção. A trigger existente confirma a equipe.
+O job concilia preferências ainda sem aprovação dos últimos três dias a cada dois
+minutos, mesmo quando o comprador fecha a aba; webhooks acompanham mudanças posteriores.
+Se credenciais forem revogadas, a conciliação deve ser retomada pela operação.
 
 ### Conta de recebimento do organizador
 
@@ -243,9 +246,7 @@ O modelo exige conta de vendedor com identificação **KYC nível 6**, conforme 
 Configuração externa, uma vez por ambiente:
 
 1. No Mercado Pago Developers, crie/edite uma aplicação de **Pagamentos online**,
-   **Checkout API**, modelo **Marketplace**. O código atual usa Checkout
-   Transparente/Bricks; Checkout Pro é outro produto, também compatível com OAuth
-   e split 1:1, mas não é o fluxo utilizado por este projeto.
+   **Checkout Pro**, modelo **Marketplace**, com OAuth e split 1:1.
 2. Habilite **Authorization Code com PKCE**. O sistema usa `state` de uso único,
    válido por 10 minutos, e PKCE S256. O botão abre a autorização oficial
    diretamente; somente o callback consome o `state`. Em caso de expiração,
@@ -254,15 +255,15 @@ Configuração externa, uma vez por ambiente:
    como **Redirect URL**. A base é `FRONTEND_URL`, e `/api` precisa chegar ao
    backend (o proxy do frontend já suporta isso). Para desenvolvimento com OAuth,
    use uma URL HTTPS acessível/túnel e configure a mesma base no ambiente.
-4. Defina `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_PUBLIC_KEY`,
+4. Defina `MP_CLIENT_ID`, `MP_CLIENT_SECRET`,
    `MP_WEBHOOK_SECRET`, `MP_NOTIFICATION_URL`, `APP_ENCRYPTION_KEY`,
    `FRONTEND_URL` e `CORS_ORIGINS`. No painel, configure notificações de pagamentos
    para `https://seu-dominio.com/api/webhooks/mercadopago`.
 5. Para produção: `APP_ENV=prod`, `PAYMENT_PROVIDER=mercadopago`, `MP_TEST_MODE=false`,
    `SEED_DEMO=false` e `JWT_SECRET` próprio. Conecte uma conta de produção; contas
    de teste são recusadas nesse ambiente. Valide primeiro em homologação com
-   `MP_TEST_MODE=true`, conta real autorizada e dados de teste de Bricks, incluindo
-   autorização, renovação, cartão e webhook assinado.
+   `MP_TEST_MODE=true`, contas de teste vendedor/comprador, incluindo
+   autorização, renovação, checkout hospedado e webhook assinado.
 
 Os tokens ficam cifrados com AES-256-GCM no servidor, com renovação automática
 antes do vencimento quando usados. Novas cobranças usam a conta ativa do dono do
@@ -273,8 +274,7 @@ Desconectar impede novas cobranças e preserva credenciais cifradas para concili
 as anteriores. Para trocar a conta é preciso desconectar a atual primeiro.
 Excluir a conta WODZ remove também os tokens e os dados pessoais da conta de
 recebimento; permanecem os identificadores necessários ao histórico financeiro.
-No sandbox, pagamentos continuam simulados e o perfil informa que OAuth está
-indisponível. Publicar/abrir inscrições com Mercado Pago exige conta conectada.
+Com o provedor desativado, pagamentos e OAuth ficam indisponíveis. Publicar/abrir inscrições com Mercado Pago exige conta conectada.
 
 Referências oficiais: [configuração Marketplace / split 1:1](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/integration-configuration/create-configuration)
 e [OAuth com PKCE](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation).
@@ -298,20 +298,32 @@ Repetir o comando de início ou reabrir e iniciar a bateria de novo não duplica
 horários existentes; intervalos antigos não podem ser recuperados com precisão
 e ficam em zero. Regenere as grades ainda não iniciadas para aplicar o novo cálculo.
 
-- O cartão é digitado no **Card Payment Brick** do Mercado Pago (iframe) e
-  tokenizado no navegador; o número do cartão nunca passa pela API.
-- O Brick só aceita cartões do tipo escolhido (crédito ou débito) e a API
-  confere de novo no catálogo de meios de pagamento do Mercado Pago antes de
-  cobrar. Débito é sempre em 1 parcela (validado na API e por constraint no banco).
-- Com `MP_THREE_D_SECURE=true` o pagamento vai com `three_d_secure_mode=optional`:
-  se o emissor pedir autenticação, a página abre o desafio do banco num iframe
-  isolado e acompanha o resultado pelo polling.
-- O webhook tem a assinatura `x-signature` validada (HMAC-SHA256) e o status é
-  sempre **reconsultado na API do Mercado Pago**, nunca lido do corpo da notificação.
-- Enquanto a página de pagamento está aberta, ela também consulta o status a
-  cada 5 s. Isso funciona mesmo em ambiente local, sem URL pública para o webhook.
-- Pagamento aprovado confirma a equipe **por trigger no banco**; Pix (e boletos
-  antigos) vencidos expiram por um job que chama uma procedure.
+## Experiência do atleta
+
+A busca de campeonatos oferece os filtros **Todos**, **Em andamento**,
+**Inscrições abertas** e **Encerrados**. Eles combinam com nome/cidade e UF,
+ficam na URL e são aplicados no banco antes do limite de 50 resultados.
+
+Em **Minhas equipes**, cada mini card mostra somente campeonato, equipe e
+categoria. Ao abrir o card, um único pop-up apresenta os horários de Brasília
+e as raias da equipe. Selecionar uma bateria mostra sua prova nesse mesmo
+pop-up, com opção de voltar aos horários. Pagamentos pendentes podem ser
+retomados dentro dele. A situação da inscrição e a grade são atualizadas
+enquanto os detalhes estão abertos. O diálogo fecha com Esc e devolve o foco
+ao card; também respeita a preferência por movimento reduzido.
+
+O preloader central mantém o círculo pequeno, sem texto visível, com a cor
+do perfil. Trocas de página ou da aba de um campeonato têm no mínimo 550 ms
+antes de revelar os dados com uma transição breve. Filtros e consultas dentro
+do pop-up usam indicadores locais, preservando o conteúdo já carregado.
+
+Uma conta de atleta pode ter somente uma inscrição não cancelada por
+campeonato, mesmo antes do pagamento e mesmo escolhendo outra categoria.
+Uma nova tentativa informa **Você já possui uma inscrição para esse campeonato**
+e oferece continuar o pagamento existente. O serviço e a migration V16
+protegem também tentativas simultâneas. Inscrições antigas não são removidas;
+uma inscrição cancelada permite uma nova tentativa. A migration V17 adiciona
+a busca com filtros. Ambas são aplicadas pelo Flyway na inicialização da API.
 
 ## Banco de dados
 
@@ -328,7 +340,7 @@ ranking) estão no próprio PostgreSQL.
 |---|---|
 | `fn_rank_workout` | Colocação e pontos de uma prova. For Time: menor tempo e, abaixo de quem terminou, CAP por repetições. AMRAP e máx. reps: mais repetições. PR: maior carga. Desempate por tiebreak; DNS/DQ empatados na lanterna. |
 | `fn_category_leaderboard` | Leaderboard geral por categoria: pontos por colocação ou soma de colocações, com desempate por número de vitórias. |
-| `fn_search_championships` | Busca sem acento e tolerante a erro de digitação (`unaccent` + `pg_trgm`). |
+| `fn_search_championships` | Busca sem acento e tolerante a erro de digitação (`unaccent` + `pg_trgm`), com filtros por UF e situação antes do limite de resultados. |
 | `fn_format_result` / `fn_format_duration` | Exibição do resultado: `05:42.3`, `5 rds + 12`, `120 kg`, `CAP + 87 reps`. |
 | `fn_registration_is_open`, `fn_category_slots_left` | Janela de inscrição (sempre fecha à 0h do dia de início, horário de Brasília) e vagas restantes. |
 | `fn_cpf_is_valid` | Dígitos verificadores do CPF. |
@@ -345,6 +357,7 @@ ranking) estão no próprio PostgreSQL.
 
 | Trigger | Regra |
 |---|---|
+| `trg_team_00_single_registration` | Uma inscrição não cancelada por conta e campeonato, inclusive pendente de pagamento; serializa tentativas simultâneas antes de verificar vagas. |
 | `trg_team_before_insert` | Só aceita inscrição com o formulário aberto, antes do início do campeonato e com vaga disponível (com lock contra overbooking). |
 | `trg_team_member_validate` | CPF válido, limite de atletas por equipe, atleta em só uma equipe por campeonato. |
 | `trg_team_after_status` | Equipe cancelada sai das baterias futuras e tem as cobranças pendentes canceladas. |
@@ -362,18 +375,19 @@ ranking) estão no próprio PostgreSQL.
 `vw_team_overview` e `vw_championship_summary`.
 
 Mensagens de `RAISE EXCEPTION` das triggers chegam ao usuário como HTTP 422 com
-o texto escrito no banco (ver `GlobalExceptionHandler`).
+o texto escrito no banco; conflitos de unicidade, incluindo inscrição duplicada,
+retornam HTTP 409 (ver `GlobalExceptionHandler`).
 
 ## API
 
-Documentação interativa em `/swagger-ui`. Resumo:
+Documentação interativa em `/swagger-ui`, disponível somente com `APP_ENV=dev`. Resumo:
 
 | Área | Endpoints |
 |---|---|
 | Autenticação | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/google` (ID token do botão do Google; no primeiro acesso sem `role` devolve `pending` para escolher o perfil), `GET /api/auth/me` |
-| Minha conta | `PUT /api/auth/me` (trocar o e-mail exige a senha atual), `PUT /api/auth/me/password`, `DELETE /api/auth/me` (anonimiza a conta; recusa se houver campeonato ativo ou equipe confirmada em campeonato não encerrado) |
+| Minha conta | `PUT /api/auth/me` (trocar o e-mail exige a senha atual), `PUT /api/auth/me/password` (revoga todas as sessões; é necessário entrar novamente), `DELETE /api/auth/me` (anonimiza a conta; recusa se houver campeonato ativo ou equipe confirmada em campeonato não encerrado) |
 | Público | `GET /api/public/championships?q=&state=`, `GET /api/public/championships/{slug}`, `GET .../{slug}/schedule`, `GET .../{slug}/leaderboard?categoryId=`, `GET .../{slug}/stream` (SSE) |
-| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../payments`, `GET .../payments/{id}`, `POST .../payments/{id}/simulate-approval` (sandbox) |
+| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout`, `GET .../checkout/{id}?paymentId=...`, `GET .../payments/{id}` (histórico) |
 | Webhook | `POST /api/webhooks/mercadopago` |
 | Atleta | `POST /api/athlete/championships/{slug}/teams`, `GET /api/athlete/teams`, `GET /api/athlete/heats` |
 | Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `POST /workouts/{id}/heats/generate` refaz uma prova, até 8 equipes por bateria; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/{teamId}`, só com a bateria da equipe concluída e com o nome do judge da raia) |
@@ -391,7 +405,7 @@ backend/
     repository/   Spring Data
     dto/          contratos da API (records)
     service/      regras de negócio, consultas às views, SSE, seed
-    payment/      gateway (Mercado Pago e sandbox) e verificação de webhook
+    payment/      Checkout Pro (Mercado Pago) e provedor desativado e verificação de webhook
     web/          controllers REST
   src/main/resources/db/migration/   V1 tabelas, V2 functions/procedures, V3 triggers, V4 views
 frontend/
@@ -404,8 +418,80 @@ frontend/
 
 - O SSE guarda as conexões em memória. Para rodar mais de uma instância da API,
   troque por Redis pub/sub ou `LISTEN/NOTIFY` do PostgreSQL (`RealtimeService`).
-- O token JWT fica no `localStorage`. Para endurecer contra XSS, migre para
-  cookie `HttpOnly` + proteção CSRF.
+- O token JWT fica no `sessionStorage` da aba, com fallback em memória quando o
+  armazenamento está bloqueado. Isso reduz persistência, mas scripts da mesma
+  origem ainda podem lê-lo. A evolução para cookie `HttpOnly` exige proteção CSRF
+  e revisão do protocolo de autenticação.
 - Não há envio de e-mail (confirmação de inscrição, lembrete de bateria).
 - Testes de integração das triggers e procedures com Testcontainers seriam o
   próximo passo natural de qualidade.
+
+## Carregamento e segurança
+
+O frontend mostra um círculo de 14 px, sem texto visível, usando o acento do perfil:
+verde para atleta e laranja para organizador. Trocas de páginas e abas mostram o
+indicador no centro da janela antes de exibir as informações, inclusive com dados
+em cache. O conteúdo fica oculto e sem interação por pelo menos 550 ms na
+navegação, e até terminar o carregamento inicial ou a ação em primeiro plano.
+Consultas e formulários permanecem montados para concluir o trabalho e preservar
+seus estados. A toolbar continua disponível durante a espera.
+Abas têm transições curtas, navegação por
+teclado e suporte a `prefers-reduced-motion`. Consultas de pagamento em segundo
+plano não interrompem a navegação. A toolbar usa hover neutro e um traço de cor
+na página ativa.
+
+Pagamentos são realizados exclusivamente no checkout hospedado do Mercado Pago,
+na mesma aba. A página de inscrição acompanha o resultado confirmado pela API. A autorização de recebimentos
+no Mercado Pago redireciona e retorna na mesma aba; a conta é conferida pela API.
+
+Na atualização de segurança, os JWTs validam emissor, perfil, conta ativa e versão
+da sessão. Alterar ou criar a senha revoga os tokens anteriores; o Flyway aplica
+`V13__token_revocation.sql` automaticamente. O navegador descarta o token legado
+do `localStorage`, por isso usuários precisam entrar novamente após a atualização.
+Cache e requisições da sessão anterior são descartados ao sair ou trocar de conta.
+
+O proxy de produção envia cabeçalhos de segurança, impede cache de respostas da
+API e limita tentativas de login/cadastro/Google por IP. Configure proxies/CDN
+confiáveis antes de usar IP real para essa limitação. Fora de desenvolvimento,
+as origens CORS precisam ser HTTPS e exatas, e a senha do banco deve ser própria
+(configure `DB_PASSWORD` no Compose e preserve a credencial de volumes existentes).
+
+A matriz de controles, evidências, dados tratados e pendências de LGPD está em
+[docs/SECURITY_LGPD.md](docs/SECURITY_LGPD.md). A revisão do código não certifica
+conformidade: bases legais, retenção, atendimento ao titular, fornecedores,
+infraestrutura e resposta a incidentes exigem validação do responsável pelo sistema.
+
+
+## Login Google e redirect_uri_mismatch
+
+O botão usa Google Identity Services com ux_mode=redirect. A URL enviada é
+**a origem da aba atual + /api/public/google/callback**. No MESMO cliente OAuth
+do tipo Aplicativo da Web identificado por GOOGLE_CLIENT_ID, cadastre:
+
+| Ambiente | Origens JavaScript autorizadas | URIs de redirecionamento autorizados |
+| --- | --- | --- |
+| Vite local | http://localhost:5173 | http://localhost:5173/api/public/google/callback |
+| Docker local | http://localhost:8081 | http://localhost:8081/api/public/google/callback |
+| Homologação | https://wodzhomolog.onrender.com | https://wodzhomolog.onrender.com/api/public/google/callback |
+| Produção | https://prdwodz.onrender.com | https://prdwodz.onrender.com/api/public/google/callback |
+| ngrok informado | https://probably-power-flannels.ngrok-free.dev | https://probably-power-flannels.ngrok-free.dev/api/public/google/callback |
+
+As URLs sem caminho informadas acima pertencem ao campo **Origens JavaScript
+autorizadas**. No campo **URIs de redirecionamento autorizados**, cadastre os
+endereços completos da última coluna. Apenas a origem nesse campo não atende ao
+login_uri enviado pelo WODZ e causa redirect_uri_mismatch. Cadastre cada ambiente
+no cliente OAuth usado pelo respectivo GOOGLE_CLIENT_ID.
+Protocolo, domínio, porta, caminho e barra final precisam coincidir exatamente.
+/google/retorno é a página após a validação e não é o callback do Google.
+Se o domínio ngrok mudar, cadastre a nova origem e callback antes de testar.
+Mudar FRONTEND_URL ou liberar CORS não cadastra uma URI no Google Cloud.
+
+Essa configuração externa exige acesso ao projeto Google Cloud; o código não
+pode alterar a lista do provedor.
+[Referência Google login_uri](https://developers.google.com/identity/gsi/web/reference/html-reference#login_uri).
+
+O cadastro local pede confirmação de senha antes de enviar a criação de conta.
+O login mantém e-mail/senha. Os cards oferecem detalhes e inscrição separadamente;
+visitantes passam pelo login e retomam /c/{slug}/inscricao. A navegação mostra o
+círculo central por 550 ms, depois revela o conteúdo com fade/deslocamento de 6 px
+por 280 ms, respeitando redução de movimento.

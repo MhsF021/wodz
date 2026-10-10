@@ -40,6 +40,10 @@ public class AppUser {
     /** Claim "sub" do Google: vincula a conta ao login com Google. */
     private String googleSub;
 
+    /** O usuário desvinculou o Google: não vincular novamente só porque o e-mail coincide. */
+    @Column(nullable = false)
+    private boolean googleLinkDisabled;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
@@ -55,6 +59,10 @@ public class AppUser {
 
     /** Preenchido quando o usuário exclui a conta (dados pessoais anonimizados). */
     private Instant deletedAt;
+
+    /** Incrementado quando as credenciais mudam, revogando todos os JWTs anteriores. */
+    @Column(nullable = false)
+    private long tokenVersion;
 
     public boolean isDeleted() {
         return deletedAt != null;

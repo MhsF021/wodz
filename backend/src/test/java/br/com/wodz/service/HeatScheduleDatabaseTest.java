@@ -43,8 +43,10 @@ class HeatScheduleDatabaseTest {
                 INSERT INTO category (id,championship_id,name,team_size,price) VALUES (1,1,'RX',1,10),(2,1,'Scaled',1,10);
                 INSERT INTO workout (id,category_id,number,name,type,time_cap_seconds)
                 VALUES (1,1,1,'WOD','FOR_TIME',780),(2,2,1,'Outro WOD','AMRAP',600);
+                INSERT INTO app_user (id,name,email,password_hash,role)
+                SELECT n+1,'Atleta '||n,'athlete'||n||'@test.invalid','x','ATHLETE' FROM generate_series(1,17) n;
                 INSERT INTO team (category_id,captain_id,name,status)
-                SELECT 1,1,'Time '||n,'CONFIRMED' FROM generate_series(1,17) n;
+                SELECT 1,n+1,'Time '||n,'CONFIRMED' FROM generate_series(1,17) n;
                 """);
     }
 

@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.util.ReflectionTestUtils;
+import br.com.wodz.config.AppProperties;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +19,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GoogleTokenVerifierTest {
+    @Test
+    void redirectExigeNonceDaMesmaTentativa() {
+        GoogleTokenVerifier verifier = new GoogleTokenVerifier(new AppProperties(null, null, null, null, null, null, "dev", null));
+        ReflectionTestUtils.setField(verifier, "decoder", (JwtDecoder) credential -> token().claim("nonce", "expected").build());
+        verifier.verifyRedirect("credential", "expected");
+        assertThrows(ApiException.class, () -> verifier.verifyRedirect("credential", "other"));
+        ReflectionTestUtils.setField(verifier, "decoder", (JwtDecoder) credential -> token().build());
+        assertThrows(ApiException.class, () -> verifier.verifyRedirect("credential", "expected"));
+    }
 
     private static final String CLIENT_ID = "123-abc.apps.googleusercontent.com";
     private final OAuth2TokenValidator<Jwt> validator = GoogleTokenVerifier.validator(CLIENT_ID);

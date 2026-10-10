@@ -9,6 +9,7 @@ import br.com.wodz.dto.AuthDtos.GoogleLoginResult;
 import br.com.wodz.dto.AuthDtos.LoginRequest;
 import br.com.wodz.dto.AuthDtos.RegisterRequest;
 import br.com.wodz.dto.AuthDtos.UpdateProfileRequest;
+import br.com.wodz.dto.AuthDtos.UnlinkGoogleRequest;
 import br.com.wodz.dto.AuthDtos.UserDto;
 import br.com.wodz.service.AccountService;
 import br.com.wodz.service.AuthService;
@@ -84,5 +85,13 @@ public class AuthController {
     @Operation(summary = "Exclui a conta: anonimiza os dados pessoais e mantém o histórico de equipes e resultados")
     public void deleteMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody DeleteAccountRequest req) {
         account.delete(CurrentUser.id(jwt), req);
+    }
+
+    @DeleteMapping("/me/google")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @SecurityRequirement(name = "bearer")
+    @Operation(summary = "Desvincula o Google; sem senha local, encerra a conta respeitando inscrições e campeonatos ativos")
+    public void unlinkGoogle(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody UnlinkGoogleRequest req) {
+        account.unlinkGoogle(CurrentUser.id(jwt), req);
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadGoogleIdentity, type GoogleButtonText } from '../lib/googleIdentity';
+import { prepareGoogleRedirect, refreshGoogleRedirect, type GoogleRedirectFlow } from '../lib/googleRedirect';
 
 const LABEL: Record<GoogleButtonText, string> = {
   signin_with: 'Entrar com Google',
@@ -9,20 +10,20 @@ const LABEL: Record<GoogleButtonText, string> = {
 
 /**
  * Botão do Google com o visual do site (mesmo padrão dos campos). O botão oficial fica
- * invisível por cima e esticado até cobrir tudo: é ele que recebe o clique e devolve o ID token.
+ * invisível por cima e esticado até cobrir tudo: é ele que redireciona na mesma aba.
  */
 export function GoogleButton({
   clientId,
   text = 'signin_with',
-  onCredential,
+  flow,
 }: {
   clientId: string;
   text?: GoogleButtonText;
-  onCredential: (credential: string) => void;
+  flow: GoogleRedirectFlow;
 }) {
   const slot = useRef<HTMLDivElement>(null);
-  const callback = useRef(onCredential);
-  callback.current = onCredential;
+  const redirectFlow = useRef(flow);
+  redirectFlow.current = flow;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,10 +31,12 @@ export function GoogleButton({
     loadGoogleIdentity()
       .then((google) => {
         if (cancelled || !slot.current) return;
+        const state = prepareGoogleRedirect(redirectFlow.current);
         google.accounts.id.initialize({
           client_id: clientId,
-          callback: (response) => callback.current(response.credential),
-          ux_mode: 'popup',
+          login_uri: `${window.location.origin}/api/public/google/callback`,
+          nonce: state,
+          ux_mode: 'redirect',
           auto_select: false,
           cancel_on_tap_outside: true,
           context: text === 'signup_with' ? 'signup' : 'signin',
@@ -50,6 +53,8 @@ export function GoogleButton({
           width,
           locale: 'pt-BR',
           logo_alignment: 'left',
+          state,
+          click_listener: () => refreshGoogleRedirect(state, redirectFlow.current),
         });
         slot.current.style.transform = `scale(${full / width}, ${slot.current.clientHeight / 40})`;
       })
@@ -62,7 +67,7 @@ export function GoogleButton({
   }, [clientId, text]);
 
   if (error) {
-    return <p className="note">{error}. Use e-mail e senha ou tente de novo mais tarde.</p>;
+    return <p className="note" role="alert">{error}. Tente novamente mais tarde.</p>;
   }
   return (
     <div className="google-button">

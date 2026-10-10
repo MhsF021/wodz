@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { CircleAlert } from 'lucide-react';
 import { errorMessage } from '../api/client';
 import { Link } from 'react-router';
+import { useActivity } from '../lib/useActivity';
 
 function ErrorMessage({ error }: { error: unknown }) {
   const message = errorMessage(error);
@@ -13,10 +14,10 @@ function ErrorMessage({ error }: { error: unknown }) {
 }
 
 export function Loading({ label = 'Carregando…' }: { label?: string }) {
+  useActivity(true);
   return (
-    <div className="state state--loading" role="status" aria-live="polite">
+    <div className="state state--loading" role="status" aria-label={label}>
       <span className="spinner" aria-hidden />
-      {label}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 package br.com.wodz.web;
 
 import br.com.wodz.dto.ChampionshipDtos.ChampionshipDetail;
+import br.com.wodz.domain.ChampionshipFilter;
 import br.com.wodz.dto.ChampionshipDtos.ChampionshipSummary;
 import br.com.wodz.dto.HeatDtos.HeatView;
 import br.com.wodz.dto.LeaderboardDtos.LeaderboardDto;
@@ -44,16 +45,17 @@ public class PublicController {
     }
 
     @GetMapping("/config")
-    @Operation(summary = "Configuração pública do frontend (provedor de pagamento e chave pública)")
+    @Operation(summary = "Configuração pública do frontend")
     public PublicConfig config() {
         return payments.publicConfig();
     }
 
     @GetMapping("/championships")
-    @Operation(summary = "Busca campeonatos por nome, cidade ou local; filtro opcional por UF")
+    @Operation(summary = "Busca campeonatos por nome, cidade ou local; filtros por UF e situação")
     public List<ChampionshipSummary> search(@RequestParam(required = false) String q,
-                                            @RequestParam(required = false) String state) {
-        return championships.search(q, state);
+                                            @RequestParam(required = false) String state,
+                                            @RequestParam(defaultValue = "ALL") ChampionshipFilter status) {
+        return championships.search(q, state, status);
     }
 
     @GetMapping("/championships/{slug}")

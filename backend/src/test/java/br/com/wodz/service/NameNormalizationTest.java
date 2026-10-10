@@ -98,7 +98,9 @@ class NameNormalizationTest {
         Category category = category(championship);
         when(championships.findPublic("torneio-2030")).thenReturn(championship);
         when(categories.findById(2L)).thenReturn(Optional.of(category));
-        when(users.getReferenceById(3L)).thenReturn(new AppUser());
+        AppUser captain = new AppUser();
+        captain.setId(3L);
+        when(users.lockActiveById(3L)).thenReturn(Optional.of(captain));
         TeamService service = new TeamService(teams, categories, users, championships,
                 mock(ScheduleQueryService.class), mock(OwnershipGuard.class), mock(JdbcTemplate.class));
 

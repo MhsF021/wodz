@@ -64,6 +64,12 @@ public class TeamService {
     @Transactional
     public TeamDto register(String slug, Long userId, TeamRegistrationRequest req) {
         Championship championship = championshipService.findPublic(slug);
+        // Serializa tentativas da mesma conta, inclusive para categorias diferentes.
+        var captain = users.lockActiveById(userId)
+                .orElseThrow(() -> ApiException.notFound("Conta de atleta não encontrada"));
+        if (teams.existsByCaptainIdAndCategory_Championship_IdAndStatusNot(userId, championship.getId(), TeamStatus.CANCELLED)) {
+            throw ApiException.conflict("Você já possui uma inscrição para esse campeonato");
+        }
         Instant now = Instant.now();
         if (championship.hasStarted(now)) {
             throw ApiException.unprocessable("Este campeonato já começou e não aceita mais inscrições");
@@ -88,7 +94,7 @@ public class TeamService {
 
         Team team = new Team();
         team.setCategory(category);
-        team.setCaptain(users.getReferenceById(userId));
+        team.setCaptain(captain);
         team.setName(Codes.uppercase(req.name().trim()));
         team.setBoxName(Codes.uppercase(Codes.blankToNull(req.boxName())));
         team.setCity(Codes.uppercase(Codes.blankToNull(req.city())));

@@ -25,25 +25,18 @@ public record AppProperties(
     public record JwtProps(String secret, Duration ttl, String issuer) {
     }
 
-    public record PaymentProps(String provider, Duration pixExpiration, MercadoPagoProps mercadopago) {
+    public record PaymentProps(String provider, Duration checkoutExpiration, MercadoPagoProps mercadopago) {
     }
 
     /**
      * Mercado Pago em modelo de split 1:1: cada organizador conecta a própria conta
      * por OAuth (clientId/clientSecret da aplicação) e as cobranças usam o token dele.
-     * publicKey é da aplicação da plataforma (tokenização do cartão no navegador).
-     * threeDSecure envia three_d_secure_mode=optional. platformFeePercent vira o
-     * application_fee de cada pagamento (0 = tudo para o organizador).
-     * cardPublicKeySource: "platform" (padrão, como na documentação do split) ou "seller".
-     * testMode solicita credenciais de teste no OAuth, usando as APIs oficiais.
+     * platformFeePercent vira marketplace_fee na preferência do Checkout Pro.
+     * testMode exige um vendedor de teste oficial no Checkout Pro.
      */
-    public record MercadoPagoProps(String publicKey, String webhookSecret, String notificationUrl,
-                                   boolean threeDSecure, String clientId, String clientSecret,
-                                   BigDecimal platformFeePercent, String cardPublicKeySource, boolean testMode) {
-
-        public boolean useSellerPublicKey() {
-            return "seller".equalsIgnoreCase(cardPublicKeySource);
-        }
+    public record MercadoPagoProps(String webhookSecret, String notificationUrl,
+                                   String clientId, String clientSecret,
+                                   BigDecimal platformFeePercent, boolean testMode) {
     }
 
     public record SeedProps(boolean enabled) {

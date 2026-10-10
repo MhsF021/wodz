@@ -2,11 +2,12 @@ import type { HeatView } from '../api/types';
 import { clockTime, dayLabel, formatClock } from '../lib/format';
 
 const exactTime = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', {
-  hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo',
 });
 
 function endLabel(start: string, end: string) {
-  return new Date(start).toDateString() === new Date(end).toDateString()
+  const day = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  return day(start) === day(end)
     ? clockTime(end) : `${dayLabel(end)}, ${clockTime(end)}`;
 }
 

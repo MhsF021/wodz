@@ -48,6 +48,19 @@ public class GoogleTokenVerifier {
 
     /** 422 (e não 401) em token inválido: o front trata 401 como sessão expirada. */
     public GoogleProfile verify(String credential) {
+        return profile(decode(credential));
+    }
+
+    /** O retorno por redirecionamento também confirma o nonce enviado pelo botão. */
+    public void verifyRedirect(String credential, String state) {
+        Jwt jwt = decode(credential);
+        profile(jwt);
+        if (!state.equals(jwt.getClaimAsString("nonce"))) {
+            throw ApiException.unprocessable("Confirmação Google inválida. Tente novamente.");
+        }
+    }
+
+    private Jwt decode(String credential) {
         if (decoder == null) {
             throw ApiException.badRequest("O login com Google não está configurado");
         }
@@ -57,7 +70,7 @@ public class GoogleTokenVerifier {
         } catch (JwtException e) {
             throw ApiException.unprocessable("Não foi possível confirmar o login com o Google. Tente de novo.");
         }
-        return profile(jwt);
+        return jwt;
     }
 
     static OAuth2TokenValidator<Jwt> validator(String clientId) {
@@ -80,9 +93,18 @@ public class GoogleTokenVerifier {
         if (name == null) {
             name = email.substring(0, email.indexOf('@'));
         }
-        return new GoogleProfile(jwt.getSubject(), email, name.length() > 120 ? name.substring(0, 120) : name);
+        return new GoogleProfile(jwt.getSubject(), email, name.length() > 120 ? name.substring(0, 120) : name,
+                Codes.blankToNull(jwt.getClaimAsString("hd")));
     }
 
-    public record GoogleProfile(String sub, String email, String name) {
+    public record GoogleProfile(String sub, String email, String name, String hostedDomain) {
+        public GoogleProfile(String sub, String email, String name) {
+            this(sub, email, name, null);
+        }
+
+        /** Só Gmail e Workspace atestam a titularidade atual do e-mail para vincular outro cadastro. */
+        public boolean authoritativeEmail() {
+            return email.endsWith("@gmail.com") || hostedDomain != null && !hostedDomain.isBlank();
+        }
     }
 }

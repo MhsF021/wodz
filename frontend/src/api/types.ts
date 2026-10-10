@@ -4,8 +4,7 @@ export type ScoringSystem = 'POINTS_TABLE' | 'RANK_SUM';
 export type WorkoutType = 'FOR_TIME' | 'AMRAP' | 'MAX_LOAD' | 'MAX_REPS';
 export type TeamStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED';
 /** BOLETO só aparece em cobranças antigas; novas cobranças são Pix ou cartão. */
-export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
-export type CardMethod = 'CREDIT_CARD' | 'DEBIT_CARD';
+export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO' | 'MERCADO_PAGO';
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
 export type HeatStatus = 'UPCOMING' | 'IN_PROGRESS' | 'FINISHED';
 export type ScoreStatus = 'VALID' | 'CAPPED' | 'DNS' | 'DQ';
@@ -25,7 +24,7 @@ export interface User {
 
 export interface PayoutAccount {
   configured: boolean;
-  sandbox: boolean;
+  paymentUnavailable: boolean;
   connected: boolean;
   accountLabel?: string | null;
   providerUserId?: string | null;
@@ -58,16 +57,21 @@ export interface UpdateProfileInput {
   currentPassword?: string;
 }
 
-/** Sem senha ainda (conta criada com o Google), currentPassword fica de fora. */
+/** Primeira senha confirma a mesma conta Google; senhas existentes exigem a atual. */
 export interface ChangePasswordInput {
   currentPassword?: string;
   newPassword: string;
+  googleCredential?: string;
 }
 
-/** Com senha, confirma com ela; conta só com Google, com um novo login no Google. */
+/** Confirma com a senha atual ou com um novo login na conta Google vinculada. */
 export interface DeleteAccountInput {
   password?: string;
   googleCredential?: string;
+}
+
+export interface DisconnectGoogleInput {
+  googleCredential: string;
 }
 
 export interface PendingGoogleSignup {
@@ -355,20 +359,8 @@ export interface Payment {
   status: PaymentStatus;
   statusDetail?: string | null;
   amount: number;
-  pixQrCode?: string | null;
-  pixQrCodeBase64?: string | null;
-  cardLastDigits?: string | null;
-  installments?: number | null;
-  expiresAt?: string | null;
   paidAt?: string | null;
   createdAt?: string | null;
-  /** Autenticação 3DS pedida pelo emissor; só vem na resposta da criação. */
-  threeDsChallenge?: ThreeDsChallenge | null;
-}
-
-export interface ThreeDsChallenge {
-  url: string;
-  creq: string;
 }
 
 export interface RegistrationSummary {
@@ -383,33 +375,17 @@ export interface RegistrationSummary {
   /** Depois do início não dá mais para pagar (equivaleria a se inscrever com o campeonato rolando). */
   championshipStarted: boolean;
   lastPayment?: Payment | null;
+  checkoutId?: number | null;
 }
 
-export interface PayerInput {
-  firstName: string;
-  lastName: string;
-  email: string;
-  cpf: string;
-}
-
-export interface CardInput {
-  token: string;
-  paymentMethodId?: string;
-  issuerId?: string;
-  installments?: number;
-  lastFourDigits?: string;
-}
-
-export interface CreatePaymentInput {
-  method: PaymentMethod;
-  payer: PayerInput;
-  card?: CardInput;
+export interface Checkout {
+  id: number;
+  url: string;
+  expiresAt: string;
 }
 
 export interface PublicConfig {
   paymentProvider: string;
-  mercadoPagoPublicKey?: string | null;
-  paymentSimulation: boolean;
   /** Client ID do login com Google; nulo quando desligado. */
   googleClientId?: string | null;
   mercadoPagoTestMode: boolean;

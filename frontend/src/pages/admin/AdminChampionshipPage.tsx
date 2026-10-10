@@ -51,7 +51,7 @@ export default function AdminChampionshipPage() {
         <div className="admin-head__status">
           <ChampionshipBadge status={c.status} />
           {c.status !== 'DRAFT' && (
-            <Link className="btn btn--ghost btn--small" to={`/c/${c.slug}`} target="_blank">
+            <Link className="btn btn--ghost btn--small" to={`/c/${c.slug}`}>
               Página pública <ExternalLink size={14} aria-hidden />
             </Link>
           )}

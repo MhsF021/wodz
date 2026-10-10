@@ -31,8 +31,8 @@ public class TokenService {
                 .issuedAt(now)
                 .expiresAt(expiresAt)
                 .subject(String.valueOf(user.getId()))
-                .claim("name", user.getName())
                 .claim("role", user.getRole().name())
+                .claim("token_version", user.getTokenVersion())
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         String token = encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

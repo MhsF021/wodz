@@ -35,23 +35,23 @@ class PayoutTokenServiceTest {
         when(provider.getIfAvailable()).thenReturn(oauth);
         service = new PayoutTokenService(accounts,cipher,provider,props(false));
         account = new PayoutAccount(); account.setId(9L); account.setProviderUserId("123"); account.setLiveMode(true);
-        account.setAccessToken(cipher.encrypt("old-access")); account.setRefreshToken(cipher.encrypt("old-refresh"));
+        account.setAccessToken(cipher.encrypt("APP_USR-old")); account.setRefreshToken(cipher.encrypt("old-refresh"));
         account.setExpiresAt(Instant.now().plusSeconds(10));
         when(accounts.lockById(9L)).thenReturn(Optional.of(account));
-        when(oauth.refresh("old-refresh",false)).thenReturn(new OAuthTokens("new-access","new-refresh","pk","123",3600,true));
+        when(oauth.refreshCheckout("old-refresh",false)).thenReturn(new OAuthTokens("APP_USR-new","new-refresh","123",3600,true));
     }
 
     private AppProperties props(boolean testMode) {
         return new AppProperties(null,null,null,new AppProperties.PaymentProps("mercadopago",null,
-                new AppProperties.MercadoPagoProps("pk","secret",null,true,"id","secret",BigDecimal.ZERO,"platform",testMode)),
+                new AppProperties.MercadoPagoProps("secret", null, "id", "secret", BigDecimal.ZERO, testMode)),
                 null,null,"dev",null);
     }
 
     @Test
     void renovaTokenProximoDoVencimentoEGuardaRotacaoCifrada() {
-        assertEquals("new-access",service.seller(9L,true).accessToken());
+        assertEquals("APP_USR-new",service.seller(9L,true).accessToken());
         assertEquals("new-refresh",cipher.decrypt(account.getRefreshToken()));
-        assertNotEquals("new-access",account.getAccessToken());
+        assertNotEquals("APP_USR-new",account.getAccessToken());
         assertTrue(account.getExpiresAt().isAfter(Instant.now().plusSeconds(3500)));
         verify(accounts).saveAndFlush(account);
     }
@@ -59,7 +59,7 @@ class PayoutTokenServiceTest {
     @Test
     void naoRenovaEnquantoTokenEstaValido() {
         account.setExpiresAt(Instant.now().plusSeconds(600));
-        assertEquals("old-access",service.seller(9L,true).accessToken());
+        assertEquals("APP_USR-old",service.seller(9L,true).accessToken());
         verifyNoInteractions(oauth);
     }
 
@@ -67,14 +67,14 @@ class PayoutTokenServiceTest {
     void contaDesconectadaSoPodeConciliarPagamentosAnteriores() {
         account.setStatus(PayoutAccountStatus.DISCONNECTED);
         assertThrows(ApiException.class, () -> service.seller(9L,true));
-        assertEquals("new-access",service.seller(9L).accessToken());
+        assertEquals("APP_USR-new",service.seller(9L).accessToken());
     }
 
     @Test
     void renovacaoDeOutraContaNaoSubstituiCredenciais() {
-        when(oauth.refresh("old-refresh",false)).thenReturn(new OAuthTokens("new-access","new-refresh","pk","456",3600,true));
+        when(oauth.refreshCheckout("old-refresh",false)).thenReturn(new OAuthTokens("APP_USR-new","new-refresh","456",3600,true));
         assertThrows(ApiException.class, () -> service.seller(9L,true));
-        assertEquals("old-access",cipher.decrypt(account.getAccessToken()));
+        assertEquals("APP_USR-old",cipher.decrypt(account.getAccessToken()));
         verify(accounts,never()).saveAndFlush(any());
     }
 
@@ -83,19 +83,31 @@ class PayoutTokenServiceTest {
         service = new PayoutTokenService(accounts,cipher,provider,props(true));
         account.setExpiresAt(Instant.now().plusSeconds(600));
         assertThrows(ApiException.class, () -> service.seller(9L,true));
-        assertEquals("old-access",service.seller(9L).accessToken());
+        assertEquals("APP_USR-old",service.seller(9L).accessToken());
         verifyNoInteractions(oauth);
     }
 
     @Test
-    void tokenDeTesteRenovaNoMesmoModoEPermiteNovaCobranca() {
+    void contaDeTesteRenovaAppUsrNoMesmoModoEPermiteCheckoutPro() {
         service = new PayoutTokenService(accounts,cipher,provider,props(true));
         account.setLiveMode(false);
-        when(oauth.refresh("old-refresh",true)).thenReturn(
-                new OAuthTokens("TEST-access","TEST-refresh","TEST-pk","123",3600,false));
-        assertEquals("TEST-access",service.seller(9L,true).accessToken());
+        when(oauth.refreshCheckout("old-refresh",true)).thenReturn(
+                new OAuthTokens("APP_USR-test","new-refresh","123",3600,false));
+        assertEquals("APP_USR-test",service.seller(9L,true).accessToken());
         assertFalse(account.isLiveMode());
-        verify(oauth).refresh("old-refresh",true);
+        verify(oauth).refreshCheckout("old-refresh",true);
+    }
+
+    @Test
+    void tokenTestLegadoNaoERenovadoNemUsadoParaConsultarOuCobrar() {
+        service = new PayoutTokenService(accounts,cipher,provider,props(true));
+        account.setLiveMode(false);
+        account.setAccessToken(cipher.encrypt("TEST-old"));
+        assertThrows(ApiException.class, () -> service.seller(9L,true));
+        assertThrows(ApiException.class, () -> service.seller(9L));
+        assertEquals("TEST-old", cipher.decrypt(account.getAccessToken()));
+        verifyNoInteractions(oauth);
+        verify(accounts, never()).saveAndFlush(any());
     }
 
     @Test

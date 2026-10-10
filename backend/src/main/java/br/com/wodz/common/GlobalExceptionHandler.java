@@ -41,6 +41,7 @@ public class GlobalExceptionHandler {
             entry("uq_category_name", "Já existe uma categoria com esse nome neste campeonato"),
             entry("uq_workout_number", "Já existe uma prova com esse número nesta categoria"),
             entry("ux_team_name_per_category", "Já existe uma equipe com esse nome nesta categoria"),
+            entry("uq_team_captain_championship_active", "Você já possui uma inscrição para esse campeonato"),
             entry("uq_team_member_cpf", "O mesmo CPF aparece duas vezes na equipe"),
             entry("uq_heat_number", "Já existe uma bateria com esse número nesta prova"),
             entry("uq_heat_lane", "Duas equipes foram colocadas na mesma raia"),
@@ -93,12 +94,13 @@ public class GlobalExceptionHandler {
                     return problem(HttpStatus.CONFLICT, "Este registro está em uso por outros dados e não pode ser removido");
                 case "23514":
                     return problem(HttpStatus.BAD_REQUEST, CONSTRAINT_MESSAGES.getOrDefault(constraint,
-                            "Valor fora das regras permitidas (" + constraint + ")"));
+                            "Valor fora das regras permitidas"));
                 default:
                     break;
             }
         }
-        log.error("Erro de banco de dados", ex);
+        // Mensagens SQL podem conter e-mails, CPFs e valores vinculados à requisição.
+        log.error("Erro de banco de dados: {}", ex.getClass().getSimpleName());
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Não foi possível concluir a operação no banco de dados");
     }
 
