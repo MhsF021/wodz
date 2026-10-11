@@ -1,6 +1,7 @@
 package br.com.wodz.config;
 
 import br.com.wodz.repository.AppUserRepository;
+import br.com.wodz.domain.AppUser;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
@@ -45,17 +46,21 @@ import java.util.List;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, AppProperties props) throws Exception {
         http
+                // Autenticação somente por Authorization: Bearer, sem cookies de autenticação.
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/google").permitAll()
-                        .requestMatchers("/api/public/**", "/api/webhooks/**").permitAll()
-                        .requestMatchers("/actuator/health", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/google").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/public/**", "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/public/registrations/*/checkout",
+                                "/api/webhooks/mercadopago", "/api/public/google/callback").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                            .access((authentication, context) -> new org.springframework.security.authorization.AuthorizationDecision(props.isDev()))
                         .requestMatchers("/api/admin/**").hasRole("ORGANIZER")
                         .requestMatchers("/api/athlete/**").hasRole("ATHLETE")
                         .anyRequest().authenticated())
@@ -88,14 +93,45 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, AppUserRepository users) {
+    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, AppUserRepository users, AppProperties props) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey).macAlgorithm(MacAlgorithm.HS256).build();
-        // O token de uma conta excluída continua assinado e dentro da validade; sem isto ele seguiria valendo.
-        OAuth2TokenValidator<Jwt> activeAccount = jwt -> users.existsByIdAndDeletedAtIsNull(Long.valueOf(jwt.getSubject()))
-                ? OAuth2TokenValidatorResult.success()
-                : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Conta excluída", null));
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), activeAccount));
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(props.jwt().issuer()), accountValidator(users)));
         return decoder;
+    }
+
+    static OAuth2TokenValidator<Jwt> accountValidator(AppUserRepository users) {
+        return jwt -> {
+            try {
+                String subject = jwt.getSubject();
+                if (subject == null || !subject.matches("[1-9][0-9]{0,18}")) {
+                    return invalidAccount();
+                }
+                if (jwt.getIssuedAt() == null || jwt.getExpiresAt() == null
+                        || !jwt.getExpiresAt().isAfter(jwt.getIssuedAt())) {
+                    return invalidAccount();
+                }
+                AppUser user = users.findById(Long.parseLong(subject)).orElse(null);
+                // JWTs anteriores à migração valem somente enquanto a conta ainda está na versão zero.
+                Object version = jwt.getClaim("token_version");
+                if (version != null && !(version instanceof Number)) {
+                    return invalidAccount();
+                }
+                long tokenVersion = version == null ? 0L : Long.parseLong(version.toString());
+                if (user == null || user.isDeleted() || user.getRole() == null
+                        || !user.getRole().name().equals(jwt.getClaimAsString("role"))
+                        || tokenVersion != user.getTokenVersion()) {
+                    return invalidAccount();
+                }
+                return OAuth2TokenValidatorResult.success();
+            } catch (IllegalArgumentException ex) {
+                return invalidAccount();
+            }
+        };
+    }
+
+    private static OAuth2TokenValidatorResult invalidAccount() {
+        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Sessão inválida ou revogada", null));
     }
 
     @Bean
@@ -108,9 +144,17 @@ public class SecurityConfig {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(props.corsAllowedOrigins());
         cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("*"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "ngrok-skip-browser-warning"));
+        cors.setAllowCredentials(false);
         cors.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // Somente este POST recebe o formulário Google com o cookie anti-CSRF.
+        CorsConfiguration googleCallback = new CorsConfiguration();
+        googleCallback.setAllowedOrigins(List.of("https://accounts.google.com"));
+        googleCallback.setAllowedMethods(List.of("POST"));
+        googleCallback.setAllowedHeaders(List.of("Content-Type"));
+        googleCallback.setAllowCredentials(true);
+        source.registerCorsConfiguration("/api/public/google/callback", googleCallback);
         source.registerCorsConfiguration("/**", cors);
         return source;
     }

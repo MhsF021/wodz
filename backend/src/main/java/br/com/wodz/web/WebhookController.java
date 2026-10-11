@@ -47,7 +47,7 @@ public class WebhookController {
         if (!verifier.verify(signature, requestId, dataId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        payments.syncFromProvider(dataId);
+        payments.syncFromProvider(dataId, body == null ? null : MercadoPagoGateway.text(body.path("user_id")));
         return ResponseEntity.ok().build();
     }
 }

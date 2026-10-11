@@ -14,6 +14,10 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     @Query("select u from AppUser u where u.id = :id and u.deletedAt is null")
     Optional<AppUser> lockActiveById(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from AppUser u where lower(u.email) = lower(:email) and u.deletedAt is null")
+    Optional<AppUser> lockActiveByEmail(String email);
+
     Optional<AppUser> findByEmailIgnoreCase(String email);
 
     Optional<AppUser> findByGoogleSub(String googleSub);

@@ -8,6 +8,8 @@ import br.com.wodz.dto.PayoutDtos.AuthorizationView;
 import br.com.wodz.dto.PayoutDtos.PayoutView;
 import br.com.wodz.payment.MercadoPagoOAuthClient;
 import br.com.wodz.payment.MercadoPagoOAuthClient.OAuthTokens;
+import br.com.wodz.payment.PayoutAuthorizationException;
+import br.com.wodz.payment.PayoutAuthorizationException.Reason;
 import br.com.wodz.repository.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -46,13 +48,13 @@ public class PayoutAccountService {
     @Transactional(readOnly = true)
     public PayoutView status(Long userId) {
         PayoutAccount account = accounts.findFirstByUserIdAndStatus(userId, PayoutAccountStatus.ACTIVE).orElse(null);
-        boolean sandbox = !"mercadopago".equalsIgnoreCase(props.payment().provider());
+        boolean paymentUnavailable = !"mercadopago".equalsIgnoreCase(props.payment().provider());
         AppProperties.MercadoPagoProps mp = props.payment().mercadopago();
-        boolean configured = !sandbox && present(mp.clientId()) && present(mp.clientSecret());
-        return new PayoutView(configured, sandbox, account != null,
+        boolean configured = !paymentUnavailable && present(mp.clientId()) && present(mp.clientSecret());
+        return new PayoutView(configured, paymentUnavailable, account != null,
                 account == null ? null : account.getAccountLabel(),
                 account == null ? null : account.getProviderUserId(), account != null && account.isLiveMode(),
-                account == null ? null : account.getConnectedAt(), !sandbox && mp.testMode(),
+                account == null ? null : account.getConnectedAt(), !paymentUnavailable && mp.testMode(),
                 account == null ? null : account.getUpdatedAt());
     }
 
@@ -81,20 +83,26 @@ public class PayoutAccountService {
         PayoutOAuthState pending = states.findById(state).orElseThrow(PayoutAccountService::invalidState);
         organizer(pending.getUserId());
         if (states.consume(state) != 1 || !pending.getExpiresAt().isAfter(Instant.now())) throw invalidState();
-        if (!present(code)) throw ApiException.unprocessable("Autorização cancelada. Sua conta anterior foi mantida.");
-        OAuthTokens credential = client().exchangeCode(code, cipher.decrypt(pending.getCodeVerifier()), redirectUri());
+        if (!present(code)) throw new PayoutAuthorizationException(Reason.MISSING_CODE,
+                "O retorno não trouxe um código de autorização. Sua conta anterior foi mantida.");
+        OAuthTokens returned = client().exchangeCode(code, cipher.decrypt(pending.getCodeVerifier()), redirectUri());
+        MercadoPagoOAuthClient.CheckoutAccount verified = client().validateCheckoutAccount(returned,
+                props.payment().mercadopago().testMode());
+        OAuthTokens credential = verified.tokens();
         if ("prod".equalsIgnoreCase(props.environment()) && !credential.liveMode()) {
-            throw ApiException.unprocessable("Use uma conta de produção do Mercado Pago.");
+            throw new PayoutAuthorizationException(Reason.MODE_MISMATCH, "Use uma conta de produção do Mercado Pago.");
         }
         if (credential.liveMode() == props.payment().mercadopago().testMode()) {
-            throw ApiException.unprocessable("O Mercado Pago não confirmou credenciais no modo configurado. Conecte novamente.");
+            throw new PayoutAuthorizationException(Reason.MODE_MISMATCH,
+                    "O Mercado Pago não confirmou credenciais no modo configurado. Conecte novamente.");
         }
-        String label = client().validateAccount(credential);
+        String label = verified.label();
         PayoutAccount account = accounts.findFirstByUserIdAndStatus(pending.getUserId(), PayoutAccountStatus.ACTIVE)
                 .orElse(null);
         // Reautorizar no mesmo modo preserva a associação dos pagamentos existentes.
         if (account != null && !account.getProviderUserId().equals(credential.userId())) {
-            throw ApiException.unprocessable("Desconecte a conta atual antes de conectar outra conta Mercado Pago.");
+            throw new PayoutAuthorizationException(Reason.ACCOUNT_CHANGE,
+                    "Desconecte a conta atual antes de conectar outra conta Mercado Pago.");
         }
         if (account != null && account.isLiveMode() != credential.liveMode()) {
             // Pagamentos anteriores continuam consultados com credenciais do modo original.
@@ -155,11 +163,14 @@ public class PayoutAccountService {
 
     private MercadoPagoOAuthClient client() {
         MercadoPagoOAuthClient client = oauth.getIfAvailable();
-        if (client == null) throw ApiException.unprocessable("O Mercado Pago não está configurado neste ambiente.");
+        if (client == null) throw new PayoutAuthorizationException(Reason.CONFIGURATION,
+                "O Mercado Pago não está configurado neste ambiente.");
         return client;
     }
     private static boolean present(String value) { return value != null && !value.isBlank(); }
-    private static ApiException invalidState() { return ApiException.unprocessable("Autorização inválida ou expirada. Conecte novamente."); }
+    private static ApiException invalidState() {
+        return new PayoutAuthorizationException(Reason.INVALID_STATE, "Autorização inválida ou expirada. Conecte novamente.");
+    }
     private static String random() {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);

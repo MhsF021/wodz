@@ -17,6 +17,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findFirstByTeamIdOrderByIdDesc(Long teamId);
 
+    Optional<Payment> findFirstByCheckoutSessionIdOrderByIdDesc(Long checkoutSessionId);
+
     Optional<Payment> findByIdAndTeamId(Long id, Long teamId);
 
     /** Pendentes recentes do provedor, para conciliar quando o webhook não chega. */

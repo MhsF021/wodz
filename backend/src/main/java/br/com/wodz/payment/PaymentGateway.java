@@ -1,33 +1,10 @@
 package br.com.wodz.payment;
-
-/**
- * Porta de saída para o provedor de pagamentos. A implementação ativa é
- * escolhida por app.payment.provider (sandbox | mercadopago).
- */
+import java.util.List;
 public interface PaymentGateway {
-
-    /** Nome gravado em payment.provider. */
     String providerName();
-
-    GatewayPayment create(PaymentCommand command);
-
-    /** Consulta o status atual direto no provedor */
-    default boolean supportsRemoteFetch() {
-        return false;
-    }
-
-    /** Consulta com as credenciais de quem recebeu o pagamento. */
-    default GatewayPayment fetch(String providerPaymentId, SellerAccount seller) {
-        throw new UnsupportedOperationException("Este provedor não consulta pagamentos remotamente");
-    }
-
-    /** Só o sandbox permite simular a aprovação de um pagamento pendente. */
-    default boolean supportsSimulation() {
-        return false;
-    }
-
-    /** Chave pública da plataforma usada pelo navegador para tokenizar cartões. */
-    default String publicKey() {
-        return null;
-    }
+    GatewayCheckout createCheckout(CheckoutCommand command);
+    default GatewayCheckout resumeCheckout(String preferenceId, CheckoutCommand command) { return null; }
+    default boolean supportsRemoteFetch() { return false; }
+    default GatewayPayment fetch(String id, SellerAccount seller) { throw new UnsupportedOperationException(); }
+    default List<GatewayPayment> search(String reference, SellerAccount seller) { return List.of(); }
 }

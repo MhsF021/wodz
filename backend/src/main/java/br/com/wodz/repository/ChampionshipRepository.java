@@ -23,4 +23,7 @@ public interface ChampionshipRepository extends JpaRepository<Championship, Long
     /** Usa a function fn_search_championships (busca sem acento + trigram). */
     @Query(value = "SELECT * FROM fn_search_championships(:term, :state)", nativeQuery = true)
     List<Championship> search(@Param("term") String term, @Param("state") String state);
+
+    @Query(value = "SELECT * FROM fn_search_championships(:term, :state, :filter)", nativeQuery = true)
+    List<Championship> searchFiltered(@Param("term") String term, @Param("state") String state, @Param("filter") String filter);
 }

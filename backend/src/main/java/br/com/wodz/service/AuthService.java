@@ -2,6 +2,7 @@ package br.com.wodz.service;
 
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
+import br.com.wodz.common.PasswordPolicy;
 import br.com.wodz.domain.AppUser;
 import br.com.wodz.dto.AuthDtos.AuthResponse;
 import br.com.wodz.dto.AuthDtos.GoogleLoginRequest;
@@ -26,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokens;
     private final GoogleTokenVerifier google;
+    private final String unknownAccountHash;
 
     public AuthService(AppUserRepository users, PasswordEncoder passwordEncoder, TokenService tokens,
                        GoogleTokenVerifier google) {
@@ -33,10 +35,12 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
         this.google = google;
+        this.unknownAccountHash = passwordEncoder.encode("unused-account-password-check");
     }
 
     @Transactional
     public AuthResponse register(RegisterRequest req) {
+        PasswordPolicy.validateNewPassword(req.password());
         String email = req.email().trim().toLowerCase(Locale.ROOT);
         if (users.existsByEmailIgnoreCase(email)) {
             throw ApiException.conflict("Este e-mail já tem cadastro. Entre com sua senha.");
@@ -53,11 +57,16 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest req) {
+        if (!PasswordPolicy.fitsBcrypt(req.password())) {
+            throw ApiException.unauthorized("E-mail ou senha incorretos");
+        }
         AppUser user = users.findByEmailIgnoreCase(req.email().trim())
                 .filter(u -> !u.isDeleted())
-                .orElseThrow(() -> ApiException.unauthorized("E-mail ou senha incorretos"));
-        if (!user.hasPassword()) {
-            throw ApiException.unauthorized("Esta conta entra com o Google. Use o botão Entrar com Google.");
+                .orElse(null);
+        if (user == null || !user.hasPassword()) {
+            // Executa o mesmo BCrypt para reduzir a diferença de tempo entre e-mails existentes e inexistentes.
+            passwordEncoder.matches(req.password(), unknownAccountHash);
+            throw ApiException.unauthorized("E-mail ou senha incorretos");
         }
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
             throw ApiException.unauthorized("E-mail ou senha incorretos");
@@ -67,7 +76,7 @@ public class AuthService {
 
     /**
      * Login com Google. Conta já vinculada: entra. Mesmo e-mail com cadastro por
-     * senha: vincula ao Google (o Google garante que o e-mail é verificado). Primeiro
+     * senha: vincula somente quando Google também atesta a titularidade atual do e-mail. Primeiro
      * acesso: sem role, devolve "pending" para o front perguntar o perfil; com role,
      * cria a conta sem senha.
      */
@@ -75,15 +84,23 @@ public class AuthService {
     public GoogleLoginResult google(GoogleLoginRequest req) {
         GoogleProfile profile = google.verify(req.credential());
 
-        Optional<AppUser> linked = users.findByGoogleSub(profile.sub()).filter(u -> !u.isDeleted());
+        Optional<AppUser> linked = users.findByGoogleSub(profile.sub())
+                .filter(u -> !u.isDeleted() && !u.isGoogleLinkDisabled());
         if (linked.isPresent()) {
             return signedIn(linked.get());
         }
-        Optional<AppUser> byEmail = users.findByEmailIgnoreCase(profile.email()).filter(u -> !u.isDeleted());
+        // A primeira leitura por e-mail já adquire o lock, sem reutilizar um estado carregado antes de desvincular.
+        Optional<AppUser> byEmail = users.lockActiveByEmail(profile.email());
         if (byEmail.isPresent()) {
             AppUser user = byEmail.get();
+            if (user.isGoogleLinkDisabled()) {
+                throw ApiException.conflict("O Google foi desvinculado desta conta. Entre com seu e-mail e senha.");
+            }
             if (user.getGoogleSub() != null) {
                 throw ApiException.conflict("Este e-mail já está vinculado a outra conta Google");
+            }
+            if (!profile.authoritativeEmail()) {
+                throw ApiException.conflict("Este e-mail já tem cadastro. Entre com sua senha para acessar a conta.");
             }
             user.setGoogleSub(profile.sub());
             return signedIn(user);

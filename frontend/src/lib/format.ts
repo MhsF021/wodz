@@ -46,10 +46,10 @@ export function dayBlock(start: string, end: string) {
 }
 
 export const clockTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 
 export const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
 
 export const dateTime = (iso: string) => `${dayLabel(iso)}, ${clockTime(iso)}`;
 
@@ -120,6 +120,7 @@ export const methodLabel: Record<PaymentMethod, string> = {
   CREDIT_CARD: 'Cartão de crédito',
   DEBIT_CARD: 'Cartão de débito',
   BOLETO: 'Boleto',
+  MERCADO_PAGO: 'Mercado Pago',
 };
 
 export const championshipStatusLabel: Record<ChampionshipStatus, string> = {

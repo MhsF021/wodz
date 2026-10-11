@@ -1,0 +1,27 @@
+/* Antes de revelar os dados, um único círculo no centro da janela. */
+.activity-indicator {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+.main__content[aria-hidden='true'] { visibility: hidden; animation: none; }
+.main__content[aria-hidden='false'] { animation: content-reveal 280ms ease-out both; }
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+.state--loading { min-height: 54px; animation: none; }
+@keyframes content-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .main__content { animation: none !important; }
+}

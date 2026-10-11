@@ -4,6 +4,8 @@ import br.com.wodz.common.ApiException;
 import br.com.wodz.common.CurrentUser;
 import br.com.wodz.dto.PayoutDtos.AuthorizationView;
 import br.com.wodz.dto.PayoutDtos.PayoutView;
+import br.com.wodz.payment.PayoutAuthorizationException;
+import br.com.wodz.payment.PayoutAuthorizationException.Reason;
 import br.com.wodz.service.PayoutAccountService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,17 +38,23 @@ public class PayoutAccountController {
                                          @RequestParam(required = false) String code,
                                          @RequestParam(required = false) String error) {
         boolean success = false;
+        Reason reason = Reason.UNEXPECTED;
         try {
             accounts.complete(state, error == null ? code : null);
             success = true;
         } catch (ApiException rejected) {
-            // Somente um resultado genérico vai para a URL; códigos e tokens ficam no servidor.
-            log.warn("Vinculação Mercado Pago não concluída: {}", rejected.getMessage());
+            if (rejected instanceof PayoutAuthorizationException failure) reason = failure.getReason();
+            if (reason == Reason.MISSING_CODE && error != null) {
+                reason = "access_denied".equals(error) ? Reason.CANCELLED : Reason.AUTHORIZATION_REJECTED;
+            }
+            // Somente motivos fixos vão à URL/log; a mensagem e o corpo externos ficam de fora.
+            log.warn("Vinculação Mercado Pago não concluída: motivo={} HTTP={}", reason.code(), rejected.getStatus().value());
         } catch (RuntimeException failed) {
             // Mensagens e causas de infraestrutura podem conter credenciais do provedor.
             log.error("Falha inesperada na vinculação Mercado Pago: {}", failed.getClass().getSimpleName());
         }
-        return redirect(accounts.profileResultUrl(success));
+        String resultUrl = accounts.profileResultUrl(success);
+        return redirect(success ? resultUrl : resultUrl + "&motivo=" + reason.code());
     }
 
     private ResponseEntity<Void> redirect(String url) {

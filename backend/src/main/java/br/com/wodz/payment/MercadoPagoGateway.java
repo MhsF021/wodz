@@ -1,14 +1,11 @@
 package br.com.wodz.payment;
 
 import br.com.wodz.common.ApiException;
-import br.com.wodz.common.Codes;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.PaymentMethod;
 import br.com.wodz.domain.PaymentStatus;
-import br.com.wodz.dto.PaymentDtos.CardData;
-import br.com.wodz.dto.PaymentDtos.Payer;
-import br.com.wodz.dto.PaymentDtos.ThreeDsChallenge;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -18,277 +15,238 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
-
 import java.net.URI;
-import java.time.Duration;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
-/**
- * Integração com a API de pagamentos do Mercado Pago (Checkout Transparente) no
- * modelo split 1:1: cada cobrança usa o token OAuth do organizador, então o
- * dinheiro cai direto na conta dele. Pix e cartão de crédito ou débito tokenizado
- * no navegador, com 3DS opcional e application_fee para a plataforma.
- * Docs: https://www.mercadopago.com.br/developers/pt/reference/payments/_payments/post
- */
+/** Checkout Pro: preferência no servidor e pagamento apenas na página do Mercado Pago. */
 @Component
 @ConditionalOnProperty(prefix = "app.payment", name = "provider", havingValue = "mercadopago")
 public class MercadoPagoGateway implements PaymentGateway {
-
     private static final Logger log = LoggerFactory.getLogger(MercadoPagoGateway.class);
-    private static final ZoneId BRASILIA = ZoneId.of("America/Sao_Paulo");
-    private static final DateTimeFormatter MP_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
-    private static final Duration CATALOG_TTL = Duration.ofHours(6);
-    // bandeira desconhecida força recarga do catálogo no máximo uma vez nesse intervalo
-    private static final Duration CATALOG_MIN_RELOAD = Duration.ofMinutes(10);
-
+    private static final DateTimeFormatter PREFERENCE_DATE = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneId.of("America/Sao_Paulo"));
     private final RestClient client;
     private final AppProperties.MercadoPagoProps config;
-
-    /** payment_method_id -> payment_type_id (ex.: master -> credit_card). */
-    private volatile Map<String, String> paymentTypes = Map.of();
-    private volatile Instant paymentTypesLoadedAt = Instant.EPOCH;
-
     public MercadoPagoGateway(AppProperties props, RestClient.Builder builder) {
-        this.config = props.payment().mercadopago();
-        this.client = builder.baseUrl("https://api.mercadopago.com").build();
+        config = props.payment().mercadopago();
+        client = builder.baseUrl("https://api.mercadopago.com").build();
     }
+    public String providerName() { return "MERCADO_PAGO"; }
+    public boolean supportsRemoteFetch() { return true; }
 
-    @Override
-    public String providerName() {
-        return "MERCADO_PAGO";
-    }
-
-    @Override
-    public boolean supportsRemoteFetch() {
-        return true;
-    }
-
-    @Override
-    public String publicKey() {
-        return config.publicKey();
-    }
-
-    @Override
-    public GatewayPayment create(PaymentCommand cmd) {
-        SellerAccount seller = cmd.seller();
-        if (seller == null || seller.accessToken() == null) {
-            throw new IllegalArgumentException("Cobrança sem conta de recebimento");
-        }
-        Payer payer = cmd.payer();
-        Map<String, Object> payerBody = new LinkedHashMap<>();
-        payerBody.put("email", payer.email());
-        payerBody.put("first_name", payer.firstName());
-        payerBody.put("last_name", payer.lastName());
-        payerBody.put("identification", Map.of("type", "CPF", "number", Codes.digits(payer.cpf())));
-
+    public GatewayCheckout createCheckout(CheckoutCommand c) {
+        requireCheckoutToken(c.seller());
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("transaction_amount", cmd.amount());
-        body.put("description", cmd.description());
-        body.put("external_reference", cmd.externalReference());
-        if (config.notificationUrl() != null && !config.notificationUrl().isBlank()) {
+        body.put("items", List.of(Map.of("id", c.externalReference(), "title", c.description(),
+                "currency_id", "BRL", "quantity", 1, "unit_price", c.amount())));
+        body.put("external_reference", c.externalReference());
+        body.put("back_urls", Map.of("success", c.returnUrl() + "&retorno=sucesso",
+                "pending", c.returnUrl() + "&retorno=pendente", "failure", c.returnUrl() + "&retorno=erro"));
+        body.put("auto_return", "approved");
+        body.put("expires", true);
+        body.put("expiration_date_from", PREFERENCE_DATE.format(Instant.now()));
+        body.put("expiration_date_to", PREFERENCE_DATE.format(c.expiresAt()));
+        if (config.notificationUrl() != null && !config.notificationUrl().isBlank())
             body.put("notification_url", config.notificationUrl());
-        }
-        if (cmd.applicationFee() != null && cmd.applicationFee().signum() > 0) {
-            body.put("application_fee", cmd.applicationFee());
-        }
-
-        switch (cmd.method()) {
-            case PIX -> {
-                body.put("payment_method_id", "pix");
-                body.put("date_of_expiration", MP_DATE.format(cmd.expiresAt().atZone(BRASILIA)));
-            }
-            case CREDIT_CARD, DEBIT_CARD -> {
-                CardData card = cmd.card();
-                // O navegador só limita o formulário; quem garante crédito x débito é o catálogo do Mercado Pago.
-                ensureCardType(card.paymentMethodId(), cmd.method(), seller);
-                body.put("token", card.token());
-                body.put("installments", cmd.installments());
-                body.put("payment_method_id", card.paymentMethodId());
-                if (card.issuerId() != null && !card.issuerId().isBlank()) {
-                    body.put("issuer_id", card.issuerId());
-                }
-                if (config.threeDSecure()) {
-                    body.put("three_d_secure_mode", "optional");
-                }
-            }
-            case BOLETO -> throw new IllegalArgumentException("Boleto não é mais aceito");
-        }
-        body.put("payer", payerBody);
-
-        GatewayPayment result;
+        if (c.marketplaceFee() != null) body.put("marketplace_fee", c.marketplaceFee());
         try {
-            JsonNode response = client.post()
-                    .uri("/v1/payments")
-                    .header(HttpHeaders.AUTHORIZATION, bearer(seller))
-                    .header("X-Idempotency-Key", cmd.idempotencyKey())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
-            result = toGatewayPayment(response);
+            JsonNode response = client.post().uri("/checkout/preferences")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
+                    .header("X-Idempotency-Key", c.externalReference())
+                    .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(JsonNode.class);
+            GatewayCheckout checkout = preference(response, c, null);
+            if (checkout == null) throw invalidPreference(c, "expired_or_return_url");
+            return checkout;
+        } catch (RestClientException e) { throw unavailable(e); }
+    }
+
+    /** Só retoma uma preferência que o provedor ainda associa à aplicação, vendedor e inscrição atuais. */
+    public GatewayCheckout resumeCheckout(String preferenceId, CheckoutCommand c) {
+        requireCheckoutToken(c.seller());
+        if (preferenceId == null || preferenceId.isBlank()) return null;
+        try {
+            return preference(client.get().uri("/checkout/preferences/{id}", preferenceId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
+                    .retrieve().body(JsonNode.class), c, preferenceId);
         } catch (RestClientResponseException e) {
-            log.warn("Mercado Pago recusou o pagamento {} ({}): {} {}", cmd.localPaymentId(), seller,
-                    e.getStatusCode(), e.getResponseBodyAsString());
-            if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
-                throw ApiException.unprocessable("A conta Mercado Pago do organizador não está autorizando cobranças. "
-                        + "Fale com a organização do campeonato.");
-            }
-            if (e.getStatusCode().is4xxClientError()) {
-                throw ApiException.unprocessable("O Mercado Pago recusou os dados do pagamento. Confira as informações e tente de novo.");
-            }
-            throw ApiException.badGateway("O Mercado Pago não respondeu. Tente de novo em instantes.");
-        } catch (RestClientException e) {
-            log.error("Falha de comunicação com o Mercado Pago", e);
-            throw ApiException.badGateway("Não foi possível falar com o Mercado Pago. Tente de novo em instantes.");
-        }
-
-        String expectedType = cardPaymentType(cmd.method());
-        if (expectedType != null && result.paymentTypeId() != null && !expectedType.equals(result.paymentTypeId())) {
-            // não deveria acontecer depois de ensureCardType; o pagamento já existe no provedor, então só registra
-            log.error("Pagamento {} ({}) foi processado pelo Mercado Pago como {}", cmd.localPaymentId(),
-                    cmd.method(), result.paymentTypeId());
-        }
-        return result;
+            if (e.getStatusCode().value() == 404) return null;
+            throw unavailable(e);
+        } catch (RestClientException e) { throw unavailable(e); }
     }
 
-    @Override
-    public GatewayPayment fetch(String providerPaymentId, SellerAccount seller) {
+    private GatewayCheckout preference(JsonNode n, CheckoutCommand c, String expectedId) {
+        if (n == null || !n.isObject()) throw invalidPreference(c, "missing_response");
+        String id = text(n.path("id"));
+        String url = text(n.path("init_point"));
+        if (id == null || id.isBlank() || (expectedId != null && !expectedId.equals(id))
+                || !safeCheckoutUrl(url) || !preferenceInUrl(url, id)) throw invalidPreference(c, "preference_url");
+        if (!c.seller().providerUserId().equals(text(n.path("collector_id"))))
+            throw invalidPreference(c, "collector_id");
+        if (config.clientId() == null || !config.clientId().equals(text(n.path("client_id")))) {
+            log.warn("Checkout Pro recusado: checkout={} motivo=client_id", c.sessionId());
+            throw ApiException.unprocessable("A autorização do organizador pertence a outra aplicação Mercado Pago. Reconecte a conta em Recebimentos.");
+        }
+        if (!c.externalReference().equals(text(n.path("external_reference"))))
+            throw invalidPreference(c, "external_reference");
+        JsonNode items = n.path("items");
+        if (!items.isArray() || items.size() != 1) throw invalidPreference(c, "items");
+        JsonNode item = items.get(0);
+        BigDecimal price = decimal(item.path("unit_price"));
+        if (!"BRL".equals(text(item.path("currency_id"))) || !item.path("quantity").isIntegralNumber()
+                || item.path("quantity").intValue() != 1 || price == null || c.amount().compareTo(price) != 0)
+            throw invalidPreference(c, "items_amount");
+        BigDecimal expectedFee = c.marketplaceFee() == null ? BigDecimal.ZERO : c.marketplaceFee();
+        BigDecimal fee = decimal(n.path("marketplace_fee"));
+        if (fee == null || expectedFee.compareTo(fee) != 0)
+            throw invalidPreference(c, "marketplace_fee");
+        if (n.path("preference_expired").asBoolean(false)) return null;
+        String expiration = text(n.path("expiration_date_to"));
+        if (expiration != null || n.path("expires").asBoolean(false)) {
+            if (expiration == null) throw invalidPreference(c, "expiration_date_to");
+            try { if (!OffsetDateTime.parse(expiration).toInstant().isAfter(Instant.now())) return null; }
+            catch (java.time.format.DateTimeParseException e) { throw invalidPreference(c, "expiration_date_to"); }
+        }
+        JsonNode back = n.path("back_urls");
+        if (!(c.returnUrl() + "&retorno=sucesso").equals(text(back.path("success")))
+                || !(c.returnUrl() + "&retorno=pendente").equals(text(back.path("pending")))
+                || !(c.returnUrl() + "&retorno=erro").equals(text(back.path("failure")))) return null;
+        // Checkout Pro usa init_point também com as contas de teste oficiais.
+        return new GatewayCheckout(id, url);
+    }
+
+    // A API de preferências também documenta unit_price como texto decimal na resposta GET.
+    private static BigDecimal decimal(JsonNode n) {
+        if (n.isNumber()) return n.decimalValue();
+        if (!n.isTextual() || !n.textValue().matches("[0-9]+(?:\\.[0-9]+)?")) return null;
+        try { return new BigDecimal(n.textValue()); }
+        catch (NumberFormatException e) { return null; }
+    }
+
+    private static boolean preferenceInUrl(String url, String id) {
+        String query = URI.create(url).getRawQuery();
+        if (query == null) return false;
+        int matches = 0;
         try {
-            JsonNode response = client.get()
-                    .uri("/v1/payments/{id}", providerPaymentId)
-                    .header(HttpHeaders.AUTHORIZATION, bearer(seller))
-                    .retrieve()
-                    .body(JsonNode.class);
-            return toGatewayPayment(response);
-        } catch (RestClientException e) {
-            log.error("Falha ao consultar pagamento {} no Mercado Pago", providerPaymentId, e);
-            throw ApiException.badGateway("Não foi possível consultar o pagamento no Mercado Pago");
-        }
-    }
-
-    /** payment_type_id do Mercado Pago correspondente à forma de pagamento com cartão. */
-    static String cardPaymentType(PaymentMethod method) {
-        return switch (method) {
-            case CREDIT_CARD -> "credit_card";
-            case DEBIT_CARD -> "debit_card";
-            default -> null;
-        };
-    }
-
-    /** Recusa a cobrança se a bandeira do cartão não for do tipo escolhido (crédito ou débito). */
-    private void ensureCardType(String paymentMethodId, PaymentMethod method, SellerAccount seller) {
-        if (paymentMethodId == null || paymentMethodId.isBlank()) {
-            throw ApiException.badRequest("Dados do cartão incompletos. Preencha o cartão novamente.");
-        }
-        String type = paymentTypes(false, seller).get(paymentMethodId);
-        if (type == null) {
-            type = paymentTypes(true, seller).get(paymentMethodId);
-        }
-        if (!cardPaymentType(method).equals(type)) {
-            throw ApiException.unprocessable(method == PaymentMethod.DEBIT_CARD
-                    ? "Este cartão não pode ser usado na função débito. Escolha \"Crédito\" ou use outro cartão."
-                    : "Este cartão não pode ser usado na função crédito. Escolha \"Débito\" ou use outro cartão.");
-        }
-    }
-
-    /** Catálogo de meios de pagamento do Brasil, em cache. Falha fechada: sem catálogo, não cobra. */
-    private Map<String, String> paymentTypes(boolean reloadIfStale, SellerAccount seller) {
-        Instant now = Instant.now();
-        Duration maxAge = reloadIfStale ? CATALOG_MIN_RELOAD : CATALOG_TTL;
-        if (paymentTypesLoadedAt.plus(maxAge).isAfter(now)) {
-            return paymentTypes;
-        }
-        synchronized (this) {
-            if (paymentTypesLoadedAt.plus(maxAge).isAfter(Instant.now())) {
-                return paymentTypes;
-            }
-            try {
-                JsonNode response = client.get().uri("/v1/payment_methods")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(seller))
-                        .retrieve().body(JsonNode.class);
-                Map<String, String> types = new HashMap<>();
-                if (response != null) {
-                    for (JsonNode m : response) {
-                        String id = text(m.path("id"));
-                        String type = text(m.path("payment_type_id"));
-                        if (id != null && type != null) {
-                            types.put(id, type);
-                        }
-                    }
+            for (String part : query.split("&")) {
+                String[] pair = part.split("=", 2);
+                if ("pref_id".equals(URLDecoder.decode(pair[0], StandardCharsets.UTF_8))) {
+                    if (pair.length != 2 || !id.equals(URLDecoder.decode(pair[1], StandardCharsets.UTF_8))) return false;
+                    matches++;
                 }
-                paymentTypes = Map.copyOf(types);
-                paymentTypesLoadedAt = Instant.now();
-                return paymentTypes;
-            } catch (RestClientException e) {
-                log.error("Falha ao carregar os meios de pagamento do Mercado Pago", e);
-                throw ApiException.badGateway("Não foi possível validar o cartão no Mercado Pago. Tente de novo em instantes.");
             }
-        }
+        } catch (IllegalArgumentException e) { return false; }
+        return matches == 1;
     }
 
-    private static GatewayPayment toGatewayPayment(JsonNode n) {
-        JsonNode tx = n.path("point_of_interaction").path("transaction_data");
-        String expiration = text(n.path("date_of_expiration"));
-        return new GatewayPayment(
-                text(n.path("id")),
-                mapStatus(text(n.path("status"))),
-                text(n.path("status_detail")),
-                text(tx.path("qr_code")),
-                text(tx.path("qr_code_base64")),
-                expiration == null ? null : OffsetDateTime.parse(expiration).toInstant(),
-                text(n.path("card").path("last_four_digits")),
-                text(n.path("payment_type_id")),
-                challenge(n));
+    private static void requireCheckoutToken(SellerAccount seller) {
+        if (seller == null || seller.accessToken() == null || !seller.accessToken().startsWith("APP_USR-"))
+            throw ApiException.unprocessable("O organizador precisa reconectar uma conta Mercado Pago compatível com Checkout Pro.");
     }
 
-    /** Desafio 3DS pendente; só aceita URL https para o navegador não postar o creq em outro lugar. */
-    static ThreeDsChallenge challenge(JsonNode n) {
-        if (!"pending_challenge".equals(text(n.path("status_detail")))) {
-            return null;
-        }
-        JsonNode info = n.path("three_ds_info");
-        String url = text(info.path("external_resource_url"));
-        String creq = text(info.path("creq"));
-        if (url == null || creq == null) {
-            return null;
-        }
+    private ApiException invalidPreference(CheckoutCommand c, String reason) {
+        log.warn("Checkout Pro recusado: checkout={} motivo={}", c.sessionId(), reason);
+        return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                "O Mercado Pago não confirmou a preferência desta inscrição. Tente novamente; se persistir, fale com a organização.");
+    }
+
+    public GatewayPayment fetch(String id, SellerAccount seller) {
+        if (id == null || !id.matches("[0-9]{1,30}")) throw ApiException.badRequest("Pagamento inválido");
         try {
-            URI uri = URI.create(url);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-                log.warn("Desafio 3DS ignorado: URL não é https ({})", uri.getHost());
-                return null;
+            return parse(client.get().uri("/v1/payments/{id}", id)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + seller.accessToken()).retrieve().body(JsonNode.class));
+        } catch (RestClientException e) { throw unavailable(e); }
+    }
+
+    public List<GatewayPayment> search(String reference, SellerAccount seller) {
+        try {
+            List<GatewayPayment> found = new ArrayList<>();
+            // Uma preferência pode gerar recusas seguidas de aprovação. Não perde tentativas na paginação.
+            for (int offset = 0; offset < 10000; offset += 50) {
+                int pageOffset = offset;
+                JsonNode response = client.get().uri(b -> b.path("/v1/payments/search")
+                        .queryParam("external_reference", reference).queryParam("sort", "date_created")
+                        .queryParam("criteria", "asc").queryParam("limit", 50).queryParam("offset", pageOffset).build())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + seller.accessToken())
+                        .retrieve().body(JsonNode.class);
+                if (response == null || !response.path("results").isArray()) throw incomplete();
+                for (JsonNode node : response.path("results")) found.add(parse(node));
+                if (response.path("results").size() < 50) break;
             }
-        } catch (IllegalArgumentException e) {
-            log.warn("Desafio 3DS ignorado: URL inválida");
-            return null;
-        }
-        return new ThreeDsChallenge(url, creq);
+            return found;
+        } catch (RestClientException e) { throw unavailable(e); }
     }
 
-    private static String bearer(SellerAccount seller) {
-        return "Bearer " + seller.accessToken();
-    }
-
-    static PaymentStatus mapStatus(String status) {
-        if (status == null) {
-            return PaymentStatus.PENDING;
-        }
-        return switch (status) {
+    static GatewayPayment parse(JsonNode n) {
+        if (n == null || text(n.path("id")) == null || !n.path("transaction_amount").isNumber()
+                || !n.path("live_mode").isBoolean() || text(n.path("status")) == null) throw incomplete();
+        PaymentStatus status = switch (n.path("status").asText()) {
             case "approved" -> PaymentStatus.APPROVED;
             case "rejected" -> PaymentStatus.REJECTED;
             case "cancelled" -> PaymentStatus.CANCELLED;
             case "refunded", "charged_back" -> PaymentStatus.REFUNDED;
-            default -> PaymentStatus.PENDING; // pending, in_process, authorized, in_mediation
+            default -> PaymentStatus.PENDING;
         };
+        PaymentMethod method = switch (n.path("payment_type_id").asText()) {
+            case "credit_card" -> PaymentMethod.CREDIT_CARD;
+            case "debit_card" -> PaymentMethod.DEBIT_CARD;
+            case "ticket" -> PaymentMethod.BOLETO;
+            default -> "pix".equals(n.path("payment_method_id").asText()) ? PaymentMethod.PIX : PaymentMethod.MERCADO_PAGO;
+        };
+        Instant paidAt = null;
+        String paid = text(n.path("date_approved"));
+        if (paid != null) {
+            try { paidAt = OffsetDateTime.parse(paid).toInstant(); }
+            catch (java.time.format.DateTimeParseException e) { throw incomplete(); }
+        }
+        Integer installments = n.path("installments").isInt() ? Integer.valueOf(n.path("installments").intValue()) : null;
+        if (method == PaymentMethod.DEBIT_CARD) installments = 1;
+        return new GatewayPayment(text(n.path("id")), status, text(n.path("status_detail")),
+                n.path("transaction_amount").decimalValue(), text(n.path("currency_id")),
+                text(n.path("external_reference")), text(n.path("collector_id")), n.path("live_mode").booleanValue(),
+                method, installments, paidAt);
+    }
+    public static String text(JsonNode n) {
+        return n == null || n.isMissingNode() || n.isNull() || !n.isValueNode() ? null : n.asText();
+    }
+    public static boolean safeCheckoutUrl(String value) {
+        try {
+            URI u = URI.create(value);
+            return "https".equals(u.getScheme()) && u.getUserInfo() == null && (u.getPort() == -1 || u.getPort() == 443)
+                    && "www.mercadopago.com.br".equals(u.getHost())
+                    && u.getPath().startsWith("/checkout/");
+        } catch (IllegalArgumentException | NullPointerException e) { return false; }
+    }
+    private static ApiException incomplete() {
+        return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                "O Mercado Pago retornou informações incompletas. Tente novamente.");
+    }
+    private ApiException unavailable(RestClientException e) {
+        int status = e instanceof RestClientResponseException r ? r.getStatusCode().value() : 0;
+        log.warn("Consulta ao Checkout Pro indisponível: HTTP={} motivo={}", status, providerReason(e));
+        return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                "Não foi possível consultar o Mercado Pago. Tente novamente em instantes.");
     }
 
-    public static String text(JsonNode node) {
-        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
+    private static String providerReason(RestClientException e) {
+        if (!(e instanceof RestClientResponseException response)) return "connection";
+        Set<String> known = Set.of("invalid_access_token", "invalid_collector_id", "invalid_client_id",
+                "collector_does_not_comply_with_current_regulation", "invalid_marketplace_fee",
+                "invalid_items", "invalid_back_urls", "invalid_expiration_date_from", "invalid_expiration_date_to",
+                "invalid_date", "invalid_id", "invalid_operation_type", "invalid_sponsor_id", "invalid_collector_email");
+        try {
+            JsonNode body = new ObjectMapper().readTree(response.getResponseBodyAsString());
+            for (String field : List.of("error", "message")) {
+                String reason = text(body.path(field));
+                if (known.contains(reason == null ? "" : reason)) return reason;
+            }
+        } catch (Exception ignored) { /* Não registra o corpo, a URL ou credenciais do provedor. */ }
+        return "provider_error";
     }
 }

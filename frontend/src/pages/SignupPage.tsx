@@ -6,13 +6,15 @@ import { Field } from '../components/Field';
 import { InlineError } from '../components/States';
 import { GoogleAuth } from '../components/GoogleAuth';
 import { RoleChoice } from '../components/RoleChoice';
+import { localReturnPath } from '../lib/navigation';
 
 export default function SignupPage() {
   const { signup } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get('next');
+  const next = localReturnPath(params.get('next'));
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [role, setRole] = useState<Role>('ATHLETE');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -24,6 +26,10 @@ export default function SignupPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (form.password !== passwordConfirmation) {
+      setError(new Error('A senha e a confirmação de senha devem ser iguais'));
+      return;
+    }
     if (form.password.length < 8) {
       setError(new Error('A senha precisa ter pelo menos 8 caracteres'));
       return;
@@ -58,12 +64,16 @@ export default function SignupPage() {
           <input id="su-password" className="input" type="password" autoComplete="new-password" required
             value={form.password} onChange={set('password')} />
         </Field>
+        <Field label="Confirmação de senha" htmlFor="su-password-confirmation">
+          <input id="su-password-confirmation" className="input" type="password" autoComplete="new-password" required
+            value={passwordConfirmation} onChange={(e) => setPasswordConfirmation(e.target.value)} />
+        </Field>
         <InlineError error={error} />
         <button type="submit" className="btn btn--primary btn--block" disabled={busy}>
           {busy ? 'Criando conta…' : 'Criar conta'}
         </button>
       </form>
-      <GoogleAuth role={role} text="signup_with" onSuccess={goOn} />
+      <GoogleAuth role={role} text="signup_with" />
       <p className="form-foot">
         Já tem conta? <Link to={`/entrar${next ? `?next=${encodeURIComponent(next)}` : ''}`}>Entrar</Link>
       </p>

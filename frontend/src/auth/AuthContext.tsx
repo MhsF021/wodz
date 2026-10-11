@@ -5,7 +5,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -29,7 +28,7 @@ interface AuthContextValue {
   refreshUser: () => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<User>;
   /** Encerra a sessão e volta para a página inicial. */
-  logout: () => void;
+  logout: (destination?: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -40,44 +39,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(() => Boolean(tokenStore.get()));
 
-  useEffect(() => {
-    if (!tokenStore.get()) return;
-    authApi
-      .me()
-      .then(setUser)
-      .catch(() => tokenStore.clear())
-      .finally(() => setLoading(false));
-  }, []);
+  const discardSessionData = useCallback(() => {
+    // Cancela antes de remover: nenhuma consulta da conta anterior pode repovoar
+    // o cache enquanto a troca de sessão ainda está sendo renderizada.
+    void queryClient.cancelQueries();
+    queryClient.clear();
+  }, [queryClient]);
+
+  const adoptSession = useCallback((token: string, nextUser: User) => {
+    tokenStore.set(token);
+    discardSessionData();
+    setUser(nextUser);
+    setLoading(false);
+  }, [discardSessionData]);
 
   useEffect(() => {
-    const onLogout = () => setUser(null);
+    const initialToken = tokenStore.get();
+    if (!initialToken) return;
+    let cancelled = false;
+    authApi
+      .me()
+      .then((nextUser) => {
+        if (!cancelled && tokenStore.get() === initialToken) setUser(nextUser);
+      })
+      .catch(() => {
+        if (!cancelled && tokenStore.get() === initialToken) {
+          tokenStore.clear();
+          discardSessionData();
+          setUser(null);
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [discardSessionData]);
+
+  useEffect(() => {
+    const onLogout = () => {
+      discardSessionData();
+      setUser(null);
+      setLoading(false);
+    };
     window.addEventListener(LOGOUT_EVENT, onLogout);
     return () => window.removeEventListener(LOGOUT_EVENT, onLogout);
-  }, []);
+  }, [discardSessionData]);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login(email, password);
-    tokenStore.set(res.token);
-    setUser(res.user);
+    adoptSession(res.token, res.user);
     return res.user;
-  }, []);
+  }, [adoptSession]);
 
   const signup = useCallback(async (input: RegisterInput) => {
     const res = await authApi.register(input);
-    tokenStore.set(res.token);
-    setUser(res.user);
+    adoptSession(res.token, res.user);
     return res.user;
-  }, []);
+  }, [adoptSession]);
 
   const loginWithGoogle = useCallback(async (credential: string, role?: Role): Promise<GoogleLoginOutcome> => {
     const res = await authApi.google(credential, role);
     if (res.auth) {
-      tokenStore.set(res.auth.token);
-      setUser(res.auth.user);
+      adoptSession(res.auth.token, res.auth.user);
       return { user: res.auth.user };
     }
     return { pending: res.pending! };
-  }, []);
+  }, [adoptSession]);
 
   const refreshUser = useCallback(async () => {
     setUser(await authApi.me());
@@ -89,26 +114,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updated;
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback((destination = '/') => {
     tokenStore.clear();
-    window.google?.accounts.id.disableAutoSelect();
+    discardSessionData();
+    setLoading(false);
+    try { window.google?.accounts.id.disableAutoSelect(); } catch { /* A saída local não depende do Google. */ }
     // O React Router troca a rota dentro de uma transição. Limpar o usuário na mesma
     // transição evita um render com usuário nulo na página protegida, em que o
     // RequireRole mandaria para /entrar em vez da página inicial.
     startTransition(() => {
       setUser(null);
-      navigate('/', { replace: true });
+      navigate(destination, { replace: true });
     });
-  }, [navigate]);
-
-  // Sessão encerrada (Sair, conta excluída ou expirada): descarta tudo que foi
-  // carregado com a conta anterior, para nada dela aparecer na próxima.
-  const previousUserId = useRef<number | null>(null);
-  useEffect(() => {
-    const id = user?.id ?? null;
-    if (previousUserId.current !== null && previousUserId.current !== id) queryClient.clear();
-    previousUserId.current = id;
-  }, [user, queryClient]);
+  }, [navigate, discardSessionData]);
 
   const value = useMemo(
     () => ({ user, loading, login, signup, loginWithGoogle, refreshUser, updateProfile, logout }),

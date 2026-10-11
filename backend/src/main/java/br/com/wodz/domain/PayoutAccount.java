@@ -50,6 +50,7 @@ public class PayoutAccount {
     /** Cifrado. */
     private String refreshToken;
 
+    /** Coluna legada mantida para apagar chaves antigas; não é usada pelo Checkout Pro. */
     private String publicKey;
 
     private boolean liveMode;

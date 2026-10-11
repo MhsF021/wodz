@@ -49,7 +49,39 @@ class AuthServiceGoogleTest {
         when(google.verify("credencial")).thenReturn(ANA);
         when(users.findByGoogleSub(any())).thenReturn(Optional.empty());
         when(users.findByEmailIgnoreCase(any())).thenReturn(Optional.empty());
+        when(users.lockActiveByEmail(any())).thenReturn(Optional.empty());
         when(tokens.issue(any())).thenReturn(issued);
+    }
+
+    @Test
+    void emailGoogleDeTerceiroNaoVinculaCadastroPorSenhaSemConfirmacao() {
+        AppUser existing = new AppUser();
+        existing.setId(5L);
+        existing.setEmail("ana@outro.test");
+        existing.setPasswordHash(encoder.encode("senha-atual"));
+        when(google.verify("third-party")).thenReturn(new GoogleProfile("google-3", "ana@outro.test", "Ana"));
+        when(users.lockActiveByEmail("ana@outro.test")).thenReturn(Optional.of(existing));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> service.google(new GoogleLoginRequest("third-party", null)));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatus());
+        assertNull(existing.getGoogleSub());
+        verify(tokens, never()).issue(any());
+    }
+
+    @Test
+    void dominioWorkspaceAtestadoPeloGooglePodeVincularCadastro() {
+        AppUser existing = new AppUser();
+        existing.setId(5L);
+        existing.setEmail("ana@workspace.test");
+        when(google.verify("workspace")).thenReturn(new GoogleProfile("google-w", "ana@workspace.test", "Ana", "workspace.test"));
+        when(users.lockActiveByEmail("ana@workspace.test")).thenReturn(Optional.of(existing));
+
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("workspace", null));
+
+        assertSame(issued, result.auth());
+        assertEquals("google-w", existing.getGoogleSub());
     }
 
     @Test
@@ -105,7 +137,7 @@ class AuthServiceGoogleTest {
     void mesmoEmailCadastradoComSenhaEhVinculadoAoGoogle() {
         AppUser existing = user(null, "ana@gmail.com");
         existing.setPasswordHash(encoder.encode("senha-123"));
-        when(users.findByEmailIgnoreCase("ana@gmail.com")).thenReturn(Optional.of(existing));
+        when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
 
         GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null));
 
@@ -115,7 +147,8 @@ class AuthServiceGoogleTest {
 
     @Test
     void emailVinculadoAOutraContaGoogleEhRecusado() {
-        when(users.findByEmailIgnoreCase("ana@gmail.com")).thenReturn(Optional.of(user("google-999", "ana@gmail.com")));
+        AppUser existing = user("google-999", "ana@gmail.com");
+        when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
 
         ApiException ex = assertThrows(ApiException.class,
                 () -> service.google(new GoogleLoginRequest("credencial", null)));
@@ -123,13 +156,45 @@ class AuthServiceGoogleTest {
     }
 
     @Test
-    void loginPorSenhaDeContaSoComGoogleOrientaAUsarOGoogle() {
+    void contaDesvinculadaNaoEhVinculadaAutomaticamenteMesmoEmEmailGmail() {
+        AppUser existing = user(null, "ana@gmail.com");
+        existing.setGoogleLinkDisabled(true);
+        existing.setPasswordHash(encoder.encode("senha-local"));
+        when(users.findByEmailIgnoreCase("ana@gmail.com")).thenReturn(Optional.of(existing));
+        when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> service.google(new GoogleLoginRequest("credencial", Role.ATHLETE)));
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        assertNull(existing.getGoogleSub());
+        verify(tokens, never()).issue(any());
+        verify(users, never()).save(any());
+        assertSame(issued, service.login(new LoginRequest("ana@gmail.com", "senha-local")));
+    }
+
+    @Test
+    void preferenciaDeDesvinculacaoEhVerificadaNaPrimeiraLeituraPorEmailSobLock() {
+        AppUser current = user(null, "ana@gmail.com");
+        current.setGoogleLinkDisabled(true);
+        when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(current));
+
+        assertThrows(ApiException.class, () -> service.google(new GoogleLoginRequest("credencial", null)));
+
+        assertNull(current.getGoogleSub());
+        verify(users).lockActiveByEmail("ana@gmail.com");
+        verify(users, never()).findByEmailIgnoreCase(any());
+        verify(tokens, never()).issue(any());
+    }
+
+    @Test
+    void loginPorSenhaNaoRevelaSeEmailPertenceAContaGoogle() {
         when(users.findByEmailIgnoreCase("ana@gmail.com")).thenReturn(Optional.of(user("google-123", "ana@gmail.com")));
 
         ApiException ex = assertThrows(ApiException.class,
                 () -> service.login(new LoginRequest("ana@gmail.com", "qualquer")));
         assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
-        assertEquals("Esta conta entra com o Google. Use o botão Entrar com Google.", ex.getMessage());
+        assertEquals("E-mail ou senha incorretos", ex.getMessage());
     }
 
     private static AppUser user(String googleSub, String email) {

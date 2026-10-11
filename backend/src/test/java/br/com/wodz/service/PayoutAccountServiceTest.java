@@ -6,6 +6,7 @@ import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.*;
 import br.com.wodz.payment.MercadoPagoOAuthClient;
 import br.com.wodz.payment.MercadoPagoOAuthClient.OAuthTokens;
+import br.com.wodz.payment.MercadoPagoOAuthClient.CheckoutAccount;
 import br.com.wodz.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,13 +35,12 @@ class PayoutAccountServiceTest {
     private final PayoutTokenService tokens = mock(PayoutTokenService.class);
     private final AppProperties props = new AppProperties("https://wodz.test/", null, null,
             new AppProperties.PaymentProps("mercadopago", Duration.ofMinutes(30),
-                    new AppProperties.MercadoPagoProps("pk", "secret", "https://wodz.test/api/webhooks/mercadopago", true,
-                            "client", "client-secret", BigDecimal.ZERO, "platform", false)), null, null, "prod",
+                    new AppProperties.MercadoPagoProps("secret", "https://wodz.test/api/webhooks/mercadopago", "client", "client-secret", BigDecimal.ZERO, false)), null, null, "prod",
             new AppProperties.SecurityProps("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
     private final TokenCipher cipher = new TokenCipher(props);
     private PayoutAccountService service;
     private PayoutOAuthState state;
-    private final OAuthTokens credential = new OAuthTokens("secret-access", "secret-refresh", "pk", "123", 3600, true);
+    private final OAuthTokens credential = new OAuthTokens("secret-access", "secret-refresh", "123", 3600, true);
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -55,7 +55,12 @@ class PayoutAccountServiceTest {
         when(states.findById("state")).thenReturn(Optional.of(state));
         when(states.consume("state")).thenReturn(1);
         when(oauth.exchangeCode("code","verifier",service.redirectUri())).thenReturn(credential);
-        when(oauth.validateAccount(credential)).thenReturn("Organizador (org@test.invalid)");
+        when(oauth.validateCheckoutAccount(any(), anyBoolean())).thenAnswer(invocation -> {
+            OAuthTokens value = invocation.getArgument(0);
+            boolean expectedTest = invocation.getArgument(1);
+            if (value.liveMode() == expectedTest) throw ApiException.unprocessable("Modo da conta incompatível");
+            return new CheckoutAccount("Organizador (org@test.invalid)", value);
+        });
     }
 
     @Test
@@ -64,7 +69,7 @@ class PayoutAccountServiceTest {
         var order = inOrder(states,oauth,tokens,accounts);
         order.verify(states).consume("state");
         order.verify(oauth).exchangeCode("code","verifier",service.redirectUri());
-        order.verify(oauth).validateAccount(credential);
+        order.verify(oauth).validateCheckoutAccount(credential, false);
         order.verify(accounts).findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE);
         order.verify(tokens).storeTokens(any(PayoutAccount.class),eq(credential));
         order.verify(accounts).saveAndFlush(argThat(a -> a.getUserId().equals(1L) && a.getProviderUserId().equals("123")));
@@ -89,6 +94,7 @@ class PayoutAccountServiceTest {
         assertEquals("client", query.getFirst("client_id"));
         assertEquals("code", query.getFirst("response_type"));
         assertEquals("mp", query.getFirst("platform_id"));
+        assertEquals("read write offline_access", URLDecoder.decode(query.getFirst("scope"), StandardCharsets.UTF_8));
         assertEquals(pending.getState(), query.getFirst("state"));
         assertEquals(service.redirectUri(), URLDecoder.decode(query.getFirst("redirect_uri"), StandardCharsets.UTF_8));
         String verifier = cipher.decrypt(pending.getCodeVerifier());
@@ -116,7 +122,7 @@ class PayoutAccountServiceTest {
 
     @Test
     void contaRecusadaNaoFicaAtiva() {
-        when(oauth.validateAccount(credential)).thenThrow(ApiException.unprocessable("Conta suspensa"));
+        when(oauth.validateCheckoutAccount(credential, false)).thenThrow(ApiException.unprocessable("Conta suspensa"));
         assertThrows(ApiException.class, () -> service.complete("state","code"));
         verifyNoInteractions(tokens,accounts);
     }
@@ -124,9 +130,9 @@ class PayoutAccountServiceTest {
     @Test
     void recusaContaDeTesteEmProducao() {
         when(oauth.exchangeCode(anyString(),anyString(),anyString())).thenReturn(
-                new OAuthTokens("access","refresh","pk","123",3600,false));
+                new OAuthTokens("access","refresh","123",3600,false));
         assertThrows(ApiException.class, () -> service.complete("state","code"));
-        verify(oauth,never()).validateAccount(any());
+        verify(oauth).validateCheckoutAccount(any(), eq(false));
         verifyNoInteractions(tokens,accounts);
     }
 
@@ -135,24 +141,23 @@ class PayoutAccountServiceTest {
     void modoDeTesteAceitaSomenteCredenciaisDeTesteConfirmadasNoProvedor() {
         AppProperties testProps = new AppProperties(props.frontendUrl(),null,null,
                 new AppProperties.PaymentProps("mercadopago",Duration.ofMinutes(30),
-                        new AppProperties.MercadoPagoProps("TEST-pk","secret",null,true,"client","client-secret",
-                                BigDecimal.ZERO,"platform",true)),null,null,"dev",props.security());
+                        new AppProperties.MercadoPagoProps("secret", null, "client", "client-secret", BigDecimal.ZERO, true)),null,null,"dev",props.security());
         ObjectProvider<MercadoPagoOAuthClient> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(oauth);
         service = new PayoutAccountService(testProps,users,accounts,states,cipher,tokens,provider);
         assertTrue(service.status(1L).testMode());
-        assertFalse(service.status(1L).sandbox());
+        assertFalse(service.status(1L).paymentUnavailable());
 
         // Um retorno de produção não pode habilitar cobranças no ambiente de testes.
         assertThrows(ApiException.class, () -> service.complete("state","code"));
         verifyNoInteractions(tokens);
-        verify(oauth,never()).validateAccount(credential);
+        verify(oauth).validateCheckoutAccount(credential, true);
 
-        OAuthTokens testCredential = new OAuthTokens("TEST-access","refresh","TEST-pk","123",3600,false);
+        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,false);
         when(oauth.exchangeCode("code","verifier",service.redirectUri())).thenReturn(testCredential);
-        when(oauth.validateAccount(testCredential)).thenReturn("Conta autorizada para testes");
+        when(oauth.validateCheckoutAccount(testCredential, true)).thenReturn(new CheckoutAccount("Conta autorizada para testes", testCredential));
         service.complete("state","code");
-        verify(oauth).validateAccount(testCredential);
+        verify(oauth).validateCheckoutAccount(testCredential, true);
         verify(tokens).storeTokens(any(PayoutAccount.class),eq(testCredential));
     }
 
@@ -161,8 +166,7 @@ class PayoutAccountServiceTest {
     void alternarModoPreservaCredenciaisDasCobrancasAnteriores() {
         AppProperties testProps = new AppProperties(props.frontendUrl(),null,null,
                 new AppProperties.PaymentProps("mercadopago",Duration.ofMinutes(30),
-                        new AppProperties.MercadoPagoProps("TEST-pk","secret",null,true,"client","client-secret",
-                                BigDecimal.ZERO,"platform",true)),null,null,"dev",props.security());
+                        new AppProperties.MercadoPagoProps("secret", null, "client", "client-secret", BigDecimal.ZERO, true)),null,null,"dev",props.security());
         ObjectProvider<MercadoPagoOAuthClient> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(oauth);
         service = new PayoutAccountService(testProps,users,accounts,states,cipher,tokens,provider);
@@ -171,9 +175,9 @@ class PayoutAccountServiceTest {
         previous.setLiveMode(true); previous.setAccessToken("encrypted-production-access");
         previous.setRefreshToken("encrypted-production-refresh");
         when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
-        OAuthTokens testCredential = new OAuthTokens("TEST-access","refresh","TEST-pk","123",3600,false);
+        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,false);
         when(oauth.exchangeCode("code","verifier",service.redirectUri())).thenReturn(testCredential);
-        when(oauth.validateAccount(testCredential)).thenReturn("Conta autorizada para testes");
+        when(oauth.validateCheckoutAccount(testCredential, true)).thenReturn(new CheckoutAccount("Conta autorizada para testes", testCredential));
 
         service.complete("state","code");
 

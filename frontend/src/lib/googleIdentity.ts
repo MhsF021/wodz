@@ -15,7 +15,9 @@ interface GoogleIdentity {
     id: {
       initialize(config: {
         client_id: string;
-        callback: (response: GoogleCredentialResponse) => void;
+        callback?: (response: GoogleCredentialResponse) => void;
+        login_uri?: string;
+        nonce?: string;
         ux_mode?: 'popup' | 'redirect';
         auto_select?: boolean;
         cancel_on_tap_outside?: boolean;
@@ -32,9 +34,12 @@ interface GoogleIdentity {
           logo_alignment?: 'left' | 'center';
           width?: number;
           locale?: string;
+          state?: string;
+          click_listener?: () => void;
         },
       ): void;
       disableAutoSelect(): void;
+      revoke(loginHint: string, callback: (response: { successful: boolean; error?: string }) => void): void;
     };
   };
 }
@@ -63,4 +68,43 @@ export function loadGoogleIdentity(): Promise<GoogleIdentity> {
     });
   }
   return scriptPromise;
+}
+
+/** Só recebe uma credencial que o servidor já confirmou. O payload não autoriza ações. */
+export function revokeGoogleGrant(clientId: string, serverConfirmedCredential: string): Promise<boolean> {
+  if (!clientId) return Promise.resolve(false);
+  let subject: string;
+  try {
+    const parts = serverConfirmedCredential.split('.');
+    if (parts.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return Promise.resolve(false);
+    const encoded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload: unknown = JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=')));
+    const sub = (payload as { sub?: unknown } | null)?.sub;
+    if (typeof sub !== 'string' || !sub || sub.length > 255) return Promise.resolve(false);
+    subject = sub;
+  } catch {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (successful: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(successful);
+    };
+    const timeout = setTimeout(() => finish(false), 7000);
+    loadGoogleIdentity().then((google) => {
+      // Um carregamento tardio não pode alterar o próximo login após o timeout.
+      if (settled) return;
+      try {
+        google.accounts.id.initialize({ client_id: clientId, callback: () => {}, auto_select: false });
+        google.accounts.id.disableAutoSelect();
+        google.accounts.id.revoke(subject, (response) => finish(response.successful === true));
+      } catch {
+        finish(false);
+      }
+    }).catch(() => finish(false));
+  });
 }

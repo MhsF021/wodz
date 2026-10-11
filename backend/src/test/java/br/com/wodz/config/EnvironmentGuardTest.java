@@ -13,9 +13,7 @@ class EnvironmentGuardTest {
         return new AppProperties("https://local.wodz.test",List.of("https://local.wodz.test"),
                 new AppProperties.JwtProps("a-custom-secret-with-more-than-32-characters",Duration.ofHours(12),"wodz"),
                 new AppProperties.PaymentProps(provider,Duration.ofMinutes(30),
-                        new AppProperties.MercadoPagoProps("public-key","webhook-secret",
-                                "https://local.wodz.test/api/webhooks/mercadopago",true,"client-id","client-secret",
-                                BigDecimal.ZERO,"platform",testMode)),
+                        new AppProperties.MercadoPagoProps("webhook-secret", "https://local.wodz.test/api/webhooks/mercadopago", "client-id", "client-secret", BigDecimal.ZERO, testMode)),
                 new AppProperties.SeedProps(false),null,environment,
                 new AppProperties.SecurityProps("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
     }
@@ -37,5 +35,24 @@ class EnvironmentGuardTest {
         assertTrue(EnvironmentGuard.problems(props("prod","mercadopago",true)).stream()
                 .anyMatch(p -> p.contains("MP_TEST_MODE=false")));
         assertTrue(EnvironmentGuard.problems(props("prod","mercadopago",false)).isEmpty());
+    }
+
+    @Test
+    void recusaCorsCuringsCaminhosCredenciaisEHttpForaDeDev() {
+        AppProperties base = props("prod", "mercadopago", false);
+        for (String origin : List.of("*", "https://*.wodz.test", "https://wodz.test/private",
+                "https://user:password@wodz.test", "https://wodz.test?secret=1", "http://wodz.test")) {
+            AppProperties invalid = new AppProperties(base.frontendUrl(), List.of(origin), base.jwt(),
+                    base.payment(), base.seed(), base.google(), base.environment(), base.security());
+            assertTrue(EnvironmentGuard.problems(invalid).stream().anyMatch(p -> p.contains("CORS_ORIGINS")), origin);
+        }
+    }
+
+    @Test
+    void senhasPadraoDeBancoNaoPassamForaDeDev() {
+        assertFalse(EnvironmentGuard.databaseProblems(props("prod", "mercadopago", false), "wodz").isEmpty());
+        assertFalse(EnvironmentGuard.databaseProblems(props("homolog", "mercadopago", false), "").isEmpty());
+        assertTrue(EnvironmentGuard.databaseProblems(props("prod", "mercadopago", false), "dedicated-random-secret").isEmpty());
+        assertTrue(EnvironmentGuard.databaseProblems(props("dev", "sandbox", false), "wodz").isEmpty());
     }
 }

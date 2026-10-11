@@ -1,6 +1,8 @@
 package br.com.wodz.web;
 
 import br.com.wodz.common.ApiException;
+import br.com.wodz.payment.PayoutAuthorizationException;
+import br.com.wodz.payment.PayoutAuthorizationException.Reason;
 import br.com.wodz.service.PayoutAccountService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,25 +40,25 @@ class PayoutAccountControllerTest {
     void recusaDeNegocioRedirecionaParaResultadoGenerico() throws Exception {
         doThrow(ApiException.unprocessable("Autorização inválida ou expirada")).when(accounts).complete(STATE, CODE);
 
-        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)), "error");
+        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)), "error&motivo=unexpected");
         verify(accounts).complete(STATE, CODE);
     }
 
     @Test
     void cancelamentoDescartaCodigoEConsomeState() throws Exception {
-        doThrow(ApiException.unprocessable("Autorização cancelada")).when(accounts).complete(STATE, null);
+        doThrow(new PayoutAuthorizationException(Reason.MISSING_CODE, "Sem código")).when(accounts).complete(STATE, null);
 
         redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)
-                .param("error", "access_denied")), "error");
+                .param("error", "access_denied")), "error&motivo=cancelled");
         verify(accounts).complete(STATE, null);
         verify(accounts, never()).complete(STATE, CODE);
     }
 
     @Test
     void retornoSemStateRedirecionaMesmoSemAutenticacao() throws Exception {
-        doThrow(ApiException.unprocessable("Autorização inválida ou expirada")).when(accounts).complete(null, CODE);
+        doThrow(new PayoutAuthorizationException(Reason.INVALID_STATE, "Autorização inválida ou expirada")).when(accounts).complete(null, CODE);
 
-        redirected(mvc.perform(get(CALLBACK).param("code", CODE)), "error");
+        redirected(mvc.perform(get(CALLBACK).param("code", CODE)), "error&motivo=invalid_state");
         verify(accounts).complete(null, CODE);
     }
 
@@ -64,16 +66,39 @@ class PayoutAccountControllerTest {
     void falhaDeInfraestruturaRedirecionaSemExporDetalhes() throws Exception {
         doThrow(new IllegalStateException("Falha com token privado e " + CODE)).when(accounts).complete(STATE, CODE);
 
-        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)), "error");
+        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)), "error&motivo=unexpected");
         verify(accounts).complete(STATE, CODE);
     }
 
     @Test
     void retornoSemParametrosTambemRedirecionaParaErro() throws Exception {
-        doThrow(ApiException.unprocessable("Autorização inválida ou expirada")).when(accounts).complete(null, null);
+        doThrow(new PayoutAuthorizationException(Reason.INVALID_STATE, "Autorização inválida ou expirada")).when(accounts).complete(null, null);
 
-        redirected(mvc.perform(get(CALLBACK)), "error");
+        redirected(mvc.perform(get(CALLBACK)), "error&motivo=invalid_state");
         verify(accounts).complete(null, null);
+    }
+
+    @Test
+    void motivoDeConfiguracaoChegaAoFrontendSemMensagemDoProvedor() throws Exception {
+        doThrow(new PayoutAuthorizationException(Reason.CONFIGURATION, "PRIVATE TOKEN " + CODE))
+                .when(accounts).complete(STATE, CODE);
+        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("code", CODE)), "error&motivo=configuration");
+    }
+
+    @Test
+    void erroDoProvedorNaoECancelamentoNemTextoLivreNaUrl() throws Exception {
+        doThrow(new PayoutAuthorizationException(Reason.MISSING_CODE, "Sem código"))
+                .when(accounts).complete(STATE, null);
+        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("error", "PRIVATE ERROR")),
+                "error&motivo=authorization_rejected");
+    }
+
+    @Test
+    void erroDoProvedorNaoSobrepoeStateInvalido() throws Exception {
+        doThrow(new PayoutAuthorizationException(Reason.INVALID_STATE, "Autorização inválida"))
+                .when(accounts).complete(STATE, null);
+        redirected(mvc.perform(get(CALLBACK).param("state", STATE).param("error", "access_denied")),
+                "error&motivo=invalid_state");
     }
 
     private void redirected(ResultActions response, String result) throws Exception {

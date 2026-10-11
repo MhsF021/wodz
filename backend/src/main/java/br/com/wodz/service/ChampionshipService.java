@@ -5,6 +5,7 @@ import br.com.wodz.common.Codes;
 import br.com.wodz.common.JdbcSupport;
 import br.com.wodz.domain.Category;
 import br.com.wodz.domain.Championship;
+import br.com.wodz.domain.ChampionshipFilter;
 import br.com.wodz.domain.ChampionshipStatus;
 import br.com.wodz.domain.ScoringSystem;
 import br.com.wodz.dto.ChampionshipDtos.AdminChampionshipSummary;
@@ -59,8 +60,13 @@ public class ChampionshipService {
 
     @Transactional(readOnly = true)
     public List<ChampionshipSummary> search(String term, String state) {
+        return search(term, state, ChampionshipFilter.ALL);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChampionshipSummary> search(String term, String state, ChampionshipFilter filter) {
         Instant now = Instant.now();
-        return championships.search(term == null ? "" : term.trim(), state == null ? "" : state.trim())
+        return championships.searchFiltered(term == null ? "" : term.trim(), state == null ? "" : state.trim(), filter.name())
                 .stream()
                 .map(c -> Mappers.summary(c, now))
                 .toList();

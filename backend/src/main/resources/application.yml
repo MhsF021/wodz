@@ -23,6 +23,11 @@ spring:
 server:
   port: ${PORT:8080}
   forward-headers-strategy: framework
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
 
 app:
   # dev | homolog | prod. Fora de dev a API só sobe com Mercado Pago real e segredos próprios.
@@ -35,24 +40,19 @@ app:
     ttl: ${JWT_TTL:12h}
     issuer: wodz
   payment:
-    provider: ${PAYMENT_PROVIDER:sandbox}     # sandbox | mercadopago
-    pix-expiration: ${PIX_EXPIRATION:30m}
+    provider: ${PAYMENT_PROVIDER:disabled}     # disabled | mercadopago (Checkout Pro)
+    checkout-expiration: ${CHECKOUT_EXPIRATION:30m}
     mercadopago:
       # Aplicação da plataforma no Mercado Pago (split 1:1). Os organizadores conectam
       # a própria conta por OAuth; o dinheiro das inscrições cai direto na conta deles.
       client-id: ${MP_CLIENT_ID:}
       client-secret: ${MP_CLIENT_SECRET:}
-      # APIs oficiais com credenciais de teste (OAuth test_token=true), sem o simulador local.
+      # Exige vendedor de teste oficial; OAuth e Checkout Pro usam APP_USR e init_point.
       test-mode: ${MP_TEST_MODE:false}
-      public-key: ${MP_PUBLIC_KEY:}
       webhook-secret: ${MP_WEBHOOK_SECRET:}
       notification-url: ${MP_NOTIFICATION_URL:}
-      # 3DS 2.0 nos cartões (crédito e débito). Só desligue se a conta do Mercado Pago não suportar.
-      three-d-secure: ${MP_THREE_D_SECURE:true}
-      # Percentual retido pela plataforma em cada inscrição (application_fee). 0 = nada.
+      # Percentual retido pela plataforma no Checkout Pro (marketplace_fee). 0 = nada.
       platform-fee-percent: ${MP_PLATFORM_FEE_PERCENT:0}
-      # Chave usada para tokenizar o cartão: platform (padrão da documentação do split) ou seller.
-      card-public-key-source: ${MP_CARD_PUBLIC_KEY_SOURCE:platform}
   security:
     # 32 bytes em Base64 (openssl rand -base64 32). Cifra os tokens das contas de recebimento.
     # Vazio só é aceito em dev. Trocar a chave invalida as contas já conectadas.

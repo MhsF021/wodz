@@ -30,6 +30,8 @@ public interface PayoutAccountRepository extends JpaRepository<PayoutAccount, Lo
 
     boolean existsByUserIdAndStatus(Long userId, PayoutAccountStatus status);
 
+    List<PayoutAccount> findByProviderAndProviderUserId(String provider, String providerUserId);
+
     List<PayoutAccount> findByProviderAndStatusAndExpiresAtBefore(String provider, PayoutAccountStatus status,
                                                                  Instant limit);
 }
