@@ -16,6 +16,8 @@ const compiled = ts.transpileModule(source, {
 function storage(initial = {}, blocked = false) {
   const values = new Map(Object.entries(initial));
   return {
+    get length() { return values.size; },
+    key(index) { return [...values.keys()][index] ?? null; },
     getItem(key) { if (blocked) throw new Error('Storage blocked'); return values.get(key) ?? null; },
     setItem(key, value) { if (blocked) throw new Error('Storage blocked'); values.set(key, value); },
     removeItem(key) { if (blocked) throw new Error('Storage blocked'); values.delete(key); },
@@ -36,6 +38,7 @@ function harness({ blocked = false, persisted = {}, session = {}, origin = 'http
     localStorage,
     sessionStorage,
     AbortController,
+    AbortSignal,
     Event,
     URL,
     __apiBase: apiBase,
@@ -70,6 +73,31 @@ test('blocked storage keeps a working in-memory session without persistent fallb
   assert.equal(client.localStorage.values.size, 0);
   client.tokenStore.clear();
   assert.equal(client.tokenStore.get(), null);
+});
+
+test('logout clears all WODZ session artifacts in both stores and preserves unrelated data', () => {
+  const initial = { 'wodz.token': 'secret', 'wodz.google-flow': 'flow', 'wodz.google-result': 'credential',
+    'wodz.mp-oauth-attempt': 'attempt', 'another-app': 'keep' };
+  const client = harness({ persisted: initial, session: initial });
+  client.tokenStore.clear();
+  assert.deepEqual([...client.sessionStorage.values], [['another-app', 'keep']]);
+  assert.deepEqual([...client.localStorage.values], [['another-app', 'keep']]);
+});
+
+test('server revocation survives local logout and reports failed requests accurately', async () => {
+  const client = harness({ session: { 'wodz.token': 'old-user' } });
+  const revoking = client.revokeRemoteSession();
+  client.tokenStore.clear();
+  assert.equal(client.requests[0].url, '/api/auth/logout');
+  assert.equal(client.requests[0].options.headers.Authorization, 'Bearer old-user');
+  assert.equal(client.requests[0].options.signal.aborted, false);
+  assert.equal(client.requests[0].options.keepalive, true);
+  client.pending[0].resolve(new Response(null, { status: 204 }));
+  assert.equal(await revoking, true);
+  client.tokenStore.set('another-user');
+  const failed = client.revokeRemoteSession();
+  client.pending[1].reject(new Error('offline'));
+  assert.equal(await failed, false);
 });
 
 test('logout aborts an in-flight request and refuses its late personal-data response', async () => {

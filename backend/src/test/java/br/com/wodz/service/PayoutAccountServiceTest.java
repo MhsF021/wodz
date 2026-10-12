@@ -58,8 +58,8 @@ class PayoutAccountServiceTest {
         when(oauth.validateCheckoutAccount(any(), anyBoolean())).thenAnswer(invocation -> {
             OAuthTokens value = invocation.getArgument(0);
             boolean expectedTest = invocation.getArgument(1);
-            if (value.liveMode() == expectedTest) throw ApiException.unprocessable("Modo da conta incompatível");
-            return new CheckoutAccount("Organizador (org@test.invalid)", value);
+            if (expectedTest) throw ApiException.unprocessable("Modo da conta incompatível");
+            return new CheckoutAccount("Organizador (org@test.invalid)", value, false);
         });
     }
 
@@ -76,12 +76,20 @@ class PayoutAccountServiceTest {
     }
 
     @Test
+    void requisicaoAceitaAntesDeSairNaoPodeCriarNovaAutorizacaoDepoisDaRevogacao() {
+        AppUser user = users.lockActiveById(1L).orElseThrow(); user.setTokenVersion(1L);
+        var error = assertThrows(ApiException.class, () -> service.connect(1L, 0L));
+        assertEquals(org.springframework.http.HttpStatus.UNAUTHORIZED, error.getStatus());
+        verify(states, never()).save(any()); verifyNoInteractions(oauth);
+    }
+
+    @Test
     void conectaDiretamenteNoMercadoPagoComStatePersistidoPkceECallback() {
         MercadoPagoOAuthClient provider = new MercadoPagoOAuthClient(props,
                 RestClient.builder().requestFactory(mock(ClientHttpRequestFactory.class)));
         when(oauth.authorizationUrl(anyString(), anyString(), anyString())).thenAnswer(invocation ->
                 provider.authorizationUrl(invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2)));
-        var authorization = service.connect(1L);
+        var authorization = service.connect(1L, 0L);
         var saved = org.mockito.ArgumentCaptor.forClass(PayoutOAuthState.class);
         verify(states).save(saved.capture());
         PayoutOAuthState pending = saved.getValue();
@@ -94,7 +102,7 @@ class PayoutAccountServiceTest {
         assertEquals("client", query.getFirst("client_id"));
         assertEquals("code", query.getFirst("response_type"));
         assertEquals("mp", query.getFirst("platform_id"));
-        assertEquals("read write offline_access", URLDecoder.decode(query.getFirst("scope"), StandardCharsets.UTF_8));
+        assertNull(query.getFirst("scope")); // usa as permissões configuradas na aplicação Marketplace
         assertEquals(pending.getState(), query.getFirst("state"));
         assertEquals(service.redirectUri(), URLDecoder.decode(query.getFirst("redirect_uri"), StandardCharsets.UTF_8));
         String verifier = cipher.decrypt(pending.getCodeVerifier());
@@ -128,11 +136,18 @@ class PayoutAccountServiceTest {
     }
 
     @Test
-    void recusaContaDeTesteEmProducao() {
+    void recusaModoFinanceiroDeTesteEmProducao() {
         when(oauth.exchangeCode(anyString(),anyString(),anyString())).thenReturn(
                 new OAuthTokens("access","refresh","123",3600,false));
         assertThrows(ApiException.class, () -> service.complete("state","code"));
         verify(oauth).validateCheckoutAccount(any(), eq(false));
+        verifyNoInteractions(tokens,accounts);
+    }
+
+    @Test
+    void contaTestUserNaoEntraEmProducaoMesmoOAuthLiveModeTrue() {
+        when(oauth.validateCheckoutAccount(credential,false)).thenReturn(new CheckoutAccount("Conta teste",credential,true));
+        assertThrows(ApiException.class, () -> service.complete("state","code"));
         verifyNoInteractions(tokens,accounts);
     }
 
@@ -148,17 +163,18 @@ class PayoutAccountServiceTest {
         assertTrue(service.status(1L).testMode());
         assertFalse(service.status(1L).paymentUnavailable());
 
-        // Um retorno de produção não pode habilitar cobranças no ambiente de testes.
+        // Uma conta real não pode habilitar cobranças no ambiente de testes.
         assertThrows(ApiException.class, () -> service.complete("state","code"));
         verifyNoInteractions(tokens);
         verify(oauth).validateCheckoutAccount(credential, true);
 
-        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,false);
+        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,true);
         when(oauth.exchangeCode("code","verifier",service.redirectUri())).thenReturn(testCredential);
-        when(oauth.validateCheckoutAccount(testCredential, true)).thenReturn(new CheckoutAccount("Conta autorizada para testes", testCredential));
+        doReturn(new CheckoutAccount("Conta autorizada para testes",testCredential,true)).when(oauth).validateCheckoutAccount(testCredential,true);
         service.complete("state","code");
         verify(oauth).validateCheckoutAccount(testCredential, true);
         verify(tokens).storeTokens(any(PayoutAccount.class),eq(testCredential));
+        verify(accounts).saveAndFlush(argThat(a -> Boolean.TRUE.equals(a.getTestAccount())));
     }
 
     @Test
@@ -173,11 +189,12 @@ class PayoutAccountServiceTest {
         PayoutAccount previous = new PayoutAccount();
         previous.setId(9L); previous.setUserId(1L); previous.setProviderUserId("123");
         previous.setLiveMode(true); previous.setAccessToken("encrypted-production-access");
+        previous.setTestAccount(false);
         previous.setRefreshToken("encrypted-production-refresh");
         when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
-        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,false);
+        OAuthTokens testCredential = new OAuthTokens("APP_USR-test","refresh","123",3600,true);
         when(oauth.exchangeCode("code","verifier",service.redirectUri())).thenReturn(testCredential);
-        when(oauth.validateCheckoutAccount(testCredential, true)).thenReturn(new CheckoutAccount("Conta autorizada para testes", testCredential));
+        doReturn(new CheckoutAccount("Conta autorizada para testes",testCredential,true)).when(oauth).validateCheckoutAccount(testCredential,true);
 
         service.complete("state","code");
 
@@ -194,12 +211,104 @@ class PayoutAccountServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void reautorizarLegadoDeOrigemDesconhecidaCriaVinculoValidadoSemReescreverHistorico() {
+        AppProperties testProps = new AppProperties(props.frontendUrl(),null,null,
+                new AppProperties.PaymentProps("mercadopago",Duration.ofMinutes(30),
+                        new AppProperties.MercadoPagoProps("secret",null,"client","client-secret",BigDecimal.ZERO,true)),null,null,"dev",props.security());
+        ObjectProvider<MercadoPagoOAuthClient> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(oauth);
+        service = new PayoutAccountService(testProps,users,accounts,states,cipher,tokens,provider);
+        PayoutAccount previous = new PayoutAccount(); previous.setId(9L); previous.setUserId(1L);
+        previous.setProviderUserId("123"); previous.setLiveMode(false); previous.setTestAccount(null);
+        previous.setAccessToken("encrypted-legacy-access"); previous.setRefreshToken("encrypted-legacy-refresh");
+        when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
+        doReturn(new CheckoutAccount("Conta teste",credential,true)).when(oauth).validateCheckoutAccount(credential,true);
+        service.complete("state","code");
+        assertEquals(PayoutAccountStatus.DISCONNECTED,previous.getStatus());
+        assertEquals(9L,previous.getId());
+        assertNull(previous.getTestAccount());
+        assertNull(previous.getApplicationId());
+        assertFalse(previous.isLiveMode());
+        assertEquals("encrypted-legacy-access",previous.getAccessToken());
+        assertEquals("encrypted-legacy-refresh",previous.getRefreshToken());
+        verify(tokens).storeTokens(argThat(a -> a != previous && a.getId() == null
+                && a.getUserId().equals(1L) && a.getProviderUserId().equals("123")),eq(credential));
+        verify(accounts,times(1)).saveAndFlush(previous);
+        verify(accounts).saveAndFlush(argThat(a -> a != previous && a.getId() == null && Boolean.TRUE.equals(a.getTestAccount())));
+    }
+
+    @Test
     void recusaTrocarContaSemDesconectar() {
         PayoutAccount previous = new PayoutAccount(); previous.setProviderUserId("456");
         when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
         assertThrows(ApiException.class, () -> service.complete("state","code"));
         verify(accounts,never()).saveAndFlush(any());
         verifyNoInteractions(tokens);
+    }
+
+    @Test
+    void reconectarEmOutraAplicacaoPreservaVinculoAnteriorMesmoNoMesmoModo() {
+        PayoutAccount previous = new PayoutAccount();
+        previous.setId(9L); previous.setUserId(1L); previous.setProviderUserId("123");
+        previous.setApplicationId("previous-app"); previous.setTestAccount(false); previous.setLiveMode(true);
+        previous.setAccessToken("encrypted-previous-access"); previous.setRefreshToken("encrypted-previous-refresh");
+        when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
+
+        service.complete("state","code");
+
+        assertEquals(PayoutAccountStatus.DISCONNECTED,previous.getStatus());
+        assertNotNull(previous.getDisconnectedAt());
+        assertEquals("previous-app",previous.getApplicationId());
+        assertEquals("encrypted-previous-access",previous.getAccessToken());
+        assertEquals("encrypted-previous-refresh",previous.getRefreshToken());
+        var order = inOrder(accounts,tokens);
+        order.verify(accounts).findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE);
+        order.verify(accounts).saveAndFlush(previous);
+        order.verify(tokens).storeTokens(argThat(a -> a != previous && a.getId() == null
+                && a.getUserId().equals(1L) && a.getProviderUserId().equals("123")),eq(credential));
+        order.verify(accounts).saveAndFlush(argThat(a -> a != previous && a.getId() == null));
+    }
+
+    @Test
+    void reconectarSemOrigemConhecidaPreservaTokensMesmoComMesmoVendedorEModos() {
+        PayoutAccount previous = new PayoutAccount();
+        previous.setId(9L); previous.setUserId(1L); previous.setProviderUserId("123");
+        previous.setApplicationId(null); previous.setTestAccount(false); previous.setLiveMode(true);
+        previous.setAccessToken("encrypted-unknown-app-access"); previous.setRefreshToken("encrypted-unknown-app-refresh");
+        when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
+
+        service.complete("state","code");
+
+        assertEquals(PayoutAccountStatus.DISCONNECTED,previous.getStatus());
+        assertNotNull(previous.getDisconnectedAt());
+        assertNull(previous.getApplicationId());
+        assertEquals("encrypted-unknown-app-access",previous.getAccessToken());
+        assertEquals("encrypted-unknown-app-refresh",previous.getRefreshToken());
+        assertFalse(previous.getTestAccount());
+        assertTrue(previous.isLiveMode());
+        var order = inOrder(accounts,tokens);
+        order.verify(accounts).findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE);
+        order.verify(accounts).saveAndFlush(previous);
+        order.verify(tokens).storeTokens(argThat(a -> a != previous && a.getId() == null
+                && a.getUserId().equals(1L) && a.getProviderUserId().equals("123")),eq(credential));
+        order.verify(accounts).saveAndFlush(argThat(a -> a != previous && a.getId() == null));
+        verify(oauth,never()).refreshCheckout(anyString(),any());
+    }
+
+    @Test
+    void reautorizarNaMesmaAplicacaoEModoPreservaAssociacaoDosCheckouts() {
+        PayoutAccount previous = new PayoutAccount();
+        previous.setId(9L); previous.setUserId(1L); previous.setProviderUserId("123");
+        previous.setApplicationId("client"); previous.setTestAccount(false); previous.setLiveMode(true);
+        when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(previous));
+
+        service.complete("state","code");
+
+        assertEquals(PayoutAccountStatus.ACTIVE,previous.getStatus());
+        assertNull(previous.getDisconnectedAt());
+        verify(tokens).storeTokens(previous,credential);
+        verify(accounts,times(1)).saveAndFlush(previous);
     }
 
     @Test
@@ -224,6 +333,7 @@ class PayoutAccountServiceTest {
         PayoutAccount account = new PayoutAccount();
         account.setProviderUserId("123");
         account.setLiveMode(true);
+        account.setTestAccount(false);
         account.setConnectedAt(Instant.parse("2026-01-01T00:00:00Z"));
         account.setUpdatedAt(Instant.parse("2026-01-02T00:00:00Z"));
         when(accounts.findFirstByUserIdAndStatus(1L,PayoutAccountStatus.ACTIVE)).thenReturn(Optional.of(account));
@@ -231,6 +341,7 @@ class PayoutAccountServiceTest {
         var status = service.status(1L);
 
         assertTrue(status.connected());
+        assertEquals(false,status.testAccount());
         assertEquals(account.getUpdatedAt(),status.updatedAt());
         assertEquals(account.getConnectedAt(),status.connectedAt());
         assertNotEquals(status.connectedAt(),status.updatedAt());

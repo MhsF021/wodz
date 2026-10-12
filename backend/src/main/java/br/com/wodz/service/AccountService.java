@@ -54,6 +54,13 @@ public class AccountService {
     }
 
     @Transactional
+    public void logout(Long userId) {
+        AppUser user = load(userId);
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        payoutAccounts.cancelPendingAuthorizations(userId);
+    }
+
+    @Transactional
     public UserDto update(Long userId, UpdateProfileRequest req) {
         AppUser user = load(userId);
         String email = req.email().trim().toLowerCase(Locale.ROOT);

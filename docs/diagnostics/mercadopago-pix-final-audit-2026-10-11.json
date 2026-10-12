@@ -1,0 +1,24 @@
+{
+  "checked_at": "2026-10-11T23:26:25.7859541+00:00",
+  "stored_credential_type": "APP_USR",
+  "live_mode": true,
+  "card_preference_verified": true,
+  "isolated_searches": [
+    {
+      "payments_found": 0,
+      "reference": "pixdiag-f786096b-4f60-4c6b-9371-9d62c7f47326"
+    },
+    {
+      "payments_found": 0,
+      "reference": "pixdiag-03279448-31ce-48ca-8a9c-8f5428e0ef2e"
+    },
+    {
+      "payments_found": 0,
+      "reference": "pixdiag-ea93f7a0-deb1-49a5-9ef0-6f5d1864c4df"
+    }
+  ],
+  "no_payments_found": true,
+  "wodz_registration_status": "PENDING_PAYMENT",
+  "wodz_registration_amount": 250.0,
+  "wodz_checkout_id": null
+}

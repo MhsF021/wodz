@@ -1,0 +1,7 @@
+{
+  "checked_at": "2026-10-11T18:50:48.7146916+00:00",
+  "checkout_id": 3,
+  "checkout_url": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-001ca4fd-e366-4821-9380-21c765721402",
+  "expires_at": "2026-10-11T19:20:46.442999707Z",
+  "test_mode": true
+}

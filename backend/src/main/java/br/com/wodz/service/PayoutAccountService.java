@@ -55,12 +55,13 @@ public class PayoutAccountService {
                 account == null ? null : account.getAccountLabel(),
                 account == null ? null : account.getProviderUserId(), account != null && account.isLiveMode(),
                 account == null ? null : account.getConnectedAt(), !paymentUnavailable && mp.testMode(),
-                account == null ? null : account.getUpdatedAt());
+                account == null ? null : account.getUpdatedAt(), account == null ? null : account.getTestAccount());
     }
 
     @Transactional
-    public AuthorizationView connect(Long userId) {
-        organizer(userId);
+    public AuthorizationView connect(Long userId, long tokenVersion) {
+        AppUser user = organizer(userId);
+        if (user.getTokenVersion() != tokenVersion) throw ApiException.unauthorized("Sessão expirada. Entre novamente.");
         MercadoPagoOAuthClient client = client();
         String state = random();
         String verifier = random();
@@ -89,23 +90,27 @@ public class PayoutAccountService {
         MercadoPagoOAuthClient.CheckoutAccount verified = client().validateCheckoutAccount(returned,
                 props.payment().mercadopago().testMode());
         OAuthTokens credential = verified.tokens();
-        if ("prod".equalsIgnoreCase(props.environment()) && !credential.liveMode()) {
+        if ("prod".equalsIgnoreCase(props.environment()) && (verified.testAccount() || !credential.liveMode())) {
             throw new PayoutAuthorizationException(Reason.MODE_MISMATCH, "Use uma conta de produção do Mercado Pago.");
         }
-        if (credential.liveMode() == props.payment().mercadopago().testMode()) {
+        if (verified.testAccount() != props.payment().mercadopago().testMode()) {
             throw new PayoutAuthorizationException(Reason.MODE_MISMATCH,
                     "O Mercado Pago não confirmou credenciais no modo configurado. Conecte novamente.");
         }
         String label = verified.label();
         PayoutAccount account = accounts.findFirstByUserIdAndStatus(pending.getUserId(), PayoutAccountStatus.ACTIVE)
                 .orElse(null);
-        // Reautorizar no mesmo modo preserva a associação dos pagamentos existentes.
+        // Reautorizar na mesma aplicação e modo preserva a associação dos pagamentos existentes.
         if (account != null && !account.getProviderUserId().equals(credential.userId())) {
             throw new PayoutAuthorizationException(Reason.ACCOUNT_CHANGE,
                     "Desconecte a conta atual antes de conectar outra conta Mercado Pago.");
         }
-        if (account != null && account.isLiveMode() != credential.liveMode()) {
-            // Pagamentos anteriores continuam consultados com credenciais do modo original.
+        if (account != null && (account.getApplicationId() == null
+                || !account.getApplicationId().equals(props.payment().mercadopago().clientId())
+                || (account.getTestAccount() != null
+                && (account.getTestAccount() != verified.testAccount() || account.isLiveMode() != credential.liveMode())))) {
+            // Um novo grant não comprova a origem do grant legado. Pagamentos anteriores
+            // mantêm suas credenciais, inclusive quando a aplicação original é desconhecida.
             account.setStatus(PayoutAccountStatus.DISCONNECTED);
             account.setDisconnectedAt(Instant.now());
             accounts.saveAndFlush(account);
@@ -119,6 +124,7 @@ public class PayoutAccountService {
         }
         account.setAccountLabel(label);
         tokens.storeTokens(account, credential);
+        account.setTestAccount(verified.testAccount());
         accounts.saveAndFlush(account);
     }
 
@@ -147,6 +153,11 @@ public class PayoutAccountService {
     }
 
     @Transactional
+    public void cancelPendingAuthorizations(Long userId) {
+        states.deleteExpiredOrOwnedBy(Instant.now(), userId);
+    }
+
+    @Transactional
     public void eraseUserData(Long userId) {
         users.lockActiveById(userId).orElseThrow(PayoutAccountService::invalidState);
         accounts.eraseUserData(userId, Instant.now());
@@ -156,9 +167,10 @@ public class PayoutAccountService {
     public String redirectUri() { return frontendBase() + "/api/public/mercadopago/callback"; }
     private String frontendBase() { return props.frontendUrl().replaceAll("/+$", ""); }
 
-    private void organizer(Long userId) {
+    private AppUser organizer(Long userId) {
         AppUser user = users.lockActiveById(userId).orElseThrow(PayoutAccountService::invalidState);
         if (user.getRole() != Role.ORGANIZER) throw ApiException.unprocessable("Recebimentos disponíveis apenas para organizadores.");
+        return user;
     }
 
     private MercadoPagoOAuthClient client() {

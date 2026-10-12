@@ -1,6 +1,6 @@
 # Segurança e privacidade — WODZ
 
-Revisão técnica do código em 09/10/2026. Este documento registra controles
+Revisão técnica do código em 11/10/2026. Este documento registra controles
 encontrados, correções implementadas e decisões que dependem do responsável pelo
 serviço. Uma revisão do repositório não certifica conformidade jurídica completa
 nem verifica a infraestrutura efetivamente publicada.
@@ -14,8 +14,11 @@ nem verifica a infraestrutura efetivamente publicada.
 | Resultados e agenda | Equipe, participantes exibidos pela agenda, classificação e pontuação | Páginas e stream públicos de campeonatos publicados |
 | Pagamento | Preferência, valor, conta recebedora e status | Checkout hospedado Mercado Pago; WODZ não coleta dados de cartão/Pix/pagador. Registros históricos permanecem sujeitos à política de retenção |
 | Recebimentos do organizador | Identificador/descrição da conta, tokens OAuth e PKCE | Banco; tokens cifrados com AES-GCM; backend acessa Mercado Pago |
-| Navegador | Bearer por aba, sinal temporário de retorno externo | `sessionStorage`, memória e sinal transitório em armazenamento local, removido após emissão |
-| Terceiros do frontend | IP e metadados de conexão para Google Fonts; Google Identity quando o botão é usado; SDK de pagamento no checkout | Serviços externos, conforme integração habilitada |
+| Navegador | Bearer por aba, sinal temporário de retorno externo | `sessionStorage` e memória; saída limpa os dados WODZ dos dois armazenamentos, caches e formulários |
+| Imagem do campeonato | Imagem escolhida pelo organizador | JPEG sem metadados em `championship_image`; endpoint público, inclusive enquanto o evento é rascunho. O formulário informa esse caráter público |
+| Pagador Pix | CPF do responsável, e-mail do cadastro e dados estáveis da tentativa | `checkout_session`; CPF/e-mail cifrados com AES-GCM; enviados pelo backend ao Mercado Pago |
+| Aceite do checkout | Data e versão dos termos de compra e privacidade | `checkout_session`; documentos públicos em `/termos` e `/privacidade` |
+| Terceiros do frontend | IP e metadados de conexão para Google Fonts; Google Identity quando o botão é usado; redirecionamento de cartão ao Mercado Pago | Serviços externos, conforme integração habilitada |
 
 CPF e data de nascimento são dados pessoais. A coleta obrigatória precisa de
 justificativa específica; os formulários não substituem uma avaliação de
@@ -31,27 +34,29 @@ corretas continuam necessárias.
 | --- | --- | --- |
 | Autenticação | `SecurityConfig`, `AuthService`, `GoogleTokenVerifier`: BCrypt, Bearer com assinatura, expiração, emissor, sujeito, papel e versão confrontados com conta ativa; validação Google no servidor | Implementado. Primeira senha de conta Google exige nova credencial do mesmo Google sub; criação/troca de senha incrementa versão e exige novo login. MFA e recuperação de conta não estão implementados |
 | Autorizações | `SecurityConfig` separa ATHLETE/ORGANIZER; `OwnershipGuard` e filtros de serviços verificam propriedade de recursos | Implementado. Rotas de React são conveniência; segurança depende das verificações da API |
-| Sessão no navegador | `api/client.ts`: token removido de `localStorage`, guardado em `sessionStorage` com fallback só em memória | Implementado. Instalações antigas entram novamente. Scripts da mesma origem ainda podem ler o Bearer; logout/fechar aba não revogam tokens no servidor nem sessões de outras abas. Restauração de sessão do navegador pode restaurar a aba; TTL padrão 12h, configurável |
-| Troca de usuário | Cliente aborta requisições e rejeita respostas de versão anterior; `AuthContext` cancela e remove consultas/mutações antes de publicar sessão nova | Implementado. Evita dados da conta anterior repovoarem o cache após logout/troca de conta |
+| Sessão no navegador | `api/client.ts`, `AuthContext`, `AccountService.logout`: Bearer por aba; `POST /api/auth/logout` incrementa a versão no banco e invalida todos os tokens da conta; BroadcastChannel comunica saída às outras abas | Implementado. Saída/exclusão limpam os dois armazenamentos WODZ, caches, credenciais Google temporárias e formulários. Se a rede falhar, a limpeza local acontece e o login avisa que a revogação remota não foi confirmada. Fechar a aba sozinho não revoga o token; TTL padrão 12h. Scripts da mesma origem ainda podem ler o Bearer |
+| Troca de usuário | Cliente aborta requisições e rejeita respostas de versão anterior; `AuthContext` cancela consultas, remove caches e remonta a árvore da sessão | Implementado. Respostas antigas de login/perfil não restauram a identidade; o retorno do cache de navegação valida a sessão antes de revelar o conteúdo |
 | Cache | `fetch(cache: 'no-store')`; nginx `Cache-Control: no-store` em API/SPA; cache longo só para assets versionados | Implementado no proxy publicado. Dados de React Query ficam em memória até limpar sessão |
 | CSRF/CORS | API stateless, `Authorization` explícito e `credentials: 'omit'`; lista exata de origens; validação HTTPS fora de dev | Implementado para o modelo Bearer atual. Uma migração a cookies exige implementar CSRF e atributos HttpOnly/Secure/SameSite em conjunto |
-| Abuso de autenticação | nginx limita POST login/cadastro/Google por IP: média 10/min, burst 10, resposta 429 | Implementado no nginx. API direta e Vite não têm essa proteção; atrás de CDN/LB é preciso configurar IP real apenas para proxies confiáveis. Ataques distribuídos exigem proteção adicional |
-| Cabeçalhos | nginx: nosniff, SAMEORIGIN, política de referência que remove caminho em chamadas externas, permissões mínimas, CSP para base/objetos/incorporação | Implementado. CSP de scripts/conexões ainda precisa de inventário e testes reais Google e redirecionamento Mercado Pago |
-| Transporte | URLs públicas e origens HTTPS exigidas em homolog/prod; banco/API não publicados pelo Compose principal | Parcial. TLS do site, HSTS no terminador, TLS ao banco remoto e segmentação efetiva precisam ser verificados no ambiente publicado |
+| Abuso e consumo de recursos | nginx limita autenticação por IP (10/min, burst 10); `RequestSafetyFilter` limita chamadas sensíveis diretas (120/min por endereço TCP, sem confiar em X-Forwarded-For); JSON/corpo limitados a 2 MiB; SSE limitado a 256/evento e 1024/instância | Implementado. A cota da API é compartilhada por clientes atrás do mesmo proxy; não substitui a cota externa. Mapa de IPs é limitado e expira. CDN/LB exige IP real de proxies explicitamente confiáveis; ataques distribuídos e cotas entre instâncias exigem proteção operacional |
+| Cabeçalhos | nginx: nosniff, SAMEORIGIN, no-referrer, HSTS, permissões mínimas, CSP da SPA sem script inline; callback Google conserva sua CSP com nonce | Implementado. `connect-src` aceita HTTPS para APIs configuráveis; CSP e integrações Google/Mercado Pago ainda exigem teste no ambiente publicado |
+| Transporte | URLs públicas/origens HTTPS fora de dev; headers encaminhados não alteram URLs da API; nginx verifica certificado do backend HTTPS e usa CA do sistema | Implementado no código. TLS do site/banco remoto, terminação efetiva de HSTS e segmentação precisam ser verificados na infraestrutura. `BACKEND_URL` com certificado privado exige instalar sua CA confiável |
 | Segredos | `EnvironmentGuard` rejeita valores de desenvolvimento fora de dev; `TokenCipher` cifra tokens OAuth; contextos Docker excluem `.env`; Compose aceita `DB_PASSWORD` e `JWT_TTL` | Implementado. Cofre, permissões, rotação e proteção dos volumes/backups dependem da operação |
 | Logs e erros | Access log nginx só tem horário/método/status/tamanho/duração; backend evita corpo cru de erro do provedor e stacks de SQL/HTTP | Implementado nessa saída. `error_log` nginx e logs de proxy/CDN podem conter URI/IP/código de inscrição/OAuth: redigir, restringir acesso e definir retenção antes da produção |
-| Pagamentos | `PayoutAccountService`, `MercadoPagoSignatureVerifier`, `PaymentService`: PKCE/state, assinatura de webhook e confirmação consultando provedor; checkout hospedado, sem coleta de dados de pagamento no WODZ | Observado no código. Validar homologação completa, escopos OAuth, replay/idempotência e conciliação na operação |
-| Link de pagamento | Código aleatório e DTOs públicos limitam dados; nenhuma lista pública de inscrições | Parcial. Link é capacidade compartilhável, não autenticação do titular. Proteger contra vazamento e abuso; avaliar expiração/reemissão e vínculo mais forte |
+| Pagamentos | `PayoutAccountService`, `MercadoPagoSignatureVerifier`, `PaymentService`: PKCE/state, assinatura de webhook e confirmação consultando provedor; logout cancela autorizações pendentes e requisição antiga não inicia nova conexão | Implementado no código e testes. Cartão hospedado, sem coleta de cartão pelo WODZ; Pix com CPF/e-mail cifrados, chave de idempotência persistida antes do envio e QR retornado pela API. Homologação com provedor, escopos, conciliação e operação continuam necessários |
+| Link de pagamento | Novos códigos da aplicação usam SecureRandom, 26 caracteres/130 bits; fallback SQL usa UUID v4 aleatório; DTOs públicos limitam dados | Implementado para novos links via V20. Links antigos são preservados e não ganham aleatoriedade retroativamente. Link continua capacidade compartilhável: quem o recebe pode consultar/retomar a cobrança. Expiração/reemissão e autenticação do destinatário são evoluções pendentes |
 | Perfil/exclusão | `AccountService`: edição do próprio perfil, confirmação adicional para e-mail/exclusão; anonimiza `app_user` e remove vínculo/tokens de recebimentos | Parcial. Não elimina membros de equipes, inscrições/resultados nem cópias de backup |
 | Google desvinculado | `DELETE /api/auth/me/google` exige ID token validado da mesma identidade; com senha remove vínculo, bloqueia autoassociação e revoga sessões; sem senha encerra conta pelas restrições existentes | Implementado no backend. A revogação do consentimento no Google é uma segunda operação; falha externa não restaura o vínculo WODZ |
-| Dependências | `package-lock.json` fixa versões/integridade; Docker usa `npm ci`; auditoria npm no registro oficial | Auditoria frontend sem vulnerabilidades reportadas na data. Não cobre dependências Maven, imagens ou vulnerabilidades ainda não catalogadas |
+| Categorias | Validação no serviço e triggers PostgreSQL diferidas (V18) exigem tamanho e composição declarados; alterações incompatíveis com inscrições existentes são bloqueadas | Implementado. Gênero é informado no cadastro de cada integrante; o sistema não verifica identidade civil nem deduz gênero por nome |
+| Upload | `ChampionshipImages` limita bytes/dimensões antes de decodificar, regrava JPEG sem metadados e só aceita JPEG/PNG no servidor; propriedade conferida no serviço | Implementado e testado. WebP é convertido no navegador. O endpoint não aceita HTML/SVG e não busca URLs no servidor |
+| Dependências | Lockfile/npm ci; auditorias npm e OSV das dependências Maven de runtime; versões corrigidas no pom e nginx atualizado | npm: zero alertas; OSV: dois alertas Spring MVC sem condições de exploração identificadas no código atual, detalhados abaixo. Não é certificação de ausência de falhas; imagens Docker ainda precisam de análise após build |
 
 ## Pendências de privacidade prioritárias
 
-1. **Transparência e atendimento** — publicar aviso de privacidade com controlador,
-   contato, finalidades, compartilhamentos, prazo/critérios de retenção e meios de
-   atendimento. Não há identificação/canal verificável no repositório para
-   completar essa página com informações verdadeiras.
+1. **Transparência e atendimento** — as páginas `/termos` e `/privacidade` refletem
+   os fluxos atuais e utilizam o contato existente do rodapé. Validar os textos,
+   completar a identificação legal do operador e confirmar os critérios de
+   retenção e a operação efetiva de atendimento antes do uso comercial.
 2. **Bases e minimização** — registrar operações e definir fundamentos por fluxo,
    inclusive inscrição de terceiros pelo capitão, publicação de participantes e
    CPF/data de nascimento obrigatórios. Definir tratamento de menores antes de
@@ -120,7 +125,59 @@ Esta integração usa Google para login; caso o projeto hospede outros clientes,
 validar o alcance da revogação em homologação antes de prometer isolamento desses
 serviços. `disableAutoSelect` registra saída e não substitui revogação.
 
-### Validação técnica
+### Revisão de 11/10/2026
+
+Correções desta revisão: revogação no logout, descarte completo da sessão no
+navegador, proteção contra respostas antigas e restauração de página, cancelamento
+das autorizações Mercado Pago pendentes, limites de requisição/JSON/SSE, timeouts
+de chamadas externas (5 s conexão/15 s leitura), validação TLS entre proxy e API,
+novos links públicos com mais aleatoriedade e upload de imagem sem metadados.
+
+As migrations **V18–V20** adicionam as regras de composição, as imagens e o tamanho
+dos novos códigos. Categorias antigas ficam sem regra definida; novas inscrições
+ficam indisponíveis até o organizador configurar uma regra compatível com as
+equipes existentes. Não há alteração automática do gênero declarado nem remoção
+de inscrições antigas. Depois de definida e havendo inscrição, a regra é fixa.
+
+Foram auditadas 98 dependências Maven de runtime por OSV. A atualização removeu
+17 dos 19 alertas inicialmente encontrados, com Spring Boot 3.5.16, Jackson
+2.21.7, Tomcat 10.1.60, PostgreSQL JDBC 42.7.12, Log4j 2.25.5 e Commons Lang
+3.18.0. Restam dois alertas em Spring MVC 6.2.19:
+
+| Alerta | Condição descrita pelo fornecedor | Avaliação do código WODZ |
+| --- | --- | --- |
+| [CVE-2026-47890](https://spring.io/security/cve-2026-47890/) | SSE renderizando fragmentos de views com dados controlados pelo atacante | O stream envia objetos JSON de notificação com tópico/horário/ID, sem fragmentos de views. Condição não encontrada |
+| [CVE-2026-47884](https://spring.io/security/cve-2026-47884/) | XsltView com rota `/**` e nome de view implícito | API REST sem XsltView, resolvedor XSLT ou renderização implícita de views. Condição não encontrada |
+
+Esta é uma avaliação de alcance por revisão de código, não uma prova de ausência
+de exploração. Os avisos do fornecedor apontam 6.2.20 sob suporte comercial ou
+7.0.9 OSS como versões corrigidas. A migração da plataforma para a linha
+compatível com Spring 7 deve ser planejada; não introduzir esses mecanismos de
+view enquanto os alertas permanecerem. O frontend teve zero alertas no registro
+oficial npm. O nginx passou de 1.27 para **1.30.5-alpine**, com tag confirmada no
+registro oficial; a [página de versões nginx](https://nginx.org/en/download.html)
+identifica a série estável utilizada.
+
+Validação final: **199 testes do backend e 84 do frontend passaram**, junto da
+checagem de tipos e build do frontend. As migrations V1–V20 foram aplicadas em
+PostgreSQL 16.4 temporário; o teste de atualização de V19 para V20 preservou
+um link existente e a view de equipes. Testes cobrem rejeição de JWT após logout, OAuth iniciado com versão antiga,
+composição validada no commit PostgreSQL, permissões de imagem e rollback de
+upload inválido, limpeza dos dois armazenamentos, limite mesmo com IP/caminho
+forjados e liberação das cotas SSE ao encerrar conexões. A verificação visual usou
+componentes reais renderizados com dados sintéticos: cards de largura uniforme
+no desktop e celular (sem overflow horizontal), formulários de categoria e
+imagem de perfil. Ela não substitui testes de navegação reais
+com sessão, Google ou Mercado Pago.
+
+O `nginx -t` passou com o binário oficial 1.30.5 e uma cópia da configuração
+adaptada aos caminhos locais do Windows. O Docker Desktop não estava em execução;
+build das imagens, validação no container Linux, testes TLS do proxy e fluxos
+externos reais permanecem na validação de implantação. A
+[documentação nginx](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ssl_verify)
+fundamenta a ativação de `proxy_ssl_verify` e a configuração de CA.
+
+### Histórico de validações até 10/10/2026
 
 Verificações locais concluídas: `npm ci`, `npm run test:security` (60 casos),
 `npm run typecheck` e `npm run build`. `npm audit` no registro oficial npm reportou
@@ -230,7 +287,7 @@ Antes de publicar, validar no ambiente de homologação:
 - Executar login Google, OAuth de recebimentos e checkout hospedado do Mercado Pago no
   ambiente correto. Ajustar CSP restritiva somente com esse inventário/teste.
 - Auditar logs de infraestrutura, políticas de backup, permissões do banco,
-  versões das imagens e análise de dependências Maven/SBOM em CI.
+  versões das imagens e repetir análise de dependências Maven/SBOM em CI.
 
 O uso dos cabeçalhos considera a [herança de `add_header` no nginx](https://nginx.org/en/docs/http/ngx_http_headers_module.html)
 (o include é repetido nos locais com Cache-Control) e o [limitador nginx](https://nginx.org/en/docs/http/ngx_http_limit_req_module.html).

@@ -1,6 +1,9 @@
 package br.com.wodz.dto;
 
 import br.com.wodz.domain.ChampionshipStatus;
+import br.com.wodz.domain.CategoryGender;
+import br.com.wodz.domain.MovementStandard;
+import jakarta.validation.Valid;
 import br.com.wodz.domain.ScoringSystem;
 import br.com.wodz.domain.WorkoutType;
 import jakarta.validation.constraints.DecimalMin;
@@ -23,7 +26,7 @@ public final class ChampionshipDtos {
 
     public record ChampionshipRequest(
             @NotBlank @Size(max = 150) String name,
-            String description,
+            @Size(max = 20000) String description,
             @NotBlank @Size(max = 150) String venueName,
             @Size(max = 255) String address,
             @NotBlank @Size(max = 100) String city,
@@ -35,7 +38,21 @@ public final class ChampionshipDtos {
             @NotNull ScoringSystem scoringSystem,
             @Min(1) @Max(1000) Integer pointsFirstPlace,
             @Min(0) @Max(100) Integer pointsStep,
-            @Size(max = 500) String bannerUrl) {
+            @Size(max = 500) String bannerUrl,
+            @Size(max = 1400000) String imageData,
+            @Size(max = 1400000) String profileImageData) {
+        public ChampionshipRequest(String name, String description, String venueName, String address, String city,
+                String state, LocalDate startDate, LocalDate endDate, Instant registrationOpensAt, Instant registrationClosesAt,
+                ScoringSystem scoringSystem, Integer pointsFirstPlace, Integer pointsStep, String bannerUrl, String imageData) {
+            this(name, description, venueName, address, city, state, startDate, endDate, registrationOpensAt,
+                    registrationClosesAt, scoringSystem, pointsFirstPlace, pointsStep, bannerUrl, imageData, null);
+        }
+        public ChampionshipRequest(String name, String description, String venueName, String address, String city,
+                String state, LocalDate startDate, LocalDate endDate, Instant registrationOpensAt, Instant registrationClosesAt,
+                ScoringSystem scoringSystem, Integer pointsFirstPlace, Integer pointsStep, String bannerUrl) {
+            this(name, description, venueName, address, city, state, startDate, endDate, registrationOpensAt,
+                    registrationClosesAt, scoringSystem, pointsFirstPlace, pointsStep, bannerUrl, null);
+        }
     }
 
     public record RegistrationToggleRequest(boolean open) {
@@ -67,7 +84,7 @@ public final class ChampionshipDtos {
                                      boolean started,
                                      Instant registrationOpensAt, Instant registrationClosesAt,
                                      ScoringSystem scoringSystem, int pointsFirstPlace, int pointsStep,
-                                     String bannerUrl, List<CategoryDto> categories) {
+                                     String bannerUrl, String profileUrl, List<CategoryDto> categories) {
     }
 
     public record CategoryRequest(
@@ -76,11 +93,19 @@ public final class ChampionshipDtos {
             @NotNull @Min(1) @Max(10) Integer teamSize,
             @Min(1) Integer maxTeams,
             @NotNull @DecimalMin("0.00") BigDecimal price,
-            Integer displayOrder) {
+            Integer displayOrder,
+            @NotNull CategoryGender genderPolicy,
+            @Size(max = 9) List<@NotNull @Min(1) @Max(9) Integer> allowedMaleCounts,
+            @Size(max = 30) List<@NotNull @Valid MovementStandard> movementStandards) {
+        public CategoryRequest(String name, String description, Integer teamSize, Integer maxTeams, BigDecimal price,
+                               Integer displayOrder, CategoryGender genderPolicy, List<Integer> allowedMaleCounts) {
+            this(name, description, teamSize, maxTeams, price, displayOrder, genderPolicy, allowedMaleCounts, null);
+        }
     }
 
     public record CategoryDto(Long id, String name, String description, int teamSize, Integer maxTeams,
-                              BigDecimal price, int displayOrder, Integer slotsLeft, List<WorkoutDto> workouts) {
+                              BigDecimal price, int displayOrder, Integer slotsLeft, List<WorkoutDto> workouts,
+                              CategoryGender genderPolicy, List<Integer> allowedMaleCounts, List<MovementStandard> movementStandards) {
     }
 
     /** categoryIds: na criação, a mesma prova é criada para cada categoria informada. */

@@ -73,7 +73,7 @@ class NameNormalizationTest {
                 mock(ScoreRepository.class), guard);
 
         service.createCategory(1L, 3L, new CategoryRequest(" Iniciante ", " Duplas mistas ",
-                2, null, BigDecimal.ZERO, 0));
+                2, null, BigDecimal.ZERO, 0, CategoryGender.MIXED, List.of(1)));
         ArgumentCaptor<Category> categorySaved = ArgumentCaptor.forClass(Category.class);
         verify(categories).saveAndFlush(categorySaved.capture());
         assertEquals("INICIANTE", categorySaved.getValue().getName());
@@ -97,7 +97,7 @@ class NameNormalizationTest {
         Championship championship = championship();
         Category category = category(championship);
         when(championships.findPublic("torneio-2030")).thenReturn(championship);
-        when(categories.findById(2L)).thenReturn(Optional.of(category));
+        when(categories.lockById(2L)).thenReturn(Optional.of(category));
         AppUser captain = new AppUser();
         captain.setId(3L);
         when(users.lockActiveById(3L)).thenReturn(Optional.of(captain));
@@ -183,7 +183,7 @@ class NameNormalizationTest {
         Category category = new Category();
         category.setId(2L);
         category.setChampionship(championship);
-        category.setTeamSize(1);
+        category.setTeamSize(1); category.setGenderPolicy(CategoryGender.MALE);
         return category;
     }
 }

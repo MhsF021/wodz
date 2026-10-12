@@ -27,7 +27,10 @@ public class PayoutAccountController {
     public PayoutView status(@AuthenticationPrincipal Jwt jwt) { return accounts.status(CurrentUser.id(jwt)); }
 
     @PostMapping("/api/admin/payout-account/connect")
-    public AuthorizationView connect(@AuthenticationPrincipal Jwt jwt) { return accounts.connect(CurrentUser.id(jwt)); }
+    public AuthorizationView connect(@AuthenticationPrincipal Jwt jwt) {
+        Number version = jwt.getClaim("token_version");
+        return accounts.connect(CurrentUser.id(jwt), version == null ? 0L : version.longValue());
+    }
 
     @DeleteMapping("/api/admin/payout-account")
     @ResponseStatus(HttpStatus.NO_CONTENT)

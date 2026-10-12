@@ -1,0 +1,139 @@
+{
+  "source": "www.mercadopago.com.br_Archive [26-10-12 00-24-29].har",
+  "timezone": "America/Sao_Paulo",
+  "capture": {
+    "entry_count": 19,
+    "first_at": "2026-10-12T00:23:36.534-03:00",
+    "last_at": "2026-10-12T00:23:41.019-03:00",
+    "http_error_count": 0,
+    "wodz_endpoint_count": 0
+  },
+  "reported_success": {
+    "payment_id": "183716936334",
+    "reported_at": "2026-10-11T23:08:00-03:00",
+    "payment_id_present_in_har": false,
+    "approval_response_present_in_har": false,
+    "verification": "Not covered by this HAR; query provider and WODZ database separately."
+  },
+  "failed_checkout": {
+    "preference_id": "3758553874-3748fbd1-193d-4e6d-b99c-45a1b785afc8",
+    "external_reference": "41a5b744-5731-4005-984f-737786211b4f",
+    "client_id": 6035581613565283,
+    "collector_id": 3758553874,
+    "payer_id": "3740570267",
+    "payment_method_id": "account_money",
+    "flow_type": "express_account_money",
+    "amount": 250,
+    "currency": "BRL",
+    "live_mode": true,
+    "productive": true,
+    "checkout_flow_id": "2faed203-a826-4e19-87de-f38ae868480f",
+    "router_request_id": "e012bd37-f56d-4d03-8347-503281f5788b",
+    "eligibility": {
+      "is_logged": true,
+      "has_discount": false,
+      "is_operation_valid": true,
+      "shipping_mode_me2": false,
+      "is_eligible": true
+    },
+    "availability": {
+      "has_combination": false,
+      "is_available": false
+    },
+    "error": {
+      "cause": "unexpected_error",
+      "service_error_detail": 0,
+      "code": "FL-7fc6784a-0e83-432d-95f2-27b938a4d3c7",
+      "detail": "service_error",
+      "service": "N/A",
+      "is_recoverable": true
+    },
+    "error_component": {
+      "code": "FL-7fc6784a",
+      "recoverable": true,
+      "error_type": "service_error"
+    },
+    "payment_id_present": false,
+    "payment_approval_proven": false
+  },
+  "timeline": [
+    {
+      "at": "2026-10-12T00:23:36.537-03:00",
+      "method": "PUT",
+      "endpoint": "www.mercadopago.com.br/checkout/v1/payment/api/flow/2faed203-a826-4e19-87de-f38ae868480f",
+      "http_status": 200,
+      "duration_ms": 702,
+      "provider_request_id": "9947ee66-7ab2-466f-b9cc-4c647373f7c4",
+      "request_type": "redirect",
+      "request_action": "pay",
+      "previous_step": "review",
+      "current_step": "challenge",
+      "challenge_type": "reauth",
+      "reauth_response_empty_object": null,
+      "payer_fields_present": {
+        "email": true,
+        "first_name": true,
+        "last_name": true
+      }
+    },
+    {
+      "at": "2026-10-12T00:23:37.837-03:00",
+      "method": "POST",
+      "endpoint": "www.mercadopago.com.br/checkout/v1/payment/api/info",
+      "http_status": 200,
+      "duration_ms": 218,
+      "provider_request_id": "d25b2bd6-f3a4-4d9d-bd36-7925fdc8013e",
+      "request_type": null,
+      "request_action": null,
+      "previous_step": null,
+      "current_step": null,
+      "challenge_type": null,
+      "reauth_response_empty_object": null,
+      "payer_fields_present": null
+    },
+    {
+      "at": "2026-10-12T00:23:38.533-03:00",
+      "method": "GET",
+      "endpoint": "www.mercadopago.com.br/checkout/v1/payment/api/reauth",
+      "http_status": 200,
+      "duration_ms": 482,
+      "provider_request_id": "0991828b-916d-4b0a-aee8-fb40b2ad1f7c",
+      "request_type": null,
+      "request_action": null,
+      "previous_step": null,
+      "current_step": null,
+      "challenge_type": null,
+      "reauth_response_empty_object": true,
+      "payer_fields_present": null
+    },
+    {
+      "at": "2026-10-12T00:23:39.142-03:00",
+      "method": "PUT",
+      "endpoint": "www.mercadopago.com.br/checkout/v1/payment/api/flow/2faed203-a826-4e19-87de-f38ae868480f",
+      "http_status": 200,
+      "duration_ms": 756,
+      "provider_request_id": "745b377d-5aa2-4827-bd06-ab26ca649e4e",
+      "request_type": "redirect",
+      "request_action": null,
+      "previous_step": "challenge",
+      "current_step": "error",
+      "challenge_type": null,
+      "reauth_response_empty_object": null,
+      "payer_fields_present": null
+    }
+  ],
+  "observations": [
+    "All transport responses are HTTP 200/204, but Checkout Pro returns currentStep error after challenge reauth.",
+    "The client_id is 6035581613565283, whereas the newly supplied application Client ID is 4961044287054715. The HAR alone does not show whether this preference was reused or created under a stale runtime configuration.",
+    "The collector_id is 3758553874, the newly supplied Marketplace test account User ID. Confirm whether this is the intended receiving seller in Recebimentos.",
+    "The hidden payment breakdown contains paid_amount 250 without any payment id/status/authorization. This is not proof of payment approval.",
+    "The file starts at the pay submission and lacks preference creation, login, browser document navigation, WODZ webhook delivery and the previously approved session."
+  ],
+  "hypotheses_not_proven": [
+    "A stale running Client ID or previously created checkout preference is being reused.",
+    "The receiving account or payer test account differs between successful and failing attempts.",
+    "Mercado Pago reauthentication/session challenge fails intermittently.",
+    "Mixed test/production authorization: productive and liveMode flags alone do not prove this because test users may use APP_USR Checkout Pro credentials."
+  ],
+  "sanitization": "Headers, cookies, token values, public keys, session/device identifiers, payer email/name/CPF, QR data, private URL queries and raw response bodies excluded."
+}

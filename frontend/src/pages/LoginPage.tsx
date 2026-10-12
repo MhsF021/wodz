@@ -42,6 +42,9 @@ export default function LoginPage() {
   return (
     <div className="page page--narrow">
       <h1 className="page-title">Entrar</h1>
+      {params.get('saida') === 'local' && <p className="note" role="status">
+        Os dados desta sessão foram removidos deste navegador. Sem conexão com o servidor, não foi possível confirmar a revogação das outras sessões.
+      </p>}
       {params.get('senha') === 'alterada' && (
         <p className="form-ok" role="status">Senha salva. As sessões anteriores foram encerradas. Entre novamente.</p>
       )}

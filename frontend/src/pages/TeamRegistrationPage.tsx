@@ -6,6 +6,7 @@ import type { Gender, MemberInput, ShirtSize, Team, User } from '../api/types';
 import { isValidCpf, maskCpf, money, onlyDigits } from '../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { existingRegistration } from '../lib/teamSchedule';
+import { categoryComposition, matchesComposition } from '../lib/categoryComposition';
 import { Field } from '../components/Field';
 import { PlateChip } from '../components/Plate';
 import { ErrorState, InlineError, Loading } from '../components/States';
@@ -100,6 +101,7 @@ export default function TeamRegistrationPage() {
   function validate(): boolean {
     const next: Record<string, string> = {};
     if (!categoryId) next.category = 'Escolha a categoria da equipe';
+    else if (category && !matchesComposition(category, members.map(m => m.gender))) next.category = `A equipe deve respeitar a composição: ${categoryComposition(category)}`;
     if (!team.name.trim()) next.teamName = 'Dê um nome para a equipe';
     const cpfs = new Set<string>();
     members.forEach((m, i) => {
@@ -136,14 +138,15 @@ export default function TeamRegistrationPage() {
               const full = cat.slotsLeft !== null && cat.slotsLeft !== undefined && cat.slotsLeft <= 0;
               return (
                 <label key={cat.id} className={`category-option${full ? ' is-disabled' : ''}`}>
-                  <input type="radio" name="category" disabled={full} checked={categoryId === cat.id}
+                  <input type="radio" name="category" disabled={full || !cat.genderPolicy} checked={categoryId === cat.id}
                     onChange={() => setCategoryId(cat.id)} />
                   <span className="category-option__body">
                     <PlateChip index={index} name={cat.name} />
+                    <span className="category-option__facts">{categoryComposition(cat)}</span>
                     <span className="category-option__facts">
                       {cat.teamSize} atleta{cat.teamSize > 1 ? 's' : ''},{' '}
                       {Number(cat.price) === 0 ? 'gratuita' : money(cat.price)}
-                      {full ? ', esgotada' : cat.slotsLeft ? `, ${cat.slotsLeft} vagas` : ''}
+                      {full && ', inscrições indisponíveis'}
                     </span>
                   </span>
                 </label>

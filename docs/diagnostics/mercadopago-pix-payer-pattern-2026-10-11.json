@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-10-11T20:22:15.491611-03:00",
+  "seller_test_verified": true,
+  "credential_type": "APP_USR",
+  "payer_email_pattern": "test_payer_[digits]@testuser.com",
+  "http_status": 500,
+  "external_reference": "pixdiag-03279448-31ce-48ca-8a9c-8f5428e0ef2e",
+  "payment_id": null,
+  "payment_status": null,
+  "status_detail": null,
+  "payment_live_mode": null,
+  "collector_matches": null,
+  "amount": null,
+  "qr_present": false,
+  "qr_image_present": false,
+  "error": "internal_server_error",
+  "safe_error_messages": [
+    "fill and validate error list: user_allowed_only_in_test : 400"
+  ],
+  "provider_error_status": 500
+}

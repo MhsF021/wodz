@@ -3,6 +3,8 @@ import type { ChampionshipDetail, ChampionshipInput, ScoringSystem } from '../..
 import { UFS, fromLocalInput, toLocalInput } from '../../lib/format';
 import { Field } from '../../components/Field';
 import { InlineError } from '../../components/States';
+import { ChampionshipImagePicker } from '../../components/ChampionshipImagePicker';
+import { ChampionshipHero } from '../../components/ChampionshipHero';
 
 function toForm(c?: ChampionshipDetail) {
   return {
@@ -36,6 +38,13 @@ export function ChampionshipForm({
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [imageData, setImageData] = useState<string | undefined>();
+  const [profileImageData, setProfileImageData] = useState<string | undefined>();
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const imageBusy = coverBusy || profileBusy;
+  const cover = imageData === undefined ? form.bannerUrl : imageData;
+  const profile = profileImageData === undefined ? initial?.profileUrl : profileImageData;
 
   const set = (key: keyof ReturnType<typeof toForm>) =>
     (e: { target: { value: string } }) => {
@@ -45,6 +54,7 @@ export function ChampionshipForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (imageBusy || busy) return;
     if (!form.name.trim() || !form.venueName.trim() || !form.city.trim() || !form.state || !form.startDate || !form.endDate) {
       setError(new Error('Preencha nome, local, cidade, estado e as datas'));
       return;
@@ -71,6 +81,8 @@ export function ChampionshipForm({
         pointsFirstPlace: Number(form.pointsFirstPlace) || 100,
         pointsStep: Number(form.pointsStep) || 0,
         bannerUrl: form.bannerUrl.trim() || null,
+        imageData,
+        profileImageData,
       });
       setSaved(true);
     } catch (e) {
@@ -90,6 +102,24 @@ export function ChampionshipForm({
         <Field label="Descrição (opcional)" htmlFor="ch-desc" hint="Regulamento resumido, kit atleta, horários de check-in." uppercase>
           <textarea id="ch-desc" className="input" rows={4} value={form.description} onChange={set('description')} />
         </Field>
+      </fieldset>
+
+      <fieldset className="form-section championship-identity">
+        <legend className="form-section__title">Identidade visual do campeonato</legend>
+        <p className="note">Dê uma identidade ao seu evento. Escolha as imagens e ajuste o enquadramento antes de salvar.</p>
+        <div className="championship-identity__pickers">
+          <ChampionshipImagePicker kind="profile" value={profile} disabled={busy} onBusy={setProfileBusy}
+            onChange={data => { setProfileImageData(data); setSaved(false); }} />
+          <ChampionshipImagePicker kind="cover" value={cover} disabled={busy} onBusy={setCoverBusy}
+            onChange={data => { setImageData(data); setSaved(false); }} />
+        </div>
+        <div className="championship-identity__preview">
+          <p className="championship-identity__preview-label">Prévia da página do campeonato</p>
+          <ChampionshipHero name={form.name || 'Nome do campeonato'} cover={cover} profile={profile} preview>
+            <p className="note">{form.venueName || 'Local do evento'}{form.city ? ` · ${form.city}/${form.state}` : ''}</p>
+          </ChampionshipHero>
+          <p className="image-picker__hint">A capa pode ter as laterais recortadas em telas menores. Mantenha os elementos principais no centro.</p>
+        </div>
       </fieldset>
 
       <fieldset className="form-section">
@@ -176,7 +206,7 @@ export function ChampionshipForm({
       <div className="form-actions">
         <InlineError error={error} />
         {saved && <p className="form-ok" role="status">Alterações salvas.</p>}
-        <button type="submit" className="btn btn--primary btn--large" disabled={busy}>
+        <button type="submit" className="btn btn--primary btn--large" disabled={busy || imageBusy}>
           {busy ? 'Salvando…' : submitLabel}
         </button>
       </div>

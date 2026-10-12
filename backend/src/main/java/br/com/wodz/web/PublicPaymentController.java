@@ -4,6 +4,7 @@ import br.com.wodz.service.PaymentService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/public/registrations/{code}")
 @Tag(name = "Checkout da inscrição")
@@ -13,7 +14,13 @@ public class PublicPaymentController {
     @GetMapping
     public RegistrationSummary summary(@PathVariable String code) { return payments.summary(code); }
     @PostMapping("/checkout") @ResponseStatus(HttpStatus.CREATED)
-    public CheckoutDto checkout(@PathVariable String code) { return payments.createCheckout(code); }
+    public CheckoutDto checkout(@PathVariable String code, @Valid @RequestBody CheckoutRequest request) {
+        return payments.createCheckout(code, request);
+    }
+    @GetMapping("/checkout/{checkoutId}/details")
+    public CheckoutDto checkoutDetails(@PathVariable String code, @PathVariable Long checkoutId) {
+        return payments.checkoutDetails(code, checkoutId);
+    }
     @GetMapping("/checkout/{checkoutId}")
     public RegistrationSummary checkoutStatus(@PathVariable String code, @PathVariable Long checkoutId,
             @RequestParam(required = false) String paymentId) {

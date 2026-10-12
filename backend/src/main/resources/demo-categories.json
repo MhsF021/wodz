@@ -1,0 +1,341 @@
+{
+  "categories": [
+    {
+      "name": "Iniciante feminino",
+      "level": "INICIANTE",
+      "teamSize": 2,
+      "genderPolicy": "FEMALE",
+      "description": "Categoria em duplas feminina. Exclusiva para mulheres. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Iniciante masculino",
+      "level": "INICIANTE",
+      "teamSize": 2,
+      "genderPolicy": "MALE",
+      "description": "Categoria em duplas masculina. Exclusiva para homens. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Iniciante misto",
+      "level": "INICIANTE",
+      "teamSize": 2,
+      "genderPolicy": "MIXED",
+      "description": "Categoria em duplas mista. Composição obrigatória: uma mulher e um homem. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Scaled feminino",
+      "level": "SCALED",
+      "teamSize": 2,
+      "genderPolicy": "FEMALE",
+      "description": "Categoria em duplas feminina. Exclusiva para mulheres. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Scaled masculino",
+      "level": "SCALED",
+      "teamSize": 2,
+      "genderPolicy": "MALE",
+      "description": "Categoria em duplas masculina. Exclusiva para homens. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Scaled misto",
+      "level": "SCALED",
+      "teamSize": 2,
+      "genderPolicy": "MIXED",
+      "description": "Categoria em duplas mista. Composição obrigatória: uma mulher e um homem. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Intermediário feminino",
+      "level": "INTERMEDIARIO",
+      "teamSize": 2,
+      "genderPolicy": "FEMALE",
+      "description": "Categoria em duplas feminina. Exclusiva para mulheres. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Intermediário masculino",
+      "level": "INTERMEDIARIO",
+      "teamSize": 2,
+      "genderPolicy": "MALE",
+      "description": "Categoria em duplas masculina. Exclusiva para homens. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "Intermediário misto",
+      "level": "INTERMEDIARIO",
+      "teamSize": 2,
+      "genderPolicy": "MIXED",
+      "description": "Categoria em duplas mista. Composição obrigatória: uma mulher e um homem. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "RX individual feminino",
+      "level": "RX",
+      "teamSize": 1,
+      "genderPolicy": "FEMALE",
+      "description": "Categoria individual feminina. Exclusiva para mulheres. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    },
+    {
+      "name": "RX individual masculino",
+      "level": "RX",
+      "teamSize": 1,
+      "genderPolicy": "MALE",
+      "description": "Categoria individual masculina. Exclusiva para homens. Cargas e movimentos de demonstração; consulte as provas desta categoria para repetições e tempo limite."
+    }
+  ],
+  "standards": {
+    "INICIANTE": [
+      {
+        "movement": "Clean and jerk",
+        "male": "30 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Snatch",
+        "male": "20 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Thruster",
+        "male": "20 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Overhead squat",
+        "male": "20 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Deadlift",
+        "male": "40 kg",
+        "female": "30 kg"
+      },
+      {
+        "movement": "Front squat",
+        "male": "30 kg",
+        "female": "20 kg"
+      },
+      {
+        "movement": "Wall ball",
+        "male": "6 kg",
+        "female": "4 kg"
+      },
+      {
+        "movement": "Dumbbell",
+        "male": "10 kg",
+        "female": "6 kg"
+      },
+      {
+        "movement": "Box step up",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Knees to elbows",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Hand release push-up",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Single under",
+        "male": "✓",
+        "female": "✓"
+      }
+    ],
+    "SCALED": [
+      {
+        "movement": "Clean and jerk",
+        "male": "45 kg",
+        "female": "25 kg"
+      },
+      {
+        "movement": "Snatch",
+        "male": "30 kg",
+        "female": "25 kg"
+      },
+      {
+        "movement": "Thruster",
+        "male": "30 kg",
+        "female": "25 kg"
+      },
+      {
+        "movement": "Overhead squat",
+        "male": "30 kg",
+        "female": "25 kg"
+      },
+      {
+        "movement": "Deadlift",
+        "male": "60 kg",
+        "female": "35 kg"
+      },
+      {
+        "movement": "Front squat",
+        "male": "45 kg",
+        "female": "25 kg"
+      },
+      {
+        "movement": "Wall ball",
+        "male": "8 kg",
+        "female": "6 kg"
+      },
+      {
+        "movement": "Dumbbell",
+        "male": "16 kg",
+        "female": "10 kg"
+      },
+      {
+        "movement": "Box jump / Box step up",
+        "male": "Box jump",
+        "female": "Box step up"
+      },
+      {
+        "movement": "Toes to bar",
+        "male": "✓",
+        "female": "✕"
+      },
+      {
+        "movement": "Pull-up",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Double under / Single under",
+        "male": "Double under",
+        "female": "Single under"
+      },
+      {
+        "movement": "Knees to elbows (adaptação)",
+        "male": "✕",
+        "female": "✓"
+      }
+    ],
+    "INTERMEDIARIO": [
+      {
+        "movement": "Clean and jerk",
+        "male": "60 kg",
+        "female": "40 kg"
+      },
+      {
+        "movement": "Snatch",
+        "male": "40 kg",
+        "female": "30 kg"
+      },
+      {
+        "movement": "Thruster",
+        "male": "40 kg",
+        "female": "30 kg"
+      },
+      {
+        "movement": "Overhead squat",
+        "male": "40 kg",
+        "female": "30 kg"
+      },
+      {
+        "movement": "Deadlift",
+        "male": "80 kg",
+        "female": "55 kg"
+      },
+      {
+        "movement": "Front squat",
+        "male": "60 kg",
+        "female": "40 kg"
+      },
+      {
+        "movement": "Wall ball",
+        "male": "9 kg",
+        "female": "6 kg"
+      },
+      {
+        "movement": "Dumbbell",
+        "male": "22.5 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Box jump",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Toes to bar",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Chest to bar",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Double under",
+        "male": "✓",
+        "female": "✓"
+      }
+    ],
+    "RX": [
+      {
+        "movement": "Clean and jerk",
+        "male": "80 kg",
+        "female": "55 kg"
+      },
+      {
+        "movement": "Snatch",
+        "male": "60 kg",
+        "female": "40 kg"
+      },
+      {
+        "movement": "Thruster",
+        "male": "50 kg",
+        "female": "35 kg"
+      },
+      {
+        "movement": "Overhead squat",
+        "male": "60 kg",
+        "female": "40 kg"
+      },
+      {
+        "movement": "Deadlift",
+        "male": "100 kg",
+        "female": "70 kg"
+      },
+      {
+        "movement": "Front squat",
+        "male": "80 kg",
+        "female": "55 kg"
+      },
+      {
+        "movement": "Wall ball",
+        "male": "9 kg",
+        "female": "6 kg"
+      },
+      {
+        "movement": "Dumbbell",
+        "male": "22.5 kg",
+        "female": "15 kg"
+      },
+      {
+        "movement": "Box jump over",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Toes to bar",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Bar muscle-up",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Handstand push-up",
+        "male": "✓",
+        "female": "✓"
+      },
+      {
+        "movement": "Double under",
+        "male": "✓",
+        "female": "✓"
+      }
+    ]
+  }
+}

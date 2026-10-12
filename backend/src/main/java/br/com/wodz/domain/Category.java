@@ -38,7 +38,18 @@ public class Category {
 
     private String description;
 
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", nullable = false)
+    private java.util.List<MovementStandard> movementStandards = new java.util.ArrayList<>();
+
     private int teamSize = 2;
+
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    private CategoryGender genderPolicy;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.ARRAY)
+    @Column(columnDefinition = "integer[]", nullable = false)
+    private java.util.List<Integer> allowedMaleCounts = new java.util.ArrayList<>();
 
     private Integer maxTeams;
 

@@ -1,0 +1,45 @@
+{
+  "checked_at": "2026-10-11T15:35:19.5145046-03:00",
+  "configured_test_mode": true,
+  "preference": {
+    "id": "3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+    "application_matches": true,
+    "collector_id": 3740570257,
+    "created": "2026-10-11T15:30:20.342-03:00",
+    "expires": false,
+    "expires_at": null,
+    "expired_now": null,
+    "marketplace_fee": 0,
+    "items": [
+      {
+        "currency": "BRL",
+        "quantity": 1,
+        "unit_price": 210
+      }
+    ]
+  },
+  "seller": {
+    "test_user": true,
+    "site": "MLB",
+    "active": true
+  },
+  "integrator": {
+    "test_user": false,
+    "site": "MLB",
+    "active": true
+  },
+  "application": {
+    "active": true,
+    "blocked": false,
+    "disabled": false,
+    "pkce": true
+  },
+  "application_diagnostic_error": null,
+  "total_payments": 0,
+  "payments_truncated": false,
+  "payments": [],
+  "observations": [
+    "Nenhuma tentativa financeira encontrada. A pagina /error/ nao informa o motivo nem comprova pagamento; investigue a sessao do comprador e a resposta da requisicao que falhou no checkout.",
+    "Integrador e vendedor pertencem a tipos de conta diferentes (real/teste). Confira a configuracao das contas de teste do marketplace; este achado, sozinho, nao comprova a causa da falha."
+  ]
+}

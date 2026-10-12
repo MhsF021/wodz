@@ -42,6 +42,10 @@ public class PayoutAccount {
     @Column(nullable = false, length = 40)
     private String providerUserId;
 
+    /** Aplicação que emitiu o grant OAuth; null exige revalidação de um vínculo legado. */
+    @Column(name = "application_id", length = 40)
+    private String applicationId;
+
     private String accountLabel;
 
     /** Cifrado. */
@@ -53,7 +57,11 @@ public class PayoutAccount {
     /** Coluna legada mantida para apagar chaves antigas; não é usada pelo Checkout Pro. */
     private String publicKey;
 
+    /** Modo financeiro explicitamente informado pelo OAuth, independente de test_user. */
     private boolean liveMode;
+
+    /** Tipo da conta validado por /users/me; null identifica vínculos legados ainda não revalidados. */
+    private Boolean testAccount;
 
     private Instant expiresAt;
 

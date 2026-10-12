@@ -55,7 +55,7 @@ public class Team {
     @Column(nullable = false, length = 20)
     private TeamStatus status = TeamStatus.PENDING_PAYMENT;
 
-    @Column(nullable = false, length = 12)
+    @Column(nullable = false, length = 32)
     private String registrationCode;
 
     private Instant confirmedAt;

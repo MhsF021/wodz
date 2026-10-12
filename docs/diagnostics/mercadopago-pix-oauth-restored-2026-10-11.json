@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-10-11T23:19:21.7500922+00:00",
+  "requested_test_token": false,
+  "oauth_http": 200,
+  "user_matches": true,
+  "credential_type": "APP_USR",
+  "live_mode": true,
+  "live_mode_field_present": true,
+  "credentials_persisted": true,
+  "oauth_error": null,
+  "restored_access_http": 200,
+  "seller_matches": true,
+  "seller_test_tag": true,
+  "seller_active": true,
+  "card_preference_http": 200,
+  "card_collector_matches": true,
+  "card_application_matches": true
+}

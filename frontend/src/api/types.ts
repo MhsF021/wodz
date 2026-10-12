@@ -9,6 +9,7 @@ export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'C
 export type HeatStatus = 'UPCOMING' | 'IN_PROGRESS' | 'FINISHED';
 export type ScoreStatus = 'VALID' | 'CAPPED' | 'DNS' | 'DQ';
 export type Gender = 'M' | 'F';
+export type CategoryGender = 'FEMALE' | 'MALE' | 'MIXED';
 export type ShirtSize = 'PP' | 'P' | 'M' | 'G' | 'GG' | 'XGG';
 
 export interface User {
@@ -29,6 +30,8 @@ export interface PayoutAccount {
   accountLabel?: string | null;
   providerUserId?: string | null;
   liveMode: boolean;
+  /** Tipo test_user validado no provedor; null em vínculos legados ainda não revalidados. */
+  testAccount: boolean | null;
   connectedAt?: string | null;
   testMode: boolean;
   /** Versão da conta para confirmar novas autorizações e renovações no servidor. */
@@ -128,7 +131,16 @@ export interface Workout {
   hasTiebreak: boolean;
 }
 
+export interface MovementStandard {
+  movement: string;
+  male: string;
+  female: string;
+}
+
 export interface Category {
+  movementStandards?: MovementStandard[];
+  genderPolicy: CategoryGender | null;
+  allowedMaleCounts: number[];
   id: number;
   name: string;
   description?: string | null;
@@ -141,6 +153,7 @@ export interface Category {
 }
 
 export interface ChampionshipDetail {
+  profileUrl?: string | null;
   id: number;
   slug: string;
   name: string;
@@ -166,6 +179,8 @@ export interface ChampionshipDetail {
 }
 
 export interface ChampionshipInput {
+  profileImageData?: string;
+  imageData?: string;
   name: string;
   description?: string | null;
   venueName: string;
@@ -183,6 +198,9 @@ export interface ChampionshipInput {
 }
 
 export interface CategoryInput {
+  movementStandards?: MovementStandard[];
+  genderPolicy: CategoryGender;
+  allowedMaleCounts: number[];
   name: string;
   description?: string | null;
   teamSize: number;
@@ -380,8 +398,11 @@ export interface RegistrationSummary {
 
 export interface Checkout {
   id: number;
-  url: string;
+  url?: string | null;
   expiresAt: string;
+  method: 'CARD' | 'PIX';
+  qrCode?: string | null;
+  qrCodeBase64?: string | null;
 }
 
 export interface PublicConfig {

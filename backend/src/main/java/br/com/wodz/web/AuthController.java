@@ -65,6 +65,14 @@ public class AuthController {
         return auth.me(CurrentUser.id(jwt));
     }
 
+    @PostMapping("/logout")
+    @SecurityRequirement(name = "bearer")
+    public org.springframework.http.ResponseEntity<Void> logout(@AuthenticationPrincipal Jwt jwt) {
+        account.logout(CurrentUser.id(jwt));
+        return org.springframework.http.ResponseEntity.noContent()
+                .header("Clear-Site-Data", "\"cache\"").build();
+    }
+
     @PutMapping("/me")
     @SecurityRequirement(name = "bearer")
     @Operation(summary = "Atualiza nome, e-mail e celular; trocar o e-mail exige a senha atual")

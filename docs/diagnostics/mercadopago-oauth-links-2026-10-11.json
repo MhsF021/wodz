@@ -1,0 +1,9 @@
+{
+  "checked_at": "2026-10-11T19:15:23.0141121+00:00",
+  "id": "3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+  "client_id": "6035581613565283",
+  "collector_id": 3740570257,
+  "init_point": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+  "sandbox_init_point": "https://sandbox.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+  "expires": false
+}

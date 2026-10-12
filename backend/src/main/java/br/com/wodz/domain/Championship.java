@@ -85,6 +85,7 @@ public class Championship {
     private ChampionshipStatus status = ChampionshipStatus.DRAFT;
 
     private String bannerUrl;
+    private String profileUrl;
 
     @CreationTimestamp
     @Column(updatable = false)

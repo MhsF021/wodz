@@ -7,8 +7,8 @@ import ts from 'typescript';
 const require=createRequire(import.meta.url);
 const payoutReturn={};runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/payoutReturn.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports:payoutReturn,URLSearchParams});
 const compiled=ts.transpileModule(readFileSync(new URL('../src/components/PayoutAccountSection.tsx',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-function harness({result=null,reason=null,connected=false,version='v1',previous,isFetching=false,isError=false}={}){
- const effects=[],mutations=[],handlers=new Map(),storage=new Map(); const params=new URLSearchParams(result?{recebimentos:result}:{});if(reason)params.set('motivo',reason); const seen={};const account={data:{connected,updatedAt:version,liveMode:true,testMode:false},isFetching,isError,refetch:()=>{seen.refetched=true;return Promise.resolve({});}};
+function harness({result=null,reason=null,connected=false,version='v1',previous,isFetching=false,isError=false,liveMode=true,testMode=false,testAccount=false}={}){
+ const effects=[],mutations=[],handlers=new Map(),storage=new Map(); const params=new URLSearchParams(result?{recebimentos:result}:{});if(reason)params.set('motivo',reason); const seen={};const account={data:{connected,updatedAt:version,liveMode,testMode,testAccount},isFetching,isError,refetch:()=>{seen.refetched=true;return Promise.resolve({});}};
  if(previous)storage.set('wodz.payout-attempt',JSON.stringify({version:previous,at:Date.now()}));
  const exports={};runInNewContext(compiled,{exports,URL,URLSearchParams,Date,sessionStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},window:{location:{assign:url=>seen.url=url},addEventListener:(name,fn)=>handlers.set(name,fn),removeEventListener:()=>{},open:()=>{throw new Error('popup');}},require:id=>{
   if(id==='react')return{useState:init=>[init,x=>seen.feedback=x],useEffect:fn=>effects.push(fn)};
@@ -21,8 +21,9 @@ function harness({result=null,reason=null,connected=false,version='v1',previous,
   if(id==='./ActionFeedback')return{ActionFeedback:()=>null};
   if(id==='./States')return{InlineError:()=>null,Loading:()=>null};throw new Error(id);
  }});
- exports.PayoutAccountSection();return{effects,mutations,handlers,storage,seen};
+ const view=exports.PayoutAccountSection();return{effects,mutations,handlers,storage,seen,view};
 }
+function viewText(value){return Array.isArray(value)?value.map(viewText).join(''):value&&typeof value==='object'?viewText(value.props?.children):typeof value==='string'?value:'';}
 test('Mercado Pago authorization navigates this tab and preserves only an attempt version',()=>{
  const h=harness();h.mutations[0].onSuccess({authorizationUrl:'https://auth.mercadopago.com.br/authorization?state=example'});
  assert.equal(h.seen.url,'https://auth.mercadopago.com.br/authorization?state=example');assert.equal(Object.keys(JSON.parse(h.storage.get('wodz.payout-attempt'))).sort().join(','),'at,version');
@@ -35,6 +36,16 @@ test('a successful callback still requires a connected account from the API',()=
 });
 test('renewed authorization is confirmed only when the API version changes',()=>{
  for(const version of ['v1','v2']){const h=harness({result:'connected',connected:true,version,previous:'v1'});h.effects.forEach(fn=>fn());assert.equal(h.seen.feedback.status,version==='v2'?'success':'pending');assert.equal(h.storage.size,0);}
+});
+test('test account classification is independent from the financial liveMode',()=>{
+ for(const liveMode of [true,false]){
+  const h=harness({result:'connected',connected:true,testMode:true,testAccount:true,liveMode});h.effects.forEach(fn=>fn());
+  assert.equal(h.seen.feedback.status,'success');assert.match(viewText(h.view),/· Teste/);assert.doesNotMatch(viewText(h.view),/Esta é uma conta de produção/);
+ }
+});
+test('legacy unknown account remains pending instead of inferring type from liveMode',()=>{
+ const h=harness({result:'connected',connected:true,testMode:true,testAccount:null,liveMode:false});h.effects.forEach(fn=>fn());
+ assert.equal(h.seen.feedback.status,'pending');assert.match(viewText(h.view),/Validação pendente/);
 });
 test('a cancelled callback reports error even if an older connection exists',()=>{
  const h=harness({result:'error',connected:true});h.effects.forEach(fn=>fn());assert.equal(h.seen.feedback.status,'error');

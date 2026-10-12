@@ -67,7 +67,10 @@ export const publicApi = {
 
 export const paymentApi = {
   summary: (code: string) => http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}`),
-  checkout: (code: string) => http.post<Checkout>(`/api/public/registrations/${enc(code)}/checkout`),
+  checkout: (code: string, request: { method: 'CARD' | 'PIX'; payerCpf?: string; termsAccepted: boolean }) =>
+    http.post<Checkout>(`/api/public/registrations/${enc(code)}/checkout`, request),
+  checkoutDetails: (code: string, checkoutId: number) =>
+    http.get<Checkout>(`/api/public/registrations/${enc(code)}/checkout/${checkoutId}/details`),
   checkoutStatus: (code: string, checkoutId: number, paymentId?: string) =>
     http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}/checkout/${checkoutId}${paymentId ? `?paymentId=${enc(paymentId)}` : ''}`),
   status: (code: string, paymentId: number) =>
@@ -78,6 +81,7 @@ export const athleteApi = {
   register: (slug: string, input: TeamRegistrationInput) =>
     http.post<Team>(`/api/athlete/championships/${enc(slug)}/teams`, input),
   teams: () => http.get<Team[]>('/api/athlete/teams'),
+  cancelRegistration: (id: number) => http.post<Team>(`/api/athlete/teams/${id}/cancel`),
   heats: () => http.get<MyHeats>('/api/athlete/heats'),
 };
 

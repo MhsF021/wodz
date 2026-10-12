@@ -40,10 +40,13 @@ test('event times use Brasilia even across midnight UTC', () => {
   assert.equal(format.clockTime('2026-11-14T01:15:00Z'), '22:15');
   assert.match(format.dayLabel('2026-11-14T01:15:00Z'), /13\/11/);
 });
-function harness({ selectedTeam = null, status = 'CONFIRMED', data = [heat], teamsError } = {}) {
+function harness({ selectedTeam = null, status = 'CONFIRMED', data = [heat], teamsError,
+  confirmCancellation = true, cancelPending = false, cancelError } = {}) {
   let selectedHeat = null; const queries = []; let nextParams; let focus;
-  const currentTeam = { ...team, status }; const exports = {};
+  let currentTeam = { ...team, status }; const exports = {};
+  let mutation; let cancellationRequests = 0; let requestedTeam; const invalidations = []; const confirmations = [];
   runInNewContext(source('../src/pages/MyTeamsPage.tsx'), { exports, URLSearchParams,
+    window: { confirm: message => { confirmations.push(message); return confirmCancellation; } },
     requestAnimationFrame: callback => callback(), document: { getElementById: id => ({ focus: () => { focus = id; } }) },
     require: id => {
       if (id === 'react') return { ...React, useState: () => [selectedHeat, next => { selectedHeat = next; }], useRef: () => ({ current: null }), useEffect: () => {} };
@@ -55,20 +58,26 @@ function harness({ selectedTeam = null, status = 'CONFIRMED', data = [heat], tea
         if (options.queryKey[0] === 'my-heats') return { data: { heats: data }, isPending: false };
         return { data: { categories: [{ id: 3, workouts: [{ id: 9, type: 'FOR_TIME', timeCapSeconds: 600,
           description: '40 cal row\n30 thrusters', hasTiebreak: true }] }] }, isPending: false };
-      } };
-      if (id === '../api/endpoints') return { athleteApi: {}, publicApi: {} };
+      }, useMutation: options => { mutation = options; return { mutate: () => { cancellationRequests++; }, isPending: cancelPending, error: cancelError }; },
+        useQueryClient: () => ({
+          setQueryData: (key, update) => { currentTeam = update([currentTeam])[0]; },
+          invalidateQueries: options => { invalidations.push(Array.from(options.queryKey)); },
+        }) };
+      if (id === '../api/endpoints') return { athleteApi: { cancelRegistration: id => { requestedTeam = id; return { ...currentTeam, status: 'CANCELLED' }; } }, publicApi: {} };
       if (id === '../lib/format') return format;
       if (id === '../lib/teamSchedule') return scheduleHelpers;
+      if (id === '../lib/categoryComposition') return pure('../src/lib/categoryComposition.ts');
       if (id === '../components/Dialog') return { Dialog: props => React.createElement('aside', { role: 'dialog' }, props.title, props.subtitle, props.children) };
       if (id === '../components/StatusBadge') return { TeamBadge: props => React.createElement('span', {}, props.status), HeatBadge: props => React.createElement('span', {}, props.status) };
       if (id === '../components/HeatTiming') return { HeatTiming: () => null };
-      if (id === '../components/States') return { Loading: () => null, ErrorState: () => null, Empty: props => React.createElement('div', {}, props.title, props.children) };
+      if (id === '../components/States') return { Loading: () => null, ErrorState: () => null, InlineError: props => props.error ? React.createElement('p', { role: 'alert' }, props.error.message) : null, Empty: props => React.createElement('div', {}, props.title, props.children) };
       if (id === 'lucide-react') return { ArrowLeft: () => null, ChevronRight: () => null };
       throw new Error(id);
     },
   });
   return { page: () => exports.default(), details: () => exports.TeamDetails({ team: currentTeam, onClose: () => {} }),
-    queries, params: () => nextParams, focus: () => focus };
+    queries, params: () => nextParams, focus: () => focus,
+    mutation: () => mutation, cancellations: () => cancellationRequests, requestedTeam: () => requestedTeam, invalidations, confirmations };
 }
 function nodes(element) {
   if (Array.isArray(element)) return element.flatMap(nodes);
@@ -99,6 +108,40 @@ test('pending payment stays discoverable inside the popup and never fetches a sc
   assert.equal(app.queries.find(query => query.queryKey[0] === 'my-heats').enabled, false);
 });
 
+test('only pending registrations offer cancellation and declining confirmation does not send it', () => {
+  for (const status of ['CONFIRMED', 'CANCELLED']) {
+    assert.doesNotMatch(renderToStaticMarkup(harness({ status }).details()), /Cancelar a inscrição/);
+  }
+  const app = harness({ status: 'PENDING_PAYMENT', confirmCancellation: false });
+  const button = nodes(app.details()).find(node => node.props.children === 'Cancelar a inscrição');
+  assert.ok(button); button.props.onClick();
+  assert.equal(app.cancellations(), 0); assert.match(app.confirmations[0], /EQUIPE DA ANA/);
+});
+
+test('confirmed cancellation targets the selected team and immediately updates the popup and cached registration', async () => {
+  const app = harness({ status: 'PENDING_PAYMENT' });
+  nodes(app.details()).find(node => node.props.children === 'Cancelar a inscrição').props.onClick();
+  assert.equal(app.cancellations(), 1);
+  const updated = await app.mutation().mutationFn(); assert.equal(app.requestedTeam(), 2);
+  app.mutation().onSuccess(updated);
+  const html = renderToStaticMarkup(app.details());
+  assert.match(html, /Inscrição cancelada/); assert.doesNotMatch(html, /Pagar inscrição|Cancelar a inscrição/);
+  assert.ok(app.invalidations.some(key => key[0] === 'my-teams'));
+  assert.ok(app.invalidations.some(key => key[0] === 'championship' && key[1] === 'arena'));
+  assert.ok(app.invalidations.some(key => key[0] === 'registration' && key[1] === 'REG2'));
+  assert.ok(app.invalidations.some(key => key[0] === 'checkout-status' && key[1] === 'REG2'));
+});
+
+test('cancellation disables repeated submission and errors keep the registration visible with a refreshed status', () => {
+  const busy = harness({ status: 'PENDING_PAYMENT', cancelPending: true }); const tree = busy.details();
+  assert.equal(nodes(tree).find(node => node.props.children === 'Cancelando…').props.disabled, true);
+  assert.doesNotMatch(renderToStaticMarkup(tree), /Pagar inscrição/);
+  const failed = harness({ status: 'PENDING_PAYMENT', cancelError: new Error('A inscrição já foi confirmada') });
+  assert.match(renderToStaticMarkup(failed.details()), /role="alert"[^>]*>A inscrição já foi confirmada/);
+  failed.mutation().onError(); assert.deepEqual(failed.invalidations, [['my-teams']]);
+  assert.match(renderToStaticMarkup(failed.details()), /Pagar inscrição/);
+});
+
 test('the open popup refreshes registration status and keeps existing details during a network failure', () => {
   const closed = harness(); closed.page();
   assert.equal(closed.queries.find(query => query.queryKey[0] === 'my-teams').refetchInterval, false);
@@ -122,6 +165,7 @@ test('changing situation preserves city and state and passes the filter to the s
     if (id === '../lib/format') return format;
     if (id === '../lib/theme') return { brandLogoFor: () => '/logo.svg' };
     if (id === '../lib/championshipFilters') return filters;
+    if (id === '../components/EventImage') return { EventImage: () => null };
     if (id === '../auth/AuthContext') return { useAuth: () => ({ user: null, loading: false }) };
     if (id === '../components/States') return { Loading: () => null, ErrorState: () => null, Empty: () => null };
     throw new Error(id);
@@ -147,6 +191,7 @@ test('an existing unpaid registration replaces the form with a clear warning and
     if (id === '../api/endpoints') return { athleteApi: {}, publicApi: {} };
     if (id === '../lib/format') return format;
     if (id === '../lib/teamSchedule') return scheduleHelpers;
+      if (id === '../lib/categoryComposition') return pure('../src/lib/categoryComposition.ts');
     if (id === '../auth/AuthContext') return { useAuth: () => ({ user: { role:'ATHLETE' } }) };
     if (id === '../components/Field') return { Field: () => null };
     if (id === '../components/Plate') return { PlateChip: () => null };

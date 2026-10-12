@@ -28,11 +28,16 @@ public class RealtimeService {
 
     private final Map<Long, Set<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
-    public SseEmitter subscribe(Long championshipId) {
+    public synchronized SseEmitter subscribe(Long championshipId) {
+        if (emitters.values().stream().mapToInt(Set::size).sum() >= 1024
+                || emitters.getOrDefault(championshipId, Set.of()).size() >= 256) {
+            throw new br.com.wodz.common.ApiException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                    "Atualização ao vivo temporariamente indisponível. Tente novamente em instantes");
+        }
         SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
         Set<SseEmitter> group = emitters.computeIfAbsent(championshipId, k -> ConcurrentHashMap.newKeySet());
         group.add(emitter);
-        Runnable remove = () -> group.remove(emitter);
+        Runnable remove = () -> remove(championshipId, group, emitter);
         emitter.onCompletion(remove);
         emitter.onTimeout(remove);
         emitter.onError(e -> remove.run());
@@ -56,7 +61,7 @@ public class RealtimeService {
             try {
                 emitter.send(SseEmitter.event().name(event.topic()).data(payload));
             } catch (IOException | IllegalStateException e) {
-                group.remove(emitter);
+                remove(event.championshipId(), group, emitter);
             }
         }
         log.debug("Evento {} enviado para {} conexões do campeonato {}", event.topic(), group.size(),
@@ -66,14 +71,19 @@ public class RealtimeService {
     /** Mantém a conexão viva atrás de proxies que derrubam conexões ociosas. */
     @Scheduled(fixedRate = 25_000)
     public void heartbeat() {
-        emitters.values().forEach(group -> {
+        emitters.forEach((championshipId, group) -> {
             for (SseEmitter emitter : group) {
                 try {
                     emitter.send(SseEmitter.event().comment("ping"));
                 } catch (IOException | IllegalStateException e) {
-                    group.remove(emitter);
+                    remove(championshipId, group, emitter);
                 }
             }
         });
+    }
+
+    private synchronized void remove(Long championshipId, Set<SseEmitter> group, SseEmitter emitter) {
+        group.remove(emitter);
+        if (group.isEmpty()) emitters.remove(championshipId, group);
     }
 }

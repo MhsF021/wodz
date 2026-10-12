@@ -16,9 +16,11 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OAuth do Mercado Pago para o organizador conectar a conta que recebe as
@@ -31,7 +33,7 @@ public class MercadoPagoOAuthClient {
 
     private static final Logger log = LoggerFactory.getLogger(MercadoPagoOAuthClient.class);
     private static final String AUTHORIZATION_URL = "https://auth.mercadopago.com/authorization";
-    private static final String AUTHORIZATION_SCOPE = "read write offline_access";
+    private static final Set<String> LOGGABLE_SCOPES = Set.of("read", "write", "offline_access", "payment", "payments");
 
     private final RestClient client;
     private final AppProperties.MercadoPagoProps config;
@@ -47,7 +49,6 @@ public class MercadoPagoOAuthClient {
                 .queryParam("client_id", config.clientId())
                 .queryParam("response_type", "code")
                 .queryParam("platform_id", "mp")
-                .queryParam("scope", AUTHORIZATION_SCOPE)
                 .queryParam("state", state)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("code_challenge", codeChallenge)
@@ -58,26 +59,26 @@ public class MercadoPagoOAuthClient {
     }
 
     public OAuthTokens exchangeCode(String code, String codeVerifier, String redirectUri) {
-        // Checkout Pro requer APP_USR também para vendedor de teste. O modo é
-        // comprovado pelos dados da conta conectada.
+        // Checkout Pro requer APP_USR também para vendedor de teste. O tipo da
+        // conta é comprovado pelos dados da conta conectada, separado de live_mode.
         Map<String, Object> body = base("authorization_code");
         body.put("code", code);
         body.put("redirect_uri", redirectUri);
         body.put("code_verifier", codeVerifier);
-        // A conexão armazena refresh_token para renovar o vínculo sem novo login.
-        body.put("scope", AUTHORIZATION_SCOPE);
+        // O fluxo oficial Marketplace não sobrescreve os escopos da aplicação.
+        // O refresh_token retornado permite renovar o vínculo sem novo login.
         return token(body, "O Mercado Pago não confirmou a autorização. Tente conectar a conta de novo.");
     }
 
-    public OAuthTokens refreshCheckout(String refreshToken, boolean originalTestMode) {
+    public CheckoutAccount refreshCheckout(String refreshToken, Boolean expectedTestMode) {
         Map<String, Object> body = base("refresh_token");
         body.put("refresh_token", refreshToken);
         OAuthTokens renewed = token(body, "Não foi possível renovar a autorização da conta Mercado Pago. Conecte a conta de novo.");
-        return validateCheckoutAccount(renewed, originalTestMode).tokens();
+        return validateCheckoutAccount(renewed, expectedTestMode);
     }
 
     /** APP_USR não distingue conta real de teste: confira a identidade no provedor. */
-    public CheckoutAccount validateCheckoutAccount(OAuthTokens tokens, boolean expectedTestMode) {
+    public CheckoutAccount validateCheckoutAccount(OAuthTokens tokens, Boolean expectedTestMode) {
         if (!tokens.accessToken().startsWith("APP_USR-")) {
             throw new PayoutAuthorizationException(Reason.MODE_MISMATCH,
                     "Reconecte a conta Mercado Pago para usar Checkout Pro.");
@@ -89,14 +90,14 @@ public class MercadoPagoOAuthClient {
         }
         boolean testAccount = false;
         for (JsonNode tag : me.path("tags")) testAccount |= "test_user".equals(tag.asText());
-        if (testAccount != expectedTestMode) {
+        if (expectedTestMode != null && testAccount != expectedTestMode) {
             throw new PayoutAuthorizationException(Reason.MODE_MISMATCH, expectedTestMode
                     ? "Conecte uma conta de vendedor de teste do Mercado Pago neste ambiente."
                     : "Conecte uma conta real de vendedor do Mercado Pago neste ambiente.");
         }
-        OAuthTokens verified = new OAuthTokens(tokens.accessToken(), tokens.refreshToken(),
-                tokens.userId(), tokens.expiresInSeconds(), !testAccount);
-        return new CheckoutAccount(accountLabel(me), verified);
+        // Contas test_user também podem gerar pagamentos live_mode=true no Checkout Pro.
+        // O tipo da conta não substitui o modo explicitamente retornado pelo OAuth.
+        return new CheckoutAccount(accountLabel(me), tokens, testAccount);
     }
 
     private JsonNode account(OAuthTokens tokens) {
@@ -134,7 +135,7 @@ public class MercadoPagoOAuthClient {
         return label.length() > 200 ? label.substring(0, 200) : label;
     }
 
-    public record CheckoutAccount(String label, OAuthTokens tokens) { }
+    public record CheckoutAccount(String label, OAuthTokens tokens, boolean testAccount) { }
 
     private Map<String, Object> base(String grantType) {
         requireConfigured();
@@ -165,6 +166,10 @@ public class MercadoPagoOAuthClient {
                         String.join(",", invalidFields));
                 throw new PayoutAuthorizationException(Reason.INVALID_RESPONSE, HttpStatus.BAD_GATEWAY, errorMessage);
             }
+            ScopeDiagnostic scopes = scopeDiagnostic(n);
+            log.info("OAuth do Mercado Pago confirmado: grant={} HTTP={} credential_type={} live_mode={} scopes={} unknown_scopes={}",
+                    body.get("grant_type"), response.getStatusCode().value(), credentialType(n), liveMode,
+                    scopes.known(), scopes.unknownCount());
             return new OAuthTokens(
                     MercadoPagoGateway.text(n.path("access_token")),
                     MercadoPagoGateway.text(n.path("refresh_token")),
@@ -183,6 +188,22 @@ public class MercadoPagoOAuthClient {
             throw new PayoutAuthorizationException(Reason.PROVIDER_UNAVAILABLE, HttpStatus.BAD_GATEWAY,
                     "Não foi possível falar com o Mercado Pago. Tente de novo em instantes.");
         }
+    }
+
+    private record ScopeDiagnostic(String known, int unknownCount) { }
+
+    private static ScopeDiagnostic scopeDiagnostic(JsonNode response) {
+        JsonNode scope = response.path("scope");
+        if (scope.isMissingNode() || scope.isNull()) return new ScopeDiagnostic("NONE", 0);
+        if (!scope.isTextual()) return new ScopeDiagnostic("NONE", 1);
+        Set<String> known = new LinkedHashSet<>();
+        int unknownCount = 0;
+        for (String value : scope.textValue().trim().split("\\s+")) {
+            if (value.isEmpty()) continue;
+            if (LOGGABLE_SCOPES.contains(value)) known.add(value);
+            else unknownCount++;
+        }
+        return new ScopeDiagnostic(known.isEmpty() ? "NONE" : String.join(",", known), unknownCount);
     }
 
     private static String credentialType(JsonNode response) {

@@ -40,7 +40,6 @@ export default function AdminChampionshipPage() {
 
   return (
     <div className="page">
-      <p className="crumb"><Link to="/organizador">Seus campeonatos</Link></p>
       <header className="admin-head">
         <div>
           <h1 className="page-title">{c.name}</h1>

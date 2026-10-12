@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { adminApi } from '../../api/endpoints';
-import type { Category, CategoryInput, ChampionshipDetail } from '../../api/types';
+import type { Category, CategoryInput, ChampionshipDetail, MovementStandard } from '../../api/types';
 import { money } from '../../lib/format';
+import { categoryComposition, compositionLabel } from '../../lib/categoryComposition';
 import { Field } from '../../components/Field';
 import { PlateChip } from '../../components/Plate';
 import { Empty, InlineError } from '../../components/States';
@@ -14,7 +15,10 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Category | null>(null);
   const [form, setForm] = useState(EMPTY);
+  const [genderPolicy, setGenderPolicy] = useState<CategoryInput['genderPolicy'] | ''>('');
+  const [allowedMaleCounts, setAllowedMaleCounts] = useState<number[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [standards, setStandards] = useState<MovementStandard[]>([]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-championship', championship.id] });
 
@@ -25,12 +29,19 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
       refresh();
       setEditing(null);
       setForm(EMPTY);
+      setGenderPolicy('');
+      setAllowedMaleCounts([]);
+      setStandards([]);
     },
   });
   const remove = useMutation({ mutationFn: (id: number) => adminApi.deleteCategory(id), onSuccess: refresh });
 
   function startEdit(c: Category) {
     setEditing(c);
+    setLocalError(null);
+    setGenderPolicy(c.genderPolicy ?? '');
+    setAllowedMaleCounts(c.allowedMaleCounts ?? []);
+    setStandards(c.movementStandards ?? []);
     setForm({
       name: c.name,
       description: c.description ?? '',
@@ -48,7 +59,18 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
       return;
     }
     setLocalError(null);
+    if (standards.some(row => !row.movement.trim())) {
+      setLocalError('Informe o nome de cada movimento ou remova a linha vazia');
+      return;
+    }
+    if (!genderPolicy || (genderPolicy === 'MIXED' && !allowedMaleCounts.some(n => n > 0 && n < Number(form.teamSize)))) {
+      setLocalError('Selecione o tipo da categoria e as composições permitidas para equipes mistas');
+      return;
+    }
     save.mutate({
+      movementStandards: standards.map(row => ({ movement: row.movement.trim(), male: row.male.trim() || '—', female: row.female.trim() || '—' })),
+      genderPolicy,
+      allowedMaleCounts: genderPolicy === 'MIXED' ? allowedMaleCounts.filter(n => n > 0 && n < Number(form.teamSize)) : [],
       name: form.name.trim(),
       description: form.description.trim() || null,
       teamSize: Number(form.teamSize),
@@ -74,9 +96,9 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
             <li key={c.id} className="rows__item">
               <div>
                 <PlateChip index={i} name={c.name} />
+                <p className="rows__meta">{categoryComposition(c)}</p>
                 <p className="rows__meta">
                   Equipes de {c.teamSize}, {Number(c.price) === 0 ? 'gratuita' : money(c.price)},{' '}
-                  {c.maxTeams ? `${c.maxTeams} vagas (${c.slotsLeft ?? c.maxTeams} livres)` : 'vagas ilimitadas'},{' '}
                   {c.workouts.length} prova{c.workouts.length === 1 ? '' : 's'}
                 </p>
               </div>
@@ -115,9 +137,48 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
               <input id="cat-order" className="input" type="number" min={0} value={form.displayOrder} onChange={set('displayOrder')} />
             </Field>
           </div>
+          <Field label="Tipo de categoria" htmlFor="cat-gender" hint="As inscrições devem respeitar a composição escolhida. Após receber inscrições, estas regras não podem ser alteradas.">
+            <select id="cat-gender" className="input" value={genderPolicy}
+              onChange={e => setGenderPolicy(e.target.value as CategoryInput['genderPolicy'])}>
+              <option value="">Selecione</option>
+              <option value="FEMALE">Feminina</option>
+              <option value="MALE">Masculina</option>
+              <option value="MIXED">Mista</option>
+            </select>
+          </Field>
+          {genderPolicy === 'MIXED' && (
+            <fieldset className="form-section">
+              <legend className="form-section__title">Composições permitidas</legend>
+              <p className="note">Selecione uma ou mais combinações. Uma equipe mista precisa de ao menos dois atletas.</p>
+              <div className="choice choice--compositions">
+              {Array.from({ length: Math.max(0, Math.min(10, Number(form.teamSize) || 0) - 1) }, (_, i) => i + 1).map(men => (
+                <label key={men} className="choice__option">
+                  <input type="checkbox" checked={allowedMaleCounts.includes(men)}
+                    onChange={e => setAllowedMaleCounts(values => e.target.checked ? [...values, men] : values.filter(n => n !== men))} />
+                  {compositionLabel(men, Number(form.teamSize))}
+                </label>
+              ))}
+              </div>
+            </fieldset>
+          )}
           <Field label="Descrição (opcional)" htmlFor="cat-desc" uppercase>
             <textarea id="cat-desc" className="input" rows={3} value={form.description} onChange={set('description')} />
           </Field>
+          <fieldset className="movement-editor">
+            <legend>Cargas e movimentos</legend>
+            <p className="note">Informe a carga (ex.: 30 kg), a variação (ex.: Box step up), ✓ para previsto ou ✕ para não previsto. Campos vazios aparecem como não informados.</p>
+            {standards.map((row, index) => <div className="movement-editor__row" key={index}>
+              <label>Movimento {index + 1}<input className="input" maxLength={80} value={row.movement} placeholder="Ex.: Clean and jerk"
+                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, movement: e.target.value } : item))} /></label>
+              <label>Masculino<input className="input" maxLength={60} value={row.male} placeholder="Ex.: 30 kg"
+                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, male: e.target.value } : item))} /></label>
+              <label>Feminino<input className="input" maxLength={60} value={row.female} placeholder="Ex.: 15 kg"
+                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, female: e.target.value } : item))} /></label>
+              <button type="button" className="btn btn--ghost" aria-label={`Remover movimento ${index + 1}`} onClick={() => setStandards(rows => rows.filter((_, i) => i !== index))}><Trash2 size={15} aria-hidden /></button>
+            </div>)}
+            <button type="button" className="btn btn--ghost btn--small" disabled={standards.length >= 30}
+              onClick={() => setStandards(rows => [...rows, { movement: '', male: '', female: '' }])}><Plus size={15} aria-hidden /> Adicionar movimento</button>
+          </fieldset>
           {localError && <p className="form-error" role="alert">{localError}</p>}
           <InlineError error={save.error} />
           <div className="row-actions">
@@ -125,7 +186,7 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
               {editing ? 'Salvar categoria' : 'Adicionar categoria'}
             </button>
             {editing && (
-              <button type="button" className="btn btn--ghost" onClick={() => { setEditing(null); setForm(EMPTY); }}>
+              <button type="button" className="btn btn--ghost" onClick={() => { setEditing(null); setForm(EMPTY); setGenderPolicy(''); setAllowedMaleCounts([]); setStandards([]); setLocalError(null); }}>
                 Cancelar edição
               </button>
             )}

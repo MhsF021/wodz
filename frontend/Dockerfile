@@ -5,7 +5,8 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.30.5-alpine
+RUN apk add --no-cache ca-certificates
 ENV PORT=80
 ENV BACKEND_URL=http://backend:8080
 COPY nginx.conf /etc/nginx/templates/default.conf.template

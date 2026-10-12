@@ -1,0 +1,32 @@
+{
+  "profile": "minimal",
+  "created_at": "2026-10-11T15:20:40.876-03:00",
+  "preference_id": "3740570257-521737ca-e903-486f-b325-52363b47ce97",
+  "external_reference": "mpdiag-5a75e734-216f-450e-935a-5edf1b2afaf6",
+  "collector_id": 3740570257,
+  "client_id": "5387756444859415",
+  "configured_application_matches": false,
+  "seller_test_user": true,
+  "amount": 210,
+  "checkout_url": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-521737ca-e903-486f-b325-52363b47ce97",
+  "request_fields": [
+    "items",
+    "external_reference"
+  ],
+  "expires": false,
+  "note": "Controle usando token direto do mesmo vendedor; aplicacao diferente do marketplace WODZ.",
+  "result": [
+    {
+      "id": 182637234147,
+      "status": "approved",
+      "status_detail": "accredited",
+      "live_mode": true,
+      "amount": 210,
+      "currency": "BRL",
+      "method": "account_money",
+      "type": "account_money",
+      "created": "2026-10-11T15:24:22-03:00"
+    }
+  ],
+  "checked_at": "2026-10-11T15:25:26.1275133-03:00"
+}

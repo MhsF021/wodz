@@ -2,8 +2,8 @@ import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-export function Dialog({ title, subtitle, onClose, children }: {
-  title: string; subtitle?: string; onClose: () => void; children: ReactNode;
+export function Dialog({ title, subtitle, closeLabel = 'Fechar detalhes da equipe', onClose, children }: {
+  title: string; subtitle?: string; closeLabel?: string; onClose: () => void; children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -31,7 +31,7 @@ export function Dialog({ title, subtitle, onClose, children }: {
       <div className="details-dialog__panel">
         <header className="details-dialog__header">
           <div><h2 id={titleId}>{title}</h2>{subtitle && <p id={subtitleId}>{subtitle}</p>}</div>
-          <button type="button" className="details-dialog__close" aria-label="Fechar detalhes da equipe" onClick={onClose}><X size={20} aria-hidden /></button>
+          <button type="button" className="details-dialog__close" aria-label={closeLabel} onClick={onClose}><X size={20} aria-hidden /></button>
         </header>
         <div className="details-dialog__body">{children}</div>
       </div>

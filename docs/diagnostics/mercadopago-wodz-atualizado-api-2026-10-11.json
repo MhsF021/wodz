@@ -1,0 +1,12 @@
+{
+  "checked_at": "2026-10-11T18:53:06.4388295+00:00",
+  "preference_id": "3740570257-001ca4fd-e366-4821-9380-21c765721402",
+  "client_id": "6035581613565283",
+  "collector_id": 3740570257,
+  "external_reference": "a52697b4-45ea-4084-a67e-dab0cff1b194",
+  "expires_at": "2026-10-11T16:20:46.442-03:00",
+  "account_live_mode": true,
+  "account_test_account": true,
+  "total_payments": 0,
+  "payments": []
+}

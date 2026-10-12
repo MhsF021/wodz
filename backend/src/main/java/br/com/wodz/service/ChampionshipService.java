@@ -123,7 +123,9 @@ public class ChampionshipService {
         c.setOwner(users.getReferenceById(userId));
         apply(c, req);
         c.setSlug(uniqueSlug(req.name(), req.startDate()));
-        championships.save(c);
+        championships.saveAndFlush(c);
+        applyImage(c, req.imageData(), "COVER");
+        applyImage(c, req.profileImageData(), "PROFILE");
         return toDetail(c);
     }
 
@@ -132,6 +134,8 @@ public class ChampionshipService {
         validate(req);
         Championship c = guard.championship(id, userId);
         apply(c, req);
+        applyImage(c, req.imageData(), "COVER");
+        applyImage(c, req.profileImageData(), "PROFILE");
         championships.saveAndFlush(c);
         return toDetail(c);
     }
@@ -204,7 +208,24 @@ public class ChampionshipService {
         c.setScoringSystem(req.scoringSystem() == null ? ScoringSystem.POINTS_TABLE : req.scoringSystem());
         c.setPointsFirstPlace(req.pointsFirstPlace() == null ? 100 : req.pointsFirstPlace());
         c.setPointsStep(req.pointsStep() == null ? 5 : req.pointsStep());
-        c.setBannerUrl(Codes.blankToNull(req.bannerUrl()));
+        c.setBannerUrl(ChampionshipImages.safeUrl(req.bannerUrl()));
+    }
+
+    private void applyImage(Championship c, String data, String kind) {
+        if (data == null) return;
+        if (data.isEmpty()) {
+            jdbc.update("DELETE FROM championship_image WHERE championship_id = ? AND kind = ?", c.getId(), kind);
+            if (kind.equals("PROFILE")) c.setProfileUrl(null); else c.setBannerUrl(null);
+            return;
+        }
+        byte[] pixels = ChampionshipImages.sanitize(data);
+        java.util.UUID key = java.util.UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO championship_image (championship_id, kind, image_key, content) VALUES (?, ?, ?, ?)
+                ON CONFLICT (championship_id, kind) DO UPDATE SET image_key = EXCLUDED.image_key, content = EXCLUDED.content
+                """, c.getId(), kind, key, pixels);
+        String url = "/api/public/championship-images/" + key;
+        if (kind.equals("PROFILE")) c.setProfileUrl(url); else c.setBannerUrl(url);
     }
 
     private String uniqueSlug(String name, LocalDate start) {
@@ -244,6 +265,6 @@ public class ChampionshipService {
                 c.getAddress(), c.getCity(), c.getState(), c.getStartDate(), c.getEndDate(), c.getStatus(),
                 c.isAcceptingRegistrations(now), c.isRegistrationOpen(), c.hasStarted(now),
                 c.getRegistrationOpensAt(), c.getRegistrationClosesAt(), c.getScoringSystem(), c.getPointsFirstPlace(), c.getPointsStep(),
-                c.getBannerUrl(), categoryDtos);
+                c.getBannerUrl(), c.getProfileUrl(), categoryDtos);
     }
 }

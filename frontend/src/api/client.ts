@@ -34,10 +34,41 @@ function replaceToken(token: string | null) {
   }
 }
 
+/** Limpa apenas dados WODZ; não interfere com outras aplicações da mesma origem. */
+export function clearSessionStorage() {
+  for (const storage of [() => sessionStorage, () => localStorage]) {
+    try {
+      const target = storage();
+      const keys = ['wodz.token', 'wodz.google-flow', 'wodz.google-result', 'wodz.mp-connect'];
+      for (let index = 0; index < target.length; index++) {
+        const key = target.key(index);
+        if (key?.startsWith('wodz.')) keys.push(key);
+      }
+      keys.forEach(key => target.removeItem(key));
+    } catch { /* A limpeza em memória funciona mesmo com storage bloqueado. */ }
+  }
+}
+
+/** O logout usa uma requisição independente: limpar a sessão não cancela a revogação. */
+export async function revokeRemoteSession(): Promise<boolean> {
+  const token = sessionToken;
+  if (!token) return true;
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json',
+        'ngrok-skip-browser-warning': '1' },
+      credentials: 'omit', cache: 'no-store', keepalive: true,
+      signal: AbortSignal.timeout(8000),
+    });
+    return response.ok || response.status === 401;
+  } catch { return false; }
+}
+
 export const tokenStore = {
   get: (): string | null => sessionToken,
+  version: () => sessionVersion,
   set: (token: string) => replaceToken(token),
-  clear: () => replaceToken(null),
+  clear: () => { replaceToken(null); clearSessionStorage(); },
 };
 
 export class ApiError extends Error {
