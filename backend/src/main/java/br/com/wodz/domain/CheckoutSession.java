@@ -7,6 +7,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import java.math.BigDecimal;
 import java.time.Instant;
+import br.com.wodz.payment.CheckoutMethod;
 
 /** Preferência hospedada. Cada tentativa financeira continua sendo um Payment separado. */
 @Entity @Table(name = "checkout_session")
@@ -26,6 +27,16 @@ public class CheckoutSession {
     private String externalReference;
     private String providerPreferenceId;
     private String checkoutUrl;
+    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 10)
+    private CheckoutMethod method = CheckoutMethod.CARD;
+    private String providerPaymentId;
+    @Column(columnDefinition = "text")
+    private String pixPayer;
+    @Column(columnDefinition = "text")
+    private String pixDescription;
+    private Instant termsAcceptedAt;
+    @Column(length = 40)
+    private String termsVersion;
     @Column(nullable = false)
     private Instant expiresAt;
     @CreationTimestamp @Column(updatable = false)

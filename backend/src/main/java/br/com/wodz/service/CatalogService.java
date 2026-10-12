@@ -54,7 +54,13 @@ public class CatalogService {
 
     @Transactional
     public CategoryDto updateCategory(Long categoryId, Long userId, CategoryRequest req) {
-        Category category = guard.category(categoryId, userId);
+        guard.category(categoryId, userId);
+        Category category = categories.lockById(categoryId).orElseThrow(() -> ApiException.notFound("Categoria não encontrada"));
+        var allowed = CategoryComposition.allowedCounts(req);
+        if (category.getGenderPolicy() != null && teams.existsByCategoryId(categoryId)
+                && (req.genderPolicy() != category.getGenderPolicy() || !allowed.equals(category.getAllowedMaleCounts()))) {
+            throw ApiException.unprocessable("Não é possível mudar a composição: a categoria já tem inscrições");
+        }
         if (req.teamSize() != category.getTeamSize() && teams.existsByCategoryId(categoryId)) {
             throw ApiException.unprocessable("Não é possível mudar o tamanho da equipe: a categoria já tem inscrições");
         }
@@ -75,12 +81,16 @@ public class CatalogService {
     }
 
     private static void apply(Category c, CategoryRequest req) {
+        c.setAllowedMaleCounts(CategoryComposition.allowedCounts(req));
+        c.setGenderPolicy(req.genderPolicy());
         c.setName(Codes.uppercase(req.name().trim()));
         c.setDescription(Codes.uppercase(Codes.blankToNull(req.description())));
         c.setTeamSize(req.teamSize());
         c.setMaxTeams(req.maxTeams());
         c.setPrice(req.price());
         c.setDisplayOrder(req.displayOrder() == null ? 0 : req.displayOrder());
+        if (req.movementStandards() != null) c.setMovementStandards(req.movementStandards().stream()
+                .map(row -> new br.com.wodz.domain.MovementStandard(row.movement().trim(), row.male().trim(), row.female().trim())).toList());
     }
 
     // -------------------------------------------------------------------- provas

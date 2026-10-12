@@ -3,6 +3,7 @@ package br.com.wodz.service;
 import br.com.wodz.common.Codes;
 import br.com.wodz.domain.AppUser;
 import br.com.wodz.domain.Category;
+import br.com.wodz.domain.CategoryGender;
 import br.com.wodz.domain.Championship;
 import br.com.wodz.domain.ChampionshipStatus;
 import br.com.wodz.domain.Gender;
@@ -56,14 +57,14 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>Vitória Games - Ano 6: encerrado há algumas semanas e 100% concluído
  *       (todas as baterias concluídas e todos os resultados lançados, com judge).</li>
- *   <li>Arena 911 - 2026: acontecendo hoje. Prova 1 concluída com resultados,
+ *   <li>NOX DURANCE: acontecendo hoje. Prova 1 concluída com resultados,
  *       1ª bateria da Prova 2 concluída aguardando resultados e a 2ª em andamento.</li>
  *   <li>TCB 2026 (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para testar
  *       Checkout Pro. As equipes aguardam pagamento; nenhum pagamento é criado pelo seed.</li>
  * </ul>
- * Nos dois primeiros, cada categoria tem 16 duplas. Ninguém aparece em duas equipes
+ * Nos dois primeiros, cada categoria tem 16 equipes: duplas e RX individual. Ninguém aparece em duas equipes
  * de um mesmo campeonato: nome, e-mail e CPF são únicos em todo o seed (só a atleta
- * de demonstração se repete). atleta@wodz.dev é capitã do "Time da Ana" no Arena 911
+ * de demonstração se repete). atleta@wodz.dev é capitão do "Tico e Teco" no NOX DURANCE
  * e no TCB 2026. Baterias e resultados passam pelos mesmos serviços usados pelo
  * organizador na interface.
  */
@@ -76,7 +77,9 @@ public class DemoDataSeeder implements ApplicationRunner {
     private static final int TEAMS_PER_CATEGORY = 16;
     private static final int HEAT_INTERVAL_MINUTES = 15;
 
-    private static final String[] CATEGORY_NAMES = {"Iniciante", "Scaled", "RX"};
+    @org.springframework.beans.factory.annotation.Value("${app.seed.categories-json:}")
+    private String categoriesJson;
+    private DemoCategoryProfile categoryProfile;
 
     private static final String[] FEMALE_NAMES = {"Ana", "Beatriz", "Camila", "Carolina", "Clara", "Daniela",
             "Eduarda", "Fernanda", "Gabriela", "Helena", "Isabela", "Joana", "Juliana", "Larissa", "Letícia",
@@ -152,11 +155,12 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     private void seed() {
+        categoryProfile = DemoCategoryProfile.load(categoriesJson);
         Random random = new Random(42);
         // Um hash para todos: um bcrypt por usuário deixaria o seed lento à toa.
         String passwordHash = passwordEncoder.encode(PASSWORD);
         AppUser organizer = user("Liga Nordeste de CrossFit", "organizador@wodz.dev", Role.ORGANIZER, passwordHash, random);
-        AppUser athlete = user("Ana Beatriz Lima", "atleta@wodz.dev", Role.ATHLETE, passwordHash, random);
+        AppUser athlete = user("Matheus Ferreira", "atleta@wodz.dev", Role.ATHLETE, passwordHash, random);
         Roster roster = new Roster(random, passwordHash, athlete.getName());
         LocalDate today = LocalDate.now(Championship.ZONE);
 
@@ -173,15 +177,15 @@ public class DemoDataSeeder implements ApplicationRunner {
                 "Campeonato de verão em duplas no Sítio Histórico. Três provas em dois dias, com premiação para os "
                         + "três primeiros de cada categoria.",
                 "Ginásio Olinda Arena", "Rua do Sol, 250 - Carmo", "Olinda", "PE");
-        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00"});
+        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00", "0.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
             ws.add(workout(cat, 1, "Largada", WorkoutType.FOR_TIME, 10 * 60, null,
-                    "For time em dupla\n50 wall balls\n40 burpees over the bar\n30 power cleans\n\nTime cap: 10 min"));
+                    format(cat) + "\n50 wall balls (" + load(cat, "Wall ball") + ")\n40 burpees over the bar\n30 power cleans (" + load(cat, "Clean and jerk") + ")\n\nTime cap: 10 min"));
             ws.add(workout(cat, 2, "Ladeira da Misericórdia", WorkoutType.AMRAP, 12 * 60, 30,
-                    "AMRAP 12 min\n10 toes-to-bar\n10 box jumps\n10 dumbbell snatches"));
+                    "AMRAP 12 min\n10 " + core(cat) + "\n10 " + box(cat) + "\n10 dumbbell snatches (" + load(cat, "Dumbbell") + ")"));
             ws.add(workout(cat, 3, "Snatch do Alto da Sé", WorkoutType.MAX_LOAD, 10 * 60, null,
-                    "Em 10 minutos, cada atleta busca o maior snatch.\nResultado: soma das cargas da dupla."));
+                    "Em 10 minutos, cada atleta busca o maior snatch.\n" + maxLoadResult(cat)));
         }
         Instant registeredAt = start.minusDays(20).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
@@ -196,7 +200,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 new GenerateAllHeatsRequest(at(start, 8), HEAT_INTERVAL_MINUTES));
         // Uma dupla do RX não compareceu à última prova.
         Long noShow = heats.stream()
-                .filter(h -> h.workoutNumber() == 3 && h.categoryName().equals("RX"))
+                .filter(h -> h.workoutNumber() == 3 && h.categoryName().startsWith("RX"))
                 .findFirst().map(h -> h.lanes().get(0).teamId()).orElse(null);
         for (HeatView heat : heats) {
             finish(heat);
@@ -216,24 +220,24 @@ public class DemoDataSeeder implements ApplicationRunner {
      * concluída aguardando resultados (para lançar pela interface) e a 2ª em andamento.
      */
     private void seedInProgress(AppUser organizer, AppUser athlete, Roster roster, Random random, LocalDate today) {
-        Championship c = openForRegistration(organizer, "Arena 911 - 2026", "arena-911-2026",
+        Championship c = openForRegistration(organizer, "NOX DURANCE", "nox-durance",
                 "Campeonato em duplas com três provas em dois dias. Kit atleta com camiseta e squeeze. "
                         + "Aquecimento liberado 30 minutos antes de cada bateria.",
                 "Arena Boa Viagem", "Av. Boa Viagem, 1000 - Boa Viagem", "Recife", "PE");
-        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00"});
+        List<Category> cats = categories(c, new String[]{"0.00", "0.00", "0.00", "0.00"});
         List<Workout> ws = new ArrayList<>();
         for (Category cat : cats) {
                         ws.add(workout(cat, 1, "The Grind", WorkoutType.FOR_TIME, 12 * 60, null,
-                    "21-15-9\nThrusters\nPull-ups"));
+                    "21-15-9\nThrusters (" + load(cat, "Thruster") + ")\n" + gymnastics(cat)));
             ws.add(workout(cat, 2, "Chipper da Maré", WorkoutType.AMRAP, 15 * 60, 45,
-                    "15 wall balls\n15 box jumps\n15 kettlebell swings"));
+                    "AMRAP 15 min\n15 wall balls (" + load(cat, "Wall ball") + ")\n15 " + box(cat) + "\n15 dumbbell snatches (" + load(cat, "Dumbbell") + ")"));
             ws.add(workout(cat, 3, "Last Dance", WorkoutType.MAX_LOAD, 13 * 60, null,
-                    "For time - 5 minutos (0' a 5')\n1RM de clean e jerk\n\nRest 2 minutos (5' a 7')\n\nFor time - 5 minutos (7' a 12')\n1RM de snatch"));
+                    "Em 5 minutos (0' a 5')\n1RM de clean e jerk\n\nDescanso 2 minutos (5' a 7')\n\nEm 5 minutos (7' a 12')\n1RM de snatch\n" + maxLoadResult(cat)));
         }
         Instant registeredAt = today.minusDays(10).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
             for (int i = 0; i < TEAMS_PER_CATEGORY; i++) {
-                boolean anasTeam = cat.getName().equals("Scaled") && i == 0;
+                boolean anasTeam = cat.getName().equalsIgnoreCase("Scaled misto") && i == 0;
                 roster.team(cat, anasTeam ? athlete : null, registeredAt);
             }
         }
@@ -259,7 +263,7 @@ public class DemoDataSeeder implements ApplicationRunner {
 
     /**
      * Inscrições abertas e ainda não começou (início daqui a 30 dias), para testar pagamentos:
-     * metade das vagas com duplas aguardando pagamento e o "Time da Ana" (Scaled), com o
+     * metade das vagas com duplas aguardando pagamento e o "Tico e Teco" (Scaled), com o
      * botão de pagar em "Minhas equipes". Ainda há vagas para inscrever equipes novas.
      */
     private void seedRegistrationOpen(AppUser organizer, AppUser athlete, Roster roster, LocalDate today) {
@@ -267,14 +271,14 @@ public class DemoDataSeeder implements ApplicationRunner {
                 "Campeonato em duplas em São Paulo. Três provas em dois dias, com premiação para os três "
                         + "primeiros de cada categoria.",
                 "Arena TCB", "Rua Vergueiro, 1500 - Vila Mariana", "São Paulo", "SP");
-        List<Category> cats = categories(c, new String[]{"170.00", "210.00", "250.00"});
+        List<Category> cats = categories(c, new String[]{"170.00", "210.00", "230.00", "250.00"});
         for (Category cat : cats) {
             workout(cat, 1, "Avenida Paulista", WorkoutType.FOR_TIME, 10 * 60, null,
-                    "For time em dupla\n40 cal row\n30 thrusters\n20 bar muscle-ups\n\nTime cap: 10 min");
+                    format(cat) + "\n40 cal row\n30 thrusters (" + load(cat, "Thruster") + ")\n20 " + gymnastics(cat) + "\n\nTime cap: 10 min");
             workout(cat, 2, "Garoa", WorkoutType.AMRAP, 12 * 60, 30,
-                    "AMRAP 12 min\n10 wall balls\n10 burpees\n10 kettlebell swings");
+                    "AMRAP 12 min\n10 wall balls (" + load(cat, "Wall ball") + ")\n10 burpees\n10 dumbbell snatches (" + load(cat, "Dumbbell") + ")");
             workout(cat, 3, "Terraço Itália", WorkoutType.MAX_LOAD, 10 * 60, null,
-                    "Em 10 minutos, cada atleta busca o maior clean.\nResultado: soma das cargas da dupla.");
+                    "Em 10 minutos, cada atleta busca o maior clean.\n" + maxLoadResult(cat));
         }
         Instant registeredAt = today.minusDays(3).atTime(LocalTime.NOON).atZone(Championship.ZONE).toInstant();
         for (Category cat : cats) {
@@ -282,7 +286,8 @@ public class DemoDataSeeder implements ApplicationRunner {
                 roster.team(cat, null, registeredAt, SAO_PAULO);
             }
         }
-        roster.team(cats.get(1), athlete, null, SAO_PAULO);
+        cats.stream().filter(cat -> cat.getName().equalsIgnoreCase("Scaled misto")).findFirst()
+                .ifPresent(cat -> roster.team(cat, athlete, null, SAO_PAULO));
     }
 
     // --------------------------------------------------------------- helpers
@@ -318,17 +323,42 @@ public class DemoDataSeeder implements ApplicationRunner {
 
     private List<Category> categories(Championship c, String[] prices) {
         List<Category> list = new ArrayList<>();
-        for (int k = 0; k < CATEGORY_NAMES.length; k++) {
+        for (int k = 0; k < categoryProfile.categories().size(); k++) {
+            var definition = categoryProfile.categories().get(k);
             Category category = new Category();
             category.setChampionship(c);
-            category.setName(CATEGORY_NAMES[k]);
-            category.setTeamSize(2);
+            category.setName(definition.name());
+            category.setDescription(definition.description());
+            category.setTeamSize(definition.teamSize());
+            category.setGenderPolicy(definition.genderPolicy());
+            category.setAllowedMaleCounts(definition.genderPolicy() == CategoryGender.MIXED ? List.of(1) : List.of());
+            category.setMovementStandards(categoryProfile.standards().get(definition.level()));
             category.setMaxTeams(20);
-            category.setPrice(new BigDecimal(prices[k]));
+            int priceIndex = switch (definition.level()) { case "SCALED" -> 1; case "INTERMEDIARIO" -> 2; case "RX" -> 3; default -> 0; };
+            category.setPrice(new BigDecimal(prices[priceIndex]));
             category.setDisplayOrder(k);
             list.add(categories.save(category));
         }
         return list;
+    }
+
+    private static String format(Category category) { return category.getTeamSize() == 1 ? "For time individual" : "For time em dupla, dividindo as repetições"; }
+    private static String maxLoadResult(Category category) { return category.getTeamSize() == 1 ? "Resultado: maior carga do atleta." : "Resultado: soma das cargas da dupla."; }
+    private static String gymnastics(Category category) {
+        return switch (level(category.getName())) { case 0 -> "hand release push-ups"; case 1 -> "pull-ups"; case 2 -> "chest-to-bar"; default -> "bar muscle-ups"; };
+    }
+    private static String core(Category category) {
+        if (level(category.getName()) == 0 || (level(category.getName()) == 1 && category.getGenderPolicy() == CategoryGender.FEMALE)) return "knees to elbows";
+        return level(category.getName()) == 1 && category.getGenderPolicy() == CategoryGender.MIXED ? "toes-to-bar (masculino) / knees to elbows (feminino)" : "toes-to-bar";
+    }
+    private static String box(Category category) {
+        if (level(category.getName()) == 3) return "box jump overs";
+        if (level(category.getName()) == 0 || (level(category.getName()) == 1 && category.getGenderPolicy() == CategoryGender.FEMALE)) return "box step ups";
+        return level(category.getName()) == 1 && category.getGenderPolicy() == CategoryGender.MIXED ? "box jumps (masculino) / box step ups (feminino)" : "box jumps";
+    }
+    private static String load(Category category, String movement) {
+        var row = category.getMovementStandards().stream().filter(s -> s.movement().equals(movement)).findFirst().orElseThrow();
+        return switch (category.getGenderPolicy()) { case MALE -> row.male(); case FEMALE -> row.female(); case MIXED -> "masculino " + row.male() + " / feminino " + row.female(); };
     }
 
     private Workout workout(Category category, int number, String name, WorkoutType type, Integer timeCap,
@@ -365,11 +395,9 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     private static int level(String categoryName) {
-        return switch (categoryName) {
-            case "RX" -> 2;
-            case "Scaled" -> 1;
-            default -> 0;
-        };
+        if (categoryName.startsWith("RX")) return 3;
+        if (categoryName.startsWith("Intermediário")) return 2;
+        return categoryName.startsWith("Scaled") ? 1 : 0;
     }
 
     /** Resultado plausível para o tipo da prova; categorias mais fortes rendem mais. */
@@ -414,6 +442,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         private final Map<Region, List<String>> teamNames = new HashMap<>();
         private Member athleteMember;
         private int seq;
+        private int teamSeq;
 
         Roster(Random random, String passwordHash, String... reservedNames) {
             this.random = random;
@@ -428,25 +457,29 @@ public class DemoDataSeeder implements ApplicationRunner {
 
         /**
          * Dupla da região: inscrição gratuita confirmada; inscrição paga aguarda Checkout Pro.
-         * Com athlete, ele é o capitão (o "Time da Ana"), sempre com o mesmo CPF.
+         * Com athlete, ele é o capitão (o "Tico e Teco"), sempre com o mesmo CPF.
          */
         Team team(Category category, AppUser athlete, Instant confirmedAt, Region region) {
             List<String> regionTeamNames = teamNames(region);
-            Member captain = athlete == null ? person() : athlete(athlete);
+            Gender captainGender = category.getGenderPolicy() == CategoryGender.MALE ? Gender.M : Gender.F;
+            Member captain = athlete == null ? person(captainGender) : athlete(athlete);
             AppUser captainUser = athlete != null ? athlete : user(captain.name(), captain.email(), Role.ATHLETE,
                     passwordHash, random);
 
             Team team = new Team();
             team.setCategory(category);
             team.setCaptain(captainUser);
-            team.setName(athlete != null ? "Time da Ana" : regionTeamNames.remove(regionTeamNames.size() - 1));
+            team.setName(athlete != null ? "Tico e Teco" : regionTeamNames.get(teamSeq % regionTeamNames.size()) + " " + (++teamSeq));
             team.setBoxName(region.boxes()[random.nextInt(region.boxes().length)]);
             team.setCity(region.cities()[random.nextInt(region.cities().length)]);
             team.setRegistrationCode(Codes.registrationCode());
             boolean free = category.getPrice().signum() == 0;
             team.setStatus(free ? TeamStatus.CONFIRMED : TeamStatus.PENDING_PAYMENT);
             team.setConfirmedAt(free ? confirmedAt : null);
-            List<Member> members = List.of(captain, person());
+            List<Member> members = new ArrayList<>();
+            members.add(captain);
+            if (category.getTeamSize() == 2) members.add(person(category.getGenderPolicy() == CategoryGender.MIXED ? Gender.M : captainGender));
+            CategoryComposition.validateTeam(category, members.stream().map(Member::gender).toList());
             for (int m = 0; m < members.size(); m++) {
                 Member p = members.get(m);
                 TeamMember member = new TeamMember();
@@ -462,9 +495,9 @@ public class DemoDataSeeder implements ApplicationRunner {
             return teams.save(team);
         }
 
-        private Member person() {
+        private Member person(Gender gender) {
             while (true) {
-                boolean female = random.nextBoolean();
+                boolean female = gender == Gender.F;
                 String first = pick(female ? FEMALE_NAMES : MALE_NAMES);
                 String middle = pick(SURNAMES);
                 String last = pick(SURNAMES);

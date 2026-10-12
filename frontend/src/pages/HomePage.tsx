@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
+import { EventImage } from '../components/EventImage';
 import { publicApi } from '../api/endpoints';
 import type { ChampionshipSummary } from '../api/types';
 import { UFS, dayBlock } from '../lib/format';
@@ -118,6 +119,7 @@ export default function HomePage() {
               return (
                 <li key={c.id}>
                   <article className="champ-card">
+                    <EventImage src={c.bannerUrl} name={c.name} />
                     <div className="champ-card__header">
                       <span className="champ-card__date" aria-hidden>
                         <span className="champ-card__days">{block.days}</span>

@@ -22,7 +22,8 @@ spring:
 
 server:
   port: ${PORT:8080}
-  forward-headers-strategy: framework
+  # URLs externas vêm de configuração explícita. Headers enviados pelo cliente não definem IP/origem.
+  forward-headers-strategy: none
   error:
     include-message: never
     include-binding-errors: never
@@ -59,6 +60,7 @@ app:
     encryption-key: ${APP_ENCRYPTION_KEY:}
   seed:
     enabled: ${SEED_DEMO:false}
+    categories-json: ${SEED_DEMO_CATEGORIES_JSON:}
   google:
     # Client ID OAuth (tipo "Aplicativo da Web") do Google Cloud; é público, vai para o navegador.
     client-id: ${GOOGLE_CLIENT_ID:84072245662-m7cc1brb2fb7lkv92i9dqm5o1phnagr9.apps.googleusercontent.com}

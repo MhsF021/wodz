@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-10-11T23:24:17.9581561+00:00",
+  "payer_email_pattern": "test_payer_[digits]@testuser.com",
+  "restoration_required": true,
+  "restoration_complete": true,
+  "seller_test_verified": true,
+  "oauth_http": 200,
+  "credential_type": "TEST",
+  "user_matches": true,
+  "external_reference": "pixdiag-ea93f7a0-deb1-49a5-9ef0-6f5d1864c4df",
+  "pix_http": 500,
+  "payment_id": null,
+  "payment_status": null,
+  "payment_live_mode": null,
+  "qr_present": false,
+  "qr_image_present": false,
+  "safe_error_messages": [
+    "fill and validate error list: user_allowed_only_in_test : 400"
+  ],
+  "restore_oauth_http": 200
+}

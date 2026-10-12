@@ -1,0 +1,78 @@
+{
+  "analysis_date_brasilia": "2026-10-12",
+  "source": "probably-power-flannels.ngrok-free.dev_Archive [26-10-12 01-21-27].har",
+  "source_scope": "Browser-to-WODZ requests only",
+  "sanitization": "Registration capability, Authorization, cookies, CPF value, personal names, email, URLs carrying capabilities and raw bodies omitted.",
+  "entry_count": 15,
+  "hosts": ["probably-power-flannels.ngrok-free.dev"],
+  "oauth_entries": 0,
+  "mercado_pago_api_entries": 0,
+  "checkout_posts": [
+    {
+      "started_at": "2026-10-12T01:20:31.598-03:00",
+      "duration_ms": 1148,
+      "route": "/api/public/registrations/<redacted-registration>/checkout",
+      "request_content_type": "application/json",
+      "request_fields": ["method", "payerCpf", "termsAccepted"],
+      "method": "PIX",
+      "terms_accepted": true,
+      "payer_cpf_present": true,
+      "payer_cpf_digits": 11,
+      "payer_cpf_format_valid": true,
+      "payer_cpf_checksum_valid": true,
+      "http_status": 502,
+      "response_content_type": "application/problem+json",
+      "response_title": "Bad Gateway",
+      "response_detail": "Não foi possível consultar o Mercado Pago. Tente novamente em instantes.",
+      "provider_error_exposed": false,
+      "request_correlation_header_present": false
+    },
+    {
+      "started_at": "2026-10-12T01:21:11.344-03:00",
+      "duration_ms": 719,
+      "route": "/api/public/registrations/<redacted-registration>/checkout",
+      "request_content_type": "application/json",
+      "request_fields": ["method", "payerCpf", "termsAccepted"],
+      "method": "PIX",
+      "terms_accepted": true,
+      "payer_cpf_present": true,
+      "payer_cpf_digits": 11,
+      "payer_cpf_format_valid": true,
+      "payer_cpf_checksum_valid": true,
+      "http_status": 502,
+      "response_content_type": "application/problem+json",
+      "response_title": "Bad Gateway",
+      "response_detail": "Não foi possível consultar o Mercado Pago. Tente novamente em instantes.",
+      "provider_error_exposed": false,
+      "request_correlation_header_present": false
+    }
+  ],
+  "registration_reads": {
+    "http_status": 200,
+    "team_id": 446,
+    "team_status": "PENDING_PAYMENT",
+    "amount": 250.0,
+    "checkout_id": 4,
+    "last_payment_present": false,
+    "same_state_on_all_reads": true,
+    "summary_read_count": 2,
+    "checkout_status_read_count": 10
+  },
+  "checkout_details": {
+    "started_at": "2026-10-12T01:20:32.916-03:00",
+    "http_status": 200,
+    "duration_ms": 140,
+    "id": 4,
+    "method": "PIX",
+    "expires_at": "2026-10-12T04:51:31.678342Z",
+    "url_present": false,
+    "qr_code_present": false,
+    "qr_code_base64_present": false
+  },
+  "limits": [
+    "The HTTP 502 is the response visible between browser and WODZ; it does not reveal Mercado Pago's upstream HTTP status or response body.",
+    "No OAuth renewal, callback, application ID, OAuth scopes or Mercado Pago external reference appears in this HAR.",
+    "A local checkout draft exists, but the HAR contains no provider payment ID or QR Code confirming PIX creation.",
+    "The cause must be correlated with backend logs for checkout 4 / team 446 at 04:20:31.598Z and 04:21:11.344Z."
+  ]
+}

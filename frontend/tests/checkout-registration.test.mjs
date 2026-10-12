@@ -46,6 +46,7 @@ test('event cards have independent details and signup destinations without neste
    {id:2,slug:'fechado',name:'FECHADO',venueName:'LOCAL',city:'CIDADE',state:'SP',registrationOpen:false}]})},
   'lucide-react':{Search:()=>null},'../api/endpoints':{publicApi:{}},'../lib/format':{UFS:[],dayBlock:()=>({days:'10',month:'OUT'})},
   '../lib/championshipFilters':module('../src/lib/championshipFilters.ts',{}),
+  '../components/EventImage':{EventImage:()=>null},
   '../lib/theme':{brandLogoFor:()=>'/logo.svg'},'../auth/AuthContext':{useAuth:()=>({user:null,loading:false})},'./AuthContext':{useAuth:()=>({user:null,loading:false})},'../components/States':states,
  }).default;
  const html=renderToStaticMarkup(React.createElement(component));
@@ -82,11 +83,35 @@ test('browser success parameters never confirm a pending payment and checkout us
  const component=module('../src/pages/PaymentPage.tsx',{
   react:{...React,useState:x=>[x,()=>{}],useEffect:()=>{}},
   'react-router':{Link:link,useParams:()=>({code:'ABC'}),useSearchParams:()=>[new URLSearchParams('checkout=20&status=approved&retorno=sucesso'),p=>replaced=p]},
-  '@tanstack/react-query':{useQuery:()=>({isPending:false,data:registration,refetch:()=>{}}),useMutation:c=>{mutation=c;return{mutate(){}};}},
-  '../api/endpoints':{paymentApi:{}},'../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination},'../components/States':states,
+  '@tanstack/react-query':{useQuery:o=>({isPending:false,data:o.queryKey[0]==='checkout-details'
+   ? {id:20,method:'CARD',expiresAt:new Date(Date.now()+600000).toISOString()} : registration,refetch:()=>{}}),useMutation:c=>{mutation=c;return{mutate(){}};}},
+  '../api/endpoints':{paymentApi:{},publicApi:{}},'../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination},'../components/States':states,
  },{window:{location:{assign:x=>assigned=x}}}).default;
  const html=renderToStaticMarkup(React.createElement(component));
  assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/Pagamento confirmado|type="password"|<iframe|<form/);
  mutation.onSuccess({id:20,url:'https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=1'});
  assert.equal(assigned,'https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=1');assert.equal(replaced.checkout,'20');
+});
+
+test('return without a provider payment offers a retry instead of claiming a pending transaction',()=>{
+ for(const payment of [null,{status:'REJECTED'},{status:'PENDING'}]) {
+  const registration={code:'ABC',teamName:'EQUIPE',categoryName:'RX',championshipName:'EVENTO',championshipSlug:'evento',
+   amount:210,teamStatus:'PENDING_PAYMENT',lastPayment:payment,checkoutId:20};
+  const component=module('../src/pages/PaymentPage.tsx',{
+   react:{...React,useState:x=>[x,()=>{}],useEffect:()=>{}},
+   'react-router':{Link:link,useParams:()=>({code:'ABC'}),useSearchParams:()=>[new URLSearchParams('checkout=20&status=approved&retorno=sucesso'),()=>{}]},
+   '@tanstack/react-query':{useQuery:options=>({isPending:false,data:options.queryKey[0]==='public-config'
+    ? {mercadoPagoTestMode:true} : options.queryKey[0]==='checkout-details'
+    ? {id:20,method:'CARD',expiresAt:new Date(Date.now()+600000).toISOString()} : registration,refetch:()=>{}}),useMutation:()=>({mutate(){}})},
+   '../api/endpoints':{paymentApi:{},publicApi:{}},'../lib/format':{money:x=>String(x)},
+   '../lib/checkout':{checkoutDestination:x=>x},'../components/States':states,
+  }).default;
+  const html=renderToStaticMarkup(React.createElement(component));
+  assert.doesNotMatch(html,/Pagamento confirmado/);
+  assert.match(html,/Modo de teste do Mercado Pago/);
+  assert.match(html,/Não pague um QR Code de teste com uma conta bancária real/);
+  if(!payment){assert.match(html,/ainda não registrou um pagamento/);assert.doesNotMatch(html,/Aguardando confirmação/);}
+  else if(payment.status==='REJECTED'){assert.match(html,/não foi aprovado/);assert.doesNotMatch(html,/ainda não registrou|Aguardando confirmação/);}
+  else{assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/ainda não registrou/);}
+ }
 });

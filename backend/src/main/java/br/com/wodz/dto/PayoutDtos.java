@@ -7,7 +7,7 @@ public final class PayoutDtos {
 
     public record PayoutView(boolean configured, boolean paymentUnavailable, boolean connected,
                              String accountLabel, String providerUserId, boolean liveMode,
-                             Instant connectedAt, boolean testMode, Instant updatedAt) { }
+                             Instant connectedAt, boolean testMode, Instant updatedAt, Boolean testAccount) { }
 
     public record AuthorizationView(String authorizationUrl) { }
 }

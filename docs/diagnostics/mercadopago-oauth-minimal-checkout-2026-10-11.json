@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-10-11T15:30:16.5550397-03:00",
+  "profile": "minimal",
+  "preference_id": "3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+  "external_reference": "mpdiag-670fc3e1-25ad-4060-b345-d819b9b09025",
+  "collector_id": 3740570257,
+  "client_id": "6035581613565283",
+  "configured_application_matches": true,
+  "seller_test_user": true,
+  "amount": 210.0,
+  "checkout_url": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-5f1d125d-5108-489e-ab65-0d137a852272",
+  "request_fields": [
+    "items",
+    "external_reference"
+  ],
+  "expires": false,
+  "expires_at": null,
+  "note": "Preferencia isolada, sem vinculo com a inscricao WODZ. Use somente comprador de teste."
+}

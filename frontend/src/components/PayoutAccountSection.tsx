@@ -18,7 +18,7 @@ export function PayoutAccountSection() {
   const data = account.data;
   const result = params.get('recebimentos');
   const reason = params.get('motivo');
-  const needsTestAuthorization = data?.testMode && data.connected && data.liveMode;
+  const needsTestAuthorization = data?.testMode && data.connected && data.testAccount === false;
   const connect = useMutation({
     mutationFn: adminApi.connectPayoutAccount,
     onSuccess: ({ authorizationUrl }) => {
@@ -60,7 +60,7 @@ export function PayoutAccountSection() {
     let previous: { version: string | null; at: number } | null = null;
     try { previous = saved ? JSON.parse(saved) : null; } catch { /* confirmação vem da API */ }
     try { sessionStorage.removeItem(ATTEMPT); } catch { /* storage indisponível */ }
-    const verified = data.connected && data.liveMode !== data.testMode;
+    const verified = data.connected && data.testAccount === data.testMode;
     const version = data.updatedAt ?? data.connectedAt ?? null;
     const renewed = verified && previous && Date.now() - previous.at < 600_000 && version !== previous.version;
     setFeedback(result === 'error'
@@ -100,7 +100,7 @@ export function PayoutAccountSection() {
         <ActionFeedback status="pending" label="Conferindo a autorização com o Mercado Pago…" />
       )}
       {needsTestAuthorization && (
-        <p className="form-error" role="alert">Esta conta tem uma autorização de produção. Desconecte-a
+        <p className="form-error" role="alert">Esta é uma conta de produção. Desconecte-a
           e conecte um vendedor de teste do Mercado Pago para testar o checkout.</p>
       )}
       {!feedback && result === 'error' && !account.isFetching && (
@@ -109,7 +109,7 @@ export function PayoutAccountSection() {
       {data?.connected && (
         <div className="stack">
           <p><strong>{data.accountLabel}</strong><br />
-            <span className="note">Conta {data.providerUserId} · {data.liveMode ? 'Produção' : 'Teste'}</span></p>
+            <span className="note">Conta {data.providerUserId} · {data.testAccount == null ? 'Validação pendente' : data.testAccount ? 'Teste' : 'Produção'}</span></p>
           {data.testMode ? (
             <p className="note">No checkout do Mercado Pago, use uma conta de comprador de teste diferente da conta de vendedor conectada.</p>
           ) : (

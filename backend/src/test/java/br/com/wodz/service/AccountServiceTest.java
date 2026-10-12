@@ -74,6 +74,14 @@ class AccountServiceTest {
         assertNull(dto.phone());
     }
 
+    @Test void sairRevogaCredenciaisEAutorizacoesPendentesSemApagarPerfil() {
+        service.logout(7L);
+        assertEquals(1, user.getTokenVersion());
+        assertFalse(user.isDeleted());
+        verify(users).lockActiveById(7L);
+        verify(payoutAccounts).cancelPendingAuthorizations(7L);
+    }
+
     @Test
     void trocarEmailExigeSenhaAtual() {
         ApiException semSenha = assertThrows(ApiException.class,

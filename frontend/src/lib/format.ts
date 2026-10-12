@@ -138,10 +138,6 @@ export const scoreStatusLabel: Record<ScoreStatus, string> = {
   DQ: 'Desclassificada',
 };
 
-/** Cores das anilhas olímpicas, usadas para identificar cada categoria. */
-const PLATES = ['var(--plate-blue)', 'var(--plate-yellow)', 'var(--plate-green)', 'var(--plate-red)', 'var(--ink)'];
-export const plateColor = (index: number) => PLATES[((index % PLATES.length) + PLATES.length) % PLATES.length];
-
 export const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 export function maskCpf(value: string): string {

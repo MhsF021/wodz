@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import TeamRegistrationPage from './pages/TeamRegistrationPage';
 import PaymentPage from './pages/PaymentPage';
+import LegalPage from './pages/LegalPage';
 import MyTeamsPage from './pages/MyTeamsPage';
 import MyProfilePage from './pages/MyProfilePage';
 import AdminHome from './pages/admin/AdminHome';
@@ -30,6 +31,8 @@ export function App() {
           }
         />
         <Route path="pagamento/:code" element={<PaymentPage />} />
+        <Route path="termos" element={<LegalPage />} />
+        <Route path="privacidade" element={<LegalPage privacy />} />
         <Route path="mercadopago/retorno" element={<MercadoPagoReturnPage />} />
         <Route path="google/retorno" element={<GoogleReturnPage />} />
         <Route path="entrar" element={<LoginPage />} />

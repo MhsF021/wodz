@@ -3,7 +3,7 @@
 Sistema para campeonatos de CrossFit. O **organizador** cadastra o campeonato,
 as categorias e as provas, abre o formulário de inscrição, acompanha as equipes,
 monta e controla as baterias e lança os resultados. O **atleta** busca
-campeonatos, inscreve a equipe, paga no checkout do Mercado Pago, vê o horário
+campeonatos, inscreve a equipe, paga por Pix ou no checkout do Mercado Pago, vê o horário
 e o status das suas baterias e acompanha o leaderboard ao vivo.
 
 | Camada | Tecnologia |
@@ -19,7 +19,7 @@ e o status das suas baterias e acompanha o leaderboard ao vivo.
 ### Com Docker (recomendado)
 
 ```bash
-cp .env.example .env        # opcional
+if [ ! -f .env ]; then cp .env.example .env; fi
 docker compose up --build
 ```
 
@@ -27,6 +27,11 @@ docker compose up --build
 - API pelo frontend: http://localhost:8081/api/public/config
 
 O Compose usa o projeto `wodz` e publica apenas a porta `8081` por padrão.
+Preencha as credenciais no `.env` local. Não copie novamente `.env.example`
+sobre um `.env` configurado: isso sobrescreve a aplicação e os segredos escolhidos.
+O exemplo mantém esses campos vazios; as credenciais de pagamento não devem ser
+gravadas nele. Preserve o `.env` e a chave de cifra ao atualizar o ambiente.
+
 Executar `docker compose up --build -d` novamente atualiza os containers desse
 projeto. O banco e o backend se comunicam pela
 rede interna do Docker, sem ocupar as portas `5432` e `8080` do Windows.
@@ -57,23 +62,28 @@ e `DB_HOST_PORT` no `.env` com portas livres. Ao executar a API fora do Docker,
 ajuste também `DB_URL` para a porta escolhida para o banco.
 
 Com `SEED_DEMO=true` (padrão no compose) o sistema sobe com três campeonatos do
-organizador de demonstração, cada um com 3 categorias e 3 provas por categoria
+organizador de demonstração, cada um com 11 categorias e 3 provas por categoria
 (ninguém aparece em duas equipes do mesmo campeonato):
 
 - **Vitória Games - Ano 6**: encerrado e 100% concluído, com todas as baterias
   concluídas e todos os resultados lançados, cada um com o judge da raia.
-  16 duplas por categoria.
-- **Arena 911 - 2026**: acontecendo hoje. Prova 1 concluída com resultados,
+  16 equipes por categoria (duplas ou atletas individuais no RX).
+- **NOX DURANCE**: acontecendo hoje. Prova 1 concluída com resultados,
   a 1ª bateria da Prova 2 concluída aguardando resultados (para lançar pela
-  interface) e a 2ª em andamento. 16 duplas por categoria. A atleta de
-  demonstração é capitã do "Time da Ana", na Scaled.
+  interface) e a 2ª em andamento. 16 equipes por categoria. O atleta de
+  demonstração é capitão do "Tico e Teco", na Scaled misto.
 - **TCB 2026** (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para
-  testar pagamentos. 8 duplas pagas por categoria (sobram vagas para inscrever
-  novas equipes) e o "Time da Ana", na Scaled, aguardando pagamento: entre como
+  testar pagamentos. 8 equipes pagas por categoria (sobram vagas para inscrever
+  novas equipes) e o "Tico e Teco", na Scaled misto, aguardando pagamento: entre como
   atleta e use "Pagar inscrição" em Minhas equipes.
 
-O seed só roda com o banco vazio. Para ver dados novos do seed num banco já
-criado, recrie o banco (no compose: `docker compose down -v`, que apaga os dados).
+O seed só roda com o banco vazio e não reescreve campeonatos ou inscrições existentes.
+`SEED_DEMO_CATEGORIES_JSON` no `.env` define os exemplos usados nos três campeonatos:
+Iniciante, Scaled e Intermediário com duplas femininas, masculinas ou mistas (1 mulher
+e 1 homem), e RX individual feminino ou masculino. O JSON contém nomes, descrições,
+composição e tabelas de cargas e movimentos por nível. Sem essa variável, o sistema
+usa `backend/src/main/resources/demo-categories.json`. As cargas de Iniciante e Scaled
+seguem as referências visuais; Intermediário e RX usam valores ilustrativos.
 
 | Perfil | E-mail | Senha |
 |---|---|---|
@@ -224,6 +234,42 @@ Os logs identificam HTTP e motivos fixos, sem registrar tokens ou o corpo privad
 da resposta. A configuração da conta/aplicação e o pagamento completo precisam
 ser verificados no Mercado Pago; testes locais não substituem essa verificação.
 
+Quando o erro ocorre **depois de clicar em Pagar no Mercado Pago**, anote o
+`preference-id` e o `router-request-id` da URL. O caminho `/error/` é uma tela
+genérica do provedor e não contém o motivo da falha. Uma preferência criada com
+sucesso também não comprova que uma tentativa financeira foi registrada.
+Ao voltar ao WODZ, a página diferencia uma tentativa pendente de um checkout sem
+pagamento registrado e permite tentar novamente após a consulta ao provedor.
+
+No Windows, consulte a preferência e os pagamentos associados com:
+
+```powershell
+./scripts/Diagnose-MercadoPago.ps1 -PreferenceId '<preference-id da URL>'
+```
+
+O diagnóstico lê `.env` e as variáveis da sessão, consulta apenas a API oficial
+e não imprime nem grava tokens, e-mail, CPF ou dados do comprador. Precisa do
+token do **vendedor daquela preferência**: pode usar `MP_ACCESS_TOKEN` se ele
+pertencer ao vendedor, ou `MP_DIAGNOSTIC_ACCESS_TOKEN` definido apenas na sessão.
+Essa variável serve exclusivamente para o comando; o backend continua usando
+as autorizações OAuth dos organizadores. Com `MP_CLIENT_ID` e `MP_CLIENT_SECRET`,
+o comando também confere a conta integradora e se a aplicação está ativa ou
+bloqueada, autenticando a própria aplicação sem alterar as credenciais salvas.
+
+Para testes com **saldo da conta**, confira o saldo fictício do comprador em
+Suas integrações → Contas de teste: ele precisa cobrir o valor da inscrição.
+Também confira a conta de **integrador**, além do vendedor e do comprador,
+pois o WODZ usa o modelo marketplace. O Mercado Pago disponibiliza esse terceiro
+tipo de [conta de teste para integrações marketplace](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/test-accounts).
+Uma mistura de tipos de conta aparece no diagnóstico como ponto de investigação,
+sem ser tratada como causa comprovada. Para isolar o problema no pagamento com
+saldo, compare com uma compra usando cartão de teste e titular `APRO`, conforme
+a [documentação de compras de teste](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/integration-test/test-purchases).
+Se a busca continuar com zero pagamentos, não há `status_detail` financeiro para
+consultar: obtenha a resposta da requisição que falhou na aba Network do navegador
+ou encaminhe os IDs da preferência e da requisição ao suporte do Mercado Pago.
+Não compartilhe cookies, tokens, cabeçalhos de autorização ou dados de cartão.
+
 O parâmetro `status=approved` do navegador nunca confirma uma equipe. Retorno,
 polling, webhook assinado e conciliação consultam o provedor com o OAuth da conta
 original. Antes de registrar o pagamento, conferem valor, moeda BRL, referência,
@@ -263,7 +309,10 @@ Configuração externa, uma vez por ambiente:
    `SEED_DEMO=false` e `JWT_SECRET` próprio. Conecte uma conta de produção; contas
    de teste são recusadas nesse ambiente. Valide primeiro em homologação com
    `MP_TEST_MODE=true`, contas de teste vendedor/comprador, incluindo
-   autorização, renovação, checkout hospedado e webhook assinado.
+   autorização, renovação, checkout hospedado e webhook assinado. O teste Pix
+   pela Payments API exige uma credencial sandbox compatível; `MP_TEST_MODE`
+   não altera sozinho o tipo do OAuth. Confira o diagnóstico e as condições em
+   [Checkout Mercado Pago](docs/MERCADOPAGO_CHECKOUT.md).
 
 Os tokens ficam cifrados com AES-256-GCM no servidor, com renovação automática
 antes do vencimento quando usados. Novas cobranças usam a conta ativa do dono do
@@ -278,6 +327,23 @@ Com o provedor desativado, pagamentos e OAuth ficam indisponíveis. Publicar/abr
 
 Referências oficiais: [configuração Marketplace / split 1:1](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/integration-configuration/create-configuration)
 e [OAuth com PKCE](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation).
+
+### Checkout Pix e cartão
+
+A página de pagamento permite escolher **Pix (QR Code)** ou **Cartão / Outros**.
+Pix solicita apenas o CPF do responsável pagador, utiliza o e-mail cadastrado e
+apresenta o QR Code e o Copia e Cola retornados pelo Mercado Pago na própria
+plataforma. Cartão redireciona ao Checkout Pro na mesma aba, com Pix excluído
+da preferência. O valor atual da inscrição é mantido, sem a taxa adicional dos
+exemplos visuais.
+
+Ambas as opções exigem aceite dos documentos públicos em `/termos` e
+`/privacidade`. O servidor registra data e versão, verifica os dados financeiros
+no provedor e confirma a inscrição após aprovação. Um checkout válido é retomado;
+para trocar de método após a emissão, aguarde seu vencimento. O vendedor deve
+ter uma chave Pix registrada para receber por esse meio. Campos, contratos,
+idempotência, testes e limites do ambiente de teste estão documentados em
+[Checkout Mercado Pago](docs/MERCADOPAGO_CHECKOUT.md).
 
 ### Horários das baterias
 
@@ -308,7 +374,12 @@ Em **Minhas equipes**, cada mini card mostra somente campeonato, equipe e
 categoria. Ao abrir o card, um único pop-up apresenta os horários de Brasília
 e as raias da equipe. Selecionar uma bateria mostra sua prova nesse mesmo
 pop-up, com opção de voltar aos horários. Pagamentos pendentes podem ser
-retomados dentro dele. A situação da inscrição e a grade são atualizadas
+retomados dentro dele. O capitão também pode usar **Cancelar a inscrição**
+enquanto o pagamento estiver pendente, após confirmar a desistência. Isso libera
+a vaga e permite uma nova inscrição enquanto as inscrições estiverem abertas.
+Inscrições confirmadas precisam ser tratadas com a organização. Uma aprovação
+de pagamento recebida depois do cancelamento é registrada sem reativar a equipe
+(migration V23). A situação da inscrição e a grade são atualizadas
 enquanto os detalhes estão abertos. O diálogo fecha com Esc e devolve o foco
 ao card; também respeita a preferência por movimento reduzido.
 
@@ -324,6 +395,42 @@ e oferece continuar o pagamento existente. O serviço e a migration V16
 protegem também tentativas simultâneas. Inscrições antigas não são removidas;
 uma inscrição cancelada permite uma nova tentativa. A migration V17 adiciona
 a busca com filtros. Ambas são aplicadas pelo Flyway na inicialização da API.
+
+## Categorias e imagem do campeonato
+
+Ao criar uma categoria, escolha **Feminina**, **Masculina** ou **Mista**. Em
+categorias mistas, marque uma ou mais composições permitidas, por exemplo
+**1 homem e 2 mulheres** ou **2 homens e 1 mulher** para trios. A inscrição
+confere o gênero declarado de todos os integrantes, o tamanho da equipe e a
+composição, também no PostgreSQL. As regras não podem mudar depois de haver
+inscrições. Categorias antigas precisam receber uma regra compatível com suas
+equipes antes de aceitar novas inscrições; nomes de categoria não são usados
+para deduzir essa regra.
+
+No **Painel do organizador → campeonato → Dados**, escolha a foto de perfil e a capa do evento.
+JPG, PNG ou WebP de até 6 MB são recortados diretamente do original, sem uma
+compressão intermediária. Perfil usa até 1024 × 1024 px e capa até 2048 × 512 px,
+sem ampliar arquivos menores. Artes que cabem no limite ficam em PNG sem perda;
+fotografias maiores usam JPEG com qualidade de 90–96%. A API valida e regrava os
+pixels sem metadados (PNG ou JPEG de até 1 MiB). Ajuste zoom e posição por arraste ou pelos
+controles, aplique o recorte e confira a prévia antes de salvar. A capa aparece
+nos cards de campeonatos e ao fundo da página pública; a foto aparece ao lado do
+nome. O formulário permite substituir ou remover cada imagem separadamente.
+
+O Flyway aplica **V18–V21** para composição, imagens, códigos de inscrição mais
+longos e separação de perfil e capa. Links de pagamento anteriores continuam válidos.
+
+Na aba pública **Categorias e provas**, cada categoria é um card com formato,
+composição e inscrição. Os filtros **Todos**, **Masculino**, **Feminino** e **Misto**
+mostram as categorias conforme sua composição. Selecionar um card abre um diálogo
+com descrição, cargas e movimentos e todas as provas. As tabelas de cargas
+e movimentos aparecem exclusivamente nesse diálogo. Escape ou o botão de fechar
+retornam ao card. Categorias femininas e masculinas mostram a coluna correspondente;
+categorias mistas mostram as duas. `✓` significa previsto e `✕`, não previsto.
+
+No painel **Categorias**, a organização pode adicionar, editar ou remover até
+30 movimentos por categoria, usando cargas em kg ou variações em texto. O Flyway
+aplica **V22** para persistir essas tabelas; categorias existentes começam sem tabela.
 
 ## Banco de dados
 
@@ -384,10 +491,10 @@ Documentação interativa em `/swagger-ui`, disponível somente com `APP_ENV=dev
 
 | Área | Endpoints |
 |---|---|
-| Autenticação | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/google` (ID token do botão do Google; no primeiro acesso sem `role` devolve `pending` para escolher o perfil), `GET /api/auth/me` |
+| Autenticação | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/google` (ID token do botão do Google; no primeiro acesso sem `role` devolve `pending` para escolher o perfil), `GET /api/auth/me`, `POST /api/auth/logout` (revoga todos os tokens da conta) |
 | Minha conta | `PUT /api/auth/me` (trocar o e-mail exige a senha atual), `PUT /api/auth/me/password` (revoga todas as sessões; é necessário entrar novamente), `DELETE /api/auth/me` (anonimiza a conta; recusa se houver campeonato ativo ou equipe confirmada em campeonato não encerrado) |
 | Público | `GET /api/public/championships?q=&state=`, `GET /api/public/championships/{slug}`, `GET .../{slug}/schedule`, `GET .../{slug}/leaderboard?categoryId=`, `GET .../{slug}/stream` (SSE) |
-| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout`, `GET .../checkout/{id}?paymentId=...`, `GET .../payments/{id}` (histórico) |
+| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout` (método, CPF Pix e aceite), `GET .../checkout/{id}/details` (QR/retomada), `GET .../checkout/{id}?paymentId=...` (situação), `GET .../payments/{id}` (histórico) |
 | Webhook | `POST /api/webhooks/mercadopago` |
 | Atleta | `POST /api/athlete/championships/{slug}/teams`, `GET /api/athlete/teams`, `GET /api/athlete/heats` |
 | Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `POST /workouts/{id}/heats/generate` refaz uma prova, até 8 equipes por bateria; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/{teamId}`, só com a bateria da equipe concluída e com o nome do judge da raia) |
@@ -405,7 +512,7 @@ backend/
     repository/   Spring Data
     dto/          contratos da API (records)
     service/      regras de negócio, consultas às views, SSE, seed
-    payment/      Checkout Pro (Mercado Pago) e provedor desativado e verificação de webhook
+    payment/      Checkout Pro, Pix via Payments API, provedor desativado e verificação de webhook
     web/          controllers REST
   src/main/resources/db/migration/   V1 tabelas, V2 functions/procedures, V3 triggers, V4 views
 frontend/
@@ -440,21 +547,31 @@ teclado e suporte a `prefers-reduced-motion`. Consultas de pagamento em segundo
 plano não interrompem a navegação. A toolbar usa hover neutro e um traço de cor
 na página ativa.
 
-Pagamentos são realizados exclusivamente no checkout hospedado do Mercado Pago,
-na mesma aba. A página de inscrição acompanha o resultado confirmado pela API. A autorização de recebimentos
-no Mercado Pago redireciona e retorna na mesma aba; a conta é conferida pela API.
+Cartão é pago no checkout hospedado do Mercado Pago, na mesma aba. Pix apresenta
+o QR Code e o Copia e Cola na página WODZ, com atualização automática da situação.
+A inscrição acompanha o resultado confirmado pela API. A autorização de
+recebimentos no Mercado Pago redireciona e retorna na mesma aba; a conta é
+conferida pela API.
 
 Na atualização de segurança, os JWTs validam emissor, perfil, conta ativa e versão
 da sessão. Alterar ou criar a senha revoga os tokens anteriores; o Flyway aplica
 `V13__token_revocation.sql` automaticamente. O navegador descarta o token legado
 do `localStorage`, por isso usuários precisam entrar novamente após a atualização.
-Cache e requisições da sessão anterior são descartados ao sair ou trocar de conta.
+Ao sair, `POST /api/auth/logout` também incrementa essa versão, revoga todos os
+tokens da conta e cancela autorizações Mercado Pago pendentes. Cache, requisições,
+formulários e dados WODZ em ambos os armazenamentos do navegador são descartados
+ao sair ou excluir a conta. Outras abas recebem uma notificação de saída;
+respostas antigas não podem restaurar a sessão. Se a rede impedir a revogação,
+a limpeza local acontece e a página de login informa a pendência remota.
 
 O proxy de produção envia cabeçalhos de segurança, impede cache de respostas da
-API e limita tentativas de login/cadastro/Google por IP. Configure proxies/CDN
+API, valida certificados do backend HTTPS e limita tentativas de login/cadastro/Google por IP. Configure proxies/CDN
 confiáveis antes de usar IP real para essa limitação. Fora de desenvolvimento,
 as origens CORS precisam ser HTTPS e exatas, e a senha do banco deve ser própria
 (configure `DB_PASSWORD` no Compose e preserve a credencial de volumes existentes).
+Para backend com CA privada, instale a CA no proxy; não desative a validação TLS.
+A API direta tem uma cota adicional por endereço TCP, limita JSON/corpos e
+conexões SSE, e não usa headers encaminhados para construir URLs públicas.
 
 A matriz de controles, evidências, dados tratados e pendências de LGPD está em
 [docs/SECURITY_LGPD.md](docs/SECURITY_LGPD.md). A revisão do código não certifica

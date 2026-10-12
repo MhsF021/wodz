@@ -52,8 +52,8 @@ class TeamRegistrationTest {
     @Test void primeiraInscricaoPagaPermanecePendenteEUsaContaBloqueadaComoCapitao() {
         Championship championship = fixture();
         Category category = new Category(); category.setId(1L); category.setName("RX");
-        category.setChampionship(championship); category.setTeamSize(1); category.setPrice(new BigDecimal("150.00"));
-        when(categories.findById(1L)).thenReturn(Optional.of(category));
+        category.setChampionship(championship); category.setTeamSize(1); category.setGenderPolicy(CategoryGender.MALE); category.setPrice(new BigDecimal("150.00"));
+        when(categories.lockById(1L)).thenReturn(Optional.of(category));
         var request = new TeamRegistrationRequest(1L, "Equipe", null, null, List.of(new MemberRequest(
                 "Atleta", "athlete@test.invalid", "52998224725", LocalDate.of(1990,1,1), Gender.M, ShirtSize.M)));
         var result = service.register("evento", 2L, request);

@@ -17,7 +17,7 @@ class ChampionshipValidationTest {
     private static final Instant INICIO = Instant.parse("2026-11-14T03:00:00Z");
 
     private static ChampionshipRequest request(Instant opensAt, Instant closesAt) {
-        return new ChampionshipRequest("Arena 911", null, "Arena", null, "Recife", "PE",
+        return new ChampionshipRequest("NOX DURANCE", null, "Arena", null, "Recife", "PE",
                 LocalDate.of(2026, 11, 14), LocalDate.of(2026, 11, 15), opensAt, closesAt,
                 ScoringSystem.POINTS_TABLE, 100, 5, null);
     }

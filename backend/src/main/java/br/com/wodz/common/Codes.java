@@ -15,8 +15,9 @@ public final class Codes {
 
     /** Código da inscrição; compõe o link público de pagamento. */
     public static String registrationCode() {
-        StringBuilder sb = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
+        // 26 caracteres de um alfabeto de 32: 130 bits para a capacidade pública.
+        StringBuilder sb = new StringBuilder(26);
+        for (int i = 0; i < 26; i++) {
             sb.append(ALPHABET[RANDOM.nextInt(ALPHABET.length)]);
         }
         return sb.toString();

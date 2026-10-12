@@ -1,0 +1,126 @@
+{
+  "checked_at": "2026-10-12T03:32:14.2780953+00:00",
+  "operation": "read_only",
+  "requested_payment_id": "183716936334",
+  "requested_preference_id": "3758553874-3748fbd1-193d-4e6d-b99c-45a1b785afc8",
+  "configured_application_id": "6035581613565283",
+  "configured_test_mode": "true",
+  "results": [
+    {
+      "source": "stored_seller_oauth",
+      "account_id": 1,
+      "stored_application_id": "6035581613565283",
+      "configured_application_id": "6035581613565283",
+      "credential_type": "APP_USR",
+      "identity_http": 200,
+      "seller_id": 3758553874,
+      "seller_test_user": true,
+      "seller_site": "MLB",
+      "payment_http": 200,
+      "payment": {
+        "id": 183716936334,
+        "status": "approved",
+        "status_detail": "accredited",
+        "application_id": null,
+        "collector_id": 3758553874,
+        "payer_id": "3740570267",
+        "live_mode": true,
+        "amount": 250,
+        "currency": "BRL",
+        "method": "account_money",
+        "type": "account_money",
+        "installments": 1,
+        "created": "2026-10-11T23:08:47-03:00",
+        "approved_at": "2026-10-11T23:08:48-03:00",
+        "updated": "2026-10-11T23:08:52-03:00",
+        "external_reference": "39baeace-3ad6-456d-a6a3-e975e9638594",
+        "order_id": "45187208879",
+        "order_type": "mercadopago",
+        "marketplace_fee": null,
+        "captured": true
+      },
+      "approved_order_http": 200,
+      "approved_order": {
+        "id": 45187208879,
+        "preference_id": "3758553874-f49f12b9-aae7-4110-98a2-c10837419297",
+        "collector_id": 3758553874,
+        "external_reference": "39baeace-3ad6-456d-a6a3-e975e9638594",
+        "status": "closed",
+        "order_status": "paid",
+        "total_amount": 250,
+        "paid_amount": 250
+      },
+      "approved_preference_http": 200,
+      "approved_preference": {
+        "id": "3758553874-f49f12b9-aae7-4110-98a2-c10837419297",
+        "client_id": "4961044287054715",
+        "collector_id": 3758553874,
+        "external_reference": "39baeace-3ad6-456d-a6a3-e975e9638594",
+        "created": "2026-10-11T23:07:23.294-03:00",
+        "expires": true,
+        "expiry": "2026-10-11T23:37:18.749-03:00",
+        "marketplace": "MP-MKT-4961044287054715",
+        "marketplace_fee": 0,
+        "auto_return": "approved",
+        "success_return_present": true,
+        "failure_return_present": true,
+        "pending_return_present": true,
+        "notification_present": true,
+        "excluded_methods": [
+          "pix"
+        ],
+        "items": [
+          {
+            "quantity": 1,
+            "unit_price": 250,
+            "currency": "BRL"
+          }
+        ]
+      },
+      "preference_http": 200,
+      "preference": {
+        "id": "3758553874-3748fbd1-193d-4e6d-b99c-45a1b785afc8",
+        "client_id": "6035581613565283",
+        "collector_id": 3758553874,
+        "external_reference": "41a5b744-5731-4005-984f-737786211b4f",
+        "created": "2026-10-12T00:19:37.325-03:00",
+        "expires": true,
+        "expiry": "2026-10-12T00:49:30.905-03:00",
+        "marketplace": "MP-MKT-6035581613565283",
+        "marketplace_fee": 0,
+        "auto_return": "approved",
+        "success_return_present": true,
+        "failure_return_present": true,
+        "pending_return_present": true,
+        "notification_present": true,
+        "excluded_methods": [
+          "pix"
+        ],
+        "items": [
+          {
+            "quantity": 1,
+            "unit_price": 250,
+            "currency": "BRL"
+          }
+        ]
+      },
+      "preference_payments_http": 200,
+      "preference_payments_total": 0,
+      "preference_payments": []
+    },
+    {
+      "source": "read_only_diagnostic",
+      "account_id": null,
+      "stored_application_id": null,
+      "configured_application_id": "6035581613565283",
+      "credential_type": "APP_USR",
+      "identity_http": 200,
+      "seller_id": 1681662071,
+      "seller_test_user": false,
+      "seller_site": "MLB",
+      "payment_http": 404,
+      "preference_http": 401
+    }
+  ],
+  "note": "Sem renovacao OAuth, criacao de cobranca, pagamento ou alteracao de inscricoes. Conteudo filtrado: sem tokens, cookies, CPF, email, QR ou respostas brutas."
+}

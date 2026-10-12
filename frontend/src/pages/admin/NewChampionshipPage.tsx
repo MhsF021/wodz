@@ -8,7 +8,6 @@ export default function NewChampionshipPage() {
   const queryClient = useQueryClient();
   return (
     <div className="page page--form">
-      <p className="crumb"><Link to="/organizador">Seus campeonatos</Link></p>
       <h1 className="page-title">Novo campeonato</h1>
       <ChampionshipForm
         submitLabel="Criar campeonato"

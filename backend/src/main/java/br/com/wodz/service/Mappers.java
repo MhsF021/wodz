@@ -35,7 +35,7 @@ public final class Mappers {
 
     public static CategoryDto category(Category c, Integer slotsLeft, List<WorkoutDto> workouts) {
         return new CategoryDto(c.getId(), c.getName(), c.getDescription(), c.getTeamSize(), c.getMaxTeams(),
-                c.getPrice(), c.getDisplayOrder(), slotsLeft, workouts);
+                c.getPrice(), c.getDisplayOrder(), slotsLeft, workouts, c.getGenderPolicy(), c.getAllowedMaleCounts(), c.getMovementStandards());
     }
 
     public static ChampionshipSummary summary(Championship c, Instant now) {

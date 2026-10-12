@@ -47,6 +47,12 @@ public class AthleteController {
         return teams.myTeams(CurrentUser.id(jwt));
     }
 
+    @PostMapping("/teams/{teamId}/cancel")
+    @Operation(summary = "Cancela a inscrição pendente de pagamento de uma equipe do capitão")
+    public TeamDto cancelRegistration(@AuthenticationPrincipal Jwt jwt, @PathVariable Long teamId) {
+        return teams.cancelRegistration(teamId, CurrentUser.id(jwt));
+    }
+
     @GetMapping("/heats")
     @Operation(summary = "Baterias das equipes do atleta, com horário e status")
     public MyHeats myHeats(@AuthenticationPrincipal Jwt jwt) {

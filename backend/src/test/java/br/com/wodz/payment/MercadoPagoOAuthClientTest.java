@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 
@@ -48,6 +49,20 @@ class MercadoPagoOAuthClientTest {
                         {"id":%s,"site_id":"MLB","first_name":"Ana","last_name":"Souza","email":"ana@test.invalid",
                          "status":{"site_status":"%s"},"tags":%s}
                         """.formatted(id,status,tags),MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void autorizacaoPreservaPkceEStateSemSobrescreverEscoposDoMarketplace() {
+        var query = UriComponentsBuilder.fromUriString(client.authorizationUrl(
+                "state", "challenge", "https://wodz.test/callback")).build().getQueryParams();
+        assertFalse(query.containsKey("scope"));
+        assertEquals("id", query.getFirst("client_id"));
+        assertEquals("code", query.getFirst("response_type"));
+        assertEquals("mp", query.getFirst("platform_id"));
+        assertEquals("state", query.getFirst("state"));
+        assertEquals("challenge", query.getFirst("code_challenge"));
+        assertEquals("S256", query.getFirst("code_challenge_method"));
+        assertEquals("https://wodz.test/callback", query.getFirst("redirect_uri"));
     }
 
     @Test
@@ -95,7 +110,7 @@ class MercadoPagoOAuthClientTest {
                 .andExpect(jsonPath("$.client_id").value("id"))
                 .andExpect(jsonPath("$.client_secret").value("secret"))
                 .andExpect(jsonPath("$.grant_type").value("authorization_code"))
-                .andExpect(jsonPath("$.scope").value("read write offline_access"))
+                .andExpect(jsonPath("$.scope").doesNotExist())
                 .andExpect(jsonPath("$.test_token").value(false))
                 .andExpect(jsonPath("$.code_verifier").value("verifier"))
                 .andRespond(withSuccess("""
@@ -136,9 +151,23 @@ class MercadoPagoOAuthClientTest {
         var account = client.validateCheckoutAccount(
                 new OAuthTokens("APP_USR-test","refresh","123",3600,true), true);
         assertEquals("Vendedor teste", account.label());
-        assertFalse(account.tokens().liveMode());
+        assertTrue(account.tokens().liveMode());
+        assertTrue(account.testAccount());
         assertEquals("APP_USR-test", account.tokens().accessToken());
         server.verify();
+    }
+
+    @Test
+    void revalidacaoLegadaDescobreTipoSemAlterarModoFinanceiroExplicito() {
+        for (boolean liveMode : new boolean[]{true,false}) {
+            setup(true);
+            account("123","active","[\"test_user\"]");
+            var verified = client.validateCheckoutAccount(
+                    new OAuthTokens("APP_USR-access","refresh","123",3600,liveMode),null);
+            assertTrue(verified.testAccount());
+            assertEquals(liveMode,verified.tokens().liveMode());
+            server.verify();
+        }
     }
 
     @Test
@@ -182,6 +211,8 @@ class MercadoPagoOAuthClientTest {
     @Test
     void renovaCheckoutDeTesteComAppUsrNoModoOriginalSemPedirTestToken() {
         server.expect(requestTo("https://api.mercadopago.com/oauth/token"))
+                .andExpect(jsonPath("$.grant_type").value("refresh_token"))
+                .andExpect(jsonPath("$.scope").doesNotExist())
                 .andExpect(jsonPath("$.test_token").value(false))
                 .andExpect(jsonPath("$.refresh_token").value("old-refresh"))
                 .andRespond(withSuccess("""
@@ -194,8 +225,9 @@ class MercadoPagoOAuthClientTest {
                         {"id":123,"site_id":"MLB","status":{"site_status":"active"},"tags":["test_user"]}
                         """, MediaType.APPLICATION_JSON));
         var renewed = client.refreshCheckout("old-refresh", true);
-        assertFalse(renewed.liveMode());
-        assertEquals("new-refresh", renewed.refreshToken());
+        assertTrue(renewed.tokens().liveMode());
+        assertTrue(renewed.testAccount());
+        assertEquals("new-refresh", renewed.tokens().refreshToken());
         server.verify();
     }
 
@@ -323,7 +355,7 @@ class MercadoPagoOAuthClientTest {
     @Test
     void respostaCompletaDeProducaoPermiteVinculacaoSemLogarCredenciais() {
         server.expect(requestTo("https://api.mercadopago.com/oauth/token"))
-                .andExpect(jsonPath("$.scope").value("read write offline_access"))
+                .andExpect(jsonPath("$.scope").doesNotExist())
                 .andExpect(jsonPath("$.redirect_uri").value("https://wodz.test/callback"))
                 .andExpect(header("Accept", MediaType.APPLICATION_JSON_VALUE))
                 .andRespond(withSuccess("""
@@ -337,6 +369,64 @@ class MercadoPagoOAuthClientTest {
         assertEquals(15552000, result.expiresInSeconds());
         assertTrue(result.liveMode());
         server.verify();
+    }
+
+    @Test
+    void sucessoOAuthRegistraSomenteEscoposConhecidosSemExporRespostaOuRequisicao() {
+        var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(MercadoPagoOAuthClient.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start(); logger.addAppender(logs);
+        try {
+            server.expect(requestTo("https://api.mercadopago.com/oauth/token"))
+                    .andRespond(withSuccess("""
+                            {"access_token":"APP_USR-PRIVATE-ACCESS","refresh_token":"PRIVATE-REFRESH",
+                             "user_id":"PRIVATE-USER","expires_in":3600,"live_mode":true,
+                             "scope":"read write offline_access payment payments PRIVATE-SCOPE private@example.invalid https://private.invalid read",
+                             "email":"PRIVATE-EMAIL","public_key":"PRIVATE-PUBLIC"}
+                            """, MediaType.APPLICATION_JSON));
+            OAuthTokens result = client.exchangeCode("PRIVATE-CODE", "PRIVATE-VERIFIER", "https://private.invalid/callback");
+            assertEquals("APP_USR-PRIVATE-ACCESS", result.accessToken());
+            assertEquals(1, logs.list.size());
+            String diagnostic = logs.list.getFirst().getFormattedMessage();
+            assertTrue(diagnostic.contains("grant=authorization_code HTTP=200 credential_type=APP_USR live_mode=true"));
+            assertTrue(diagnostic.contains("scopes=read,write,offline_access,payment,payments unknown_scopes=3"));
+            assertFalse(diagnostic.contains("PRIVATE"));
+            assertFalse(diagnostic.contains("private"));
+            assertFalse(diagnostic.contains("APP_USR-"));
+            for (Object argument : logs.list.getFirst().getArgumentArray()) {
+                assertFalse(String.valueOf(argument).contains("PRIVATE"));
+                assertFalse(String.valueOf(argument).contains("private"));
+            }
+            server.verify();
+        } finally {
+            logger.detachAppender(logs); logs.stop();
+        }
+    }
+
+    @Test
+    void escoposAusentesVaziosOuNaoTextuaisNaoRejeitamGrantNemVazamConteudo() {
+        var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(MercadoPagoOAuthClient.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start(); logger.addAppender(logs);
+        try {
+            String[] scopeFields = {"", ",\"scope\":null", ",\"scope\":\"\"", ",\"scope\":\"  \"",
+                    ",\"scope\":{\"PRIVATE\":\"PRIVATE-VALUE\"}"};
+            for (int i = 0; i < scopeFields.length; i++) {
+                setup(false);
+                server.expect(requestTo("https://api.mercadopago.com/oauth/token"))
+                        .andRespond(withSuccess("""
+                                {"access_token":"APP_USR-access","refresh_token":"refresh","user_id":123,
+                                 "expires_in":3600,"live_mode":false%s}
+                                """.formatted(scopeFields[i]), MediaType.APPLICATION_JSON));
+                assertFalse(client.exchangeCode("code", "verifier", "https://wodz.test/callback").liveMode());
+                String diagnostic = logs.list.getLast().getFormattedMessage();
+                assertTrue(diagnostic.endsWith("scopes=NONE unknown_scopes=" + (i == 4 ? 1 : 0)));
+                assertFalse(diagnostic.contains("PRIVATE"));
+                server.verify();
+            }
+        } finally {
+            logger.detachAppender(logs); logs.stop();
+        }
     }
 
     @Test

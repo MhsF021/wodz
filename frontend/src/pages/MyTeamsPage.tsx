@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { athleteApi, publicApi } from '../api/endpoints';
 import type { HeatView, Team } from '../api/types';
@@ -9,7 +9,7 @@ import { teamSchedule } from '../lib/teamSchedule';
 import { Dialog } from '../components/Dialog';
 import { HeatBadge, TeamBadge } from '../components/StatusBadge';
 import { HeatTiming } from '../components/HeatTiming';
-import { Empty, ErrorState, Loading } from '../components/States';
+import { Empty, ErrorState, InlineError, Loading } from '../components/States';
 
 export default function MyTeamsPage() {
   const [params, setParams] = useSearchParams();
@@ -58,6 +58,19 @@ function LocalLoading({ label }: { label: string }) {
 }
 
 export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void }) {
+  const cache = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: () => athleteApi.cancelRegistration(team.id),
+    onSuccess: (updated) => {
+      cache.setQueryData<Team[]>(['my-teams'], (previous = []) => previous.map((item) => item.id === updated.id ? updated : item));
+      void cache.invalidateQueries({ queryKey: ['my-teams'] });
+      void cache.invalidateQueries({ queryKey: ['my-heats'] });
+      void cache.invalidateQueries({ queryKey: ['championship', team.championship.slug] });
+      void cache.invalidateQueries({ queryKey: ['registration', team.registrationCode] });
+      void cache.invalidateQueries({ queryKey: ['checkout-status', team.registrationCode] });
+    },
+    onError: () => { void cache.invalidateQueries({ queryKey: ['my-teams'] }); },
+  });
   const [heatId, setHeatId] = useState<number | null>(null);
   const heats = useQuery({ queryKey: ['my-heats'], queryFn: athleteApi.heats,
     enabled: team.status === 'CONFIRMED', refetchInterval: 20_000, meta: { activity: false } });
@@ -79,10 +92,19 @@ export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void
     <Dialog title={team.championship.name} subtitle={`${team.name} · ${team.category.name}`} onClose={onClose}>
       <div className="team-details__registration">
         <TeamBadge status={team.status} />
-        {team.status === 'PENDING_PAYMENT' && <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}`}>
-          Pagar inscrição · {money(team.category.price)}
-        </Link>}
+        {team.status === 'PENDING_PAYMENT' && <div className="row-actions">
+          {!cancel.isPending && <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}`}>
+            Pagar inscrição · {money(team.category.price)}
+          </Link>}
+          <button type="button" className="btn btn--danger" disabled={cancel.isPending}
+            onClick={() => {
+              if (window.confirm(`Cancelar a inscrição de ${team.name}? Sua equipe perderá a vaga e poderá se inscrever novamente enquanto as inscrições estiverem abertas.`)) cancel.mutate();
+            }}>
+            {cancel.isPending ? 'Cancelando…' : 'Cancelar a inscrição'}
+          </button>
+        </div>}
       </div>
+      <InlineError error={cancel.error} />
       {team.status === 'PENDING_PAYMENT' ? (
         <div className="team-details__empty"><h3>Confirme sua inscrição</h3><p>Sua equipe já está inscrita. Após a confirmação do pagamento, a organização poderá incluí-la nas baterias.</p></div>
       ) : team.status === 'CANCELLED' ? (

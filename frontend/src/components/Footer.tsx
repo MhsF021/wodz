@@ -7,6 +7,8 @@ export function Footer() {
       <div className="footer__inner">
         <span className="footer__copyright">© {new Date().getFullYear()} WODZ | Todos os direitos reservados</span>
         <nav className="footer__contacts" aria-label="Contato">
+          <a href="/termos">Termos de compra</a>
+          <a href="/privacidade">Privacidade</a>
           <a href="mailto:mhsferreira021@gmail.com" aria-label="E-mail: mhsferreira021@gmail.com">
             <Mail size={15} strokeWidth={1.6} aria-hidden />
             <span>mhsferreira021@gmail.com</span>

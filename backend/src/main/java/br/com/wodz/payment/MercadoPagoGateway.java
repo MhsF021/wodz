@@ -25,7 +25,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-/** Checkout Pro: preferência no servidor e pagamento apenas na página do Mercado Pago. */
+/** Cartão no Checkout Pro; Pix pela Payments API com QR Code retornado pelo provedor. */
 @Component
 @ConditionalOnProperty(prefix = "app.payment", name = "provider", havingValue = "mercadopago")
 public class MercadoPagoGateway implements PaymentGateway {
@@ -47,6 +47,8 @@ public class MercadoPagoGateway implements PaymentGateway {
         body.put("items", List.of(Map.of("id", c.externalReference(), "title", c.description(),
                 "currency_id", "BRL", "quantity", 1, "unit_price", c.amount())));
         body.put("external_reference", c.externalReference());
+        // A opção Pix é processada na plataforma pela Payments API.
+        body.put("payment_methods", Map.of("excluded_payment_methods", List.of(Map.of("id", "pix"))));
         body.put("back_urls", Map.of("success", c.returnUrl() + "&retorno=sucesso",
                 "pending", c.returnUrl() + "&retorno=pendente", "failure", c.returnUrl() + "&retorno=erro"));
         body.put("auto_return", "approved");
@@ -57,12 +59,14 @@ public class MercadoPagoGateway implements PaymentGateway {
             body.put("notification_url", config.notificationUrl());
         if (c.marketplaceFee() != null) body.put("marketplace_fee", c.marketplaceFee());
         try {
-            JsonNode response = client.post().uri("/checkout/preferences")
+            var response = client.post().uri("/checkout/preferences")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
                     .header("X-Idempotency-Key", c.externalReference())
-                    .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(JsonNode.class);
-            GatewayCheckout checkout = preference(response, c, null);
+                    .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toEntity(JsonNode.class);
+            GatewayCheckout checkout = preference(response.getBody(), c, null);
             if (checkout == null) throw invalidPreference(c, "expired_or_return_url");
+            if (!excludesPix(response.getBody())) throw invalidPreference(c, "payment_methods");
+            logCheckout("created", c, checkout, response.getHeaders(), response.getBody());
             return checkout;
         } catch (RestClientException e) { throw unavailable(e); }
     }
@@ -72,13 +76,57 @@ public class MercadoPagoGateway implements PaymentGateway {
         requireCheckoutToken(c.seller());
         if (preferenceId == null || preferenceId.isBlank()) return null;
         try {
-            return preference(client.get().uri("/checkout/preferences/{id}", preferenceId)
+            var response = client.get().uri("/checkout/preferences/{id}", preferenceId)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
-                    .retrieve().body(JsonNode.class), c, preferenceId);
+                    .retrieve().toEntity(JsonNode.class);
+            GatewayCheckout checkout = preference(response.getBody(), c, preferenceId);
+            if (checkout != null && !excludesPix(response.getBody())) {
+                // Atualiza preferências legadas, sem abrir uma segunda preferência válida.
+                response = client.put().uri("/checkout/preferences/{id}", preferenceId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("payment_methods", Map.of("excluded_payment_methods", List.of(Map.of("id", "pix")))))
+                        .retrieve().toEntity(JsonNode.class);
+                checkout = preference(response.getBody(), c, preferenceId);
+                if (checkout != null && !excludesPix(response.getBody())) throw invalidPreference(c, "payment_methods");
+            }
+            if (checkout != null) logCheckout("resumed", c, checkout, response.getHeaders(), response.getBody());
+            return checkout;
         } catch (RestClientResponseException e) {
             if (e.getStatusCode().value() == 404) return null;
             throw unavailable(e);
         } catch (RestClientException e) { throw unavailable(e); }
+    }
+
+    private static boolean excludesPix(JsonNode preference) {
+        for (JsonNode method : preference.path("payment_methods").path("excluded_payment_methods"))
+            if ("pix".equals(text(method.path("id")))) return true;
+        return false;
+    }
+
+    private void logCheckout(String action, CheckoutCommand c, GatewayCheckout checkout,
+                             HttpHeaders headers, JsonNode response) {
+        String requestId = requestId(headers);
+        String expiration = text(response.path("expiration_date_to"));
+        // A preferência já passou pela validação; normaliza a data e limita IDs a caracteres seguros.
+        String expiresAt = expiration == null ? "unavailable" : OffsetDateTime.parse(expiration).toInstant().toString();
+        log.info("Checkout Pro preferência validada: action={} checkout={} preference={} collector={} client={} expires_at={} request_id={}",
+                action, c.sessionId(), logIdentifier(checkout.preferenceId()), logIdentifier(c.seller().providerUserId()),
+                logIdentifier(config.clientId()), expiresAt, requestId);
+    }
+
+    private static String logIdentifier(String value) {
+        return value != null && value.matches("[A-Za-z0-9-]{1,120}") ? value : "unavailable";
+    }
+
+    private static String logUuid(String value) {
+        return value != null && value.matches("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+                ? value : "unavailable";
+    }
+
+    private static String requestId(HttpHeaders headers) {
+        // Nunca registra valores arbitrários de headers, mesmo numa resposta de erro.
+        return headers == null ? "unavailable" : logUuid(headers.getFirst("x-request-id"));
     }
 
     private GatewayCheckout preference(JsonNode n, CheckoutCommand c, String expectedId) {
@@ -164,6 +212,83 @@ public class MercadoPagoGateway implements PaymentGateway {
         } catch (RestClientException e) { throw unavailable(e); }
     }
 
+    public GatewayPix createPix(PixCommand command) {
+        CheckoutCommand c = command.checkout();
+        requireCheckoutToken(c.seller());
+        UUID correlationId = UUID.randomUUID();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("transaction_amount", c.amount());
+        body.put("payment_method_id", "pix");
+        body.put("description", c.description());
+        body.put("external_reference", c.externalReference());
+        body.put("date_of_expiration", PREFERENCE_DATE.format(c.expiresAt()));
+        body.put("payer", Map.of("email", command.payerEmail(),
+                "identification", Map.of("type", "CPF", "number", command.payerCpf())));
+        if (c.marketplaceFee() != null) body.put("application_fee", c.marketplaceFee());
+        if (command.notificationUrl() != null && !command.notificationUrl().isBlank())
+            body.put("notification_url", command.notificationUrl());
+        logPixRequest(command, correlationId);
+        try {
+            var response = client.post().uri("/v1/payments")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
+                    .header("X-Idempotency-Key", c.externalReference())
+                    .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toEntity(JsonNode.class);
+            GatewayPix created;
+            try { created = pix(response.getBody()); }
+            catch (ApiException e) {
+                log.warn("Mercado Pago PIX: operation=create action=failed checkout={} reference={} correlation_id={} HTTP={} motivo=invalid_response request_id={}",
+                        c.sessionId(), logUuid(c.externalReference()), correlationId, response.getStatusCode().value(), requestId(response.getHeaders()));
+                throw e;
+            }
+            log.info("Mercado Pago PIX: operation=create action=created checkout={} reference={} correlation_id={} payment_status={} live_mode={} request_id={}",
+                    c.sessionId(), logUuid(c.externalReference()), correlationId, created.payment().status(), created.payment().liveMode(), requestId(response.getHeaders()));
+            return created;
+        } catch (RestClientException e) { throw unavailable(e, command, correlationId); }
+    }
+
+    private void logPixRequest(PixCommand command, UUID correlationId) {
+        CheckoutCommand c = command.checkout();
+        String token = c.seller().accessToken();
+        String credentialType = token.startsWith("APP_USR-") ? "APP_USR" : token.startsWith("TEST-") ? "TEST" : "UNKNOWN";
+        String email = command.payerEmail(), cpf = command.payerCpf();
+        // Apenas presença/formato: não registra valores pessoais, descrição, URLs, QR ou credenciais.
+        log.info("Mercado Pago PIX: operation=create action=sent checkout={} reference={} correlation_id={} credential_source=SELLER_OAUTH credential_type={} client={} seller_test_account={} configured_test_account_mode={} transaction_amount_present={} description_present={} payer_email_present={} payer_email_format={} payer_cpf_digits_11={} application_fee_present={} notification_url_present={} expires_at={}",
+                c.sessionId(), logUuid(c.externalReference()), correlationId, credentialType, logIdentifier(config.clientId()),
+                c.testMode(), config.testMode(), c.amount() != null, c.description() != null && !c.description().isBlank(),
+                email != null && !email.isBlank(), email != null && email.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"),
+                cpf != null && cpf.matches("[0-9]{11}"), c.marketplaceFee() != null,
+                command.notificationUrl() != null && !command.notificationUrl().isBlank(), c.expiresAt().toString());
+    }
+
+    public GatewayPix fetchPix(String id, SellerAccount seller) {
+        if (id == null || !id.matches("[0-9]{1,30}")) throw ApiException.badRequest("Pagamento inválido");
+        try {
+            return pix(client.get().uri("/v1/payments/{id}", id)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + seller.accessToken()).retrieve().body(JsonNode.class));
+        } catch (RestClientException e) { throw unavailable(e); }
+    }
+
+    private static GatewayPix pix(JsonNode n) {
+        GatewayPayment payment = parse(n);
+        if (payment.method() != PaymentMethod.PIX || !payment.providerPaymentId().matches("[0-9]{1,30}")) throw incomplete();
+        String expiration = text(n.path("date_of_expiration"));
+        Instant expires;
+        try { expires = OffsetDateTime.parse(expiration).toInstant(); }
+        catch (RuntimeException e) { throw incomplete(); }
+        if (payment.status() != PaymentStatus.PENDING) return new GatewayPix(payment, null, null, expires);
+        JsonNode data = n.path("point_of_interaction").path("transaction_data");
+        String code = text(data.path("qr_code")), base64 = text(data.path("qr_code_base64"));
+        if (code == null || !code.startsWith("000201") || code.length() > 4096
+                || base64 == null || base64.length() > 3_000_000) throw incomplete();
+        // Somente PNG, nunca HTML/SVG arbitrário retornado pelo provedor.
+        try {
+            byte[] bytes = Base64.getDecoder().decode(base64);
+            byte[] png = {(byte)137,80,78,71,13,10,26,10};
+            if (bytes.length < 24 || !Arrays.equals(Arrays.copyOf(bytes, 8), png)) throw incomplete();
+        } catch (IllegalArgumentException e) { throw incomplete(); }
+        return new GatewayPix(payment, code, base64, expires);
+    }
+
     public List<GatewayPayment> search(String reference, SellerAccount seller) {
         try {
             List<GatewayPayment> found = new ArrayList<>();
@@ -228,8 +353,24 @@ public class MercadoPagoGateway implements PaymentGateway {
                 "O Mercado Pago retornou informações incompletas. Tente novamente.");
     }
     private ApiException unavailable(RestClientException e) {
+        return unavailable(e, null, null);
+    }
+
+    private ApiException unavailable(RestClientException e, PixCommand command, UUID correlationId) {
         int status = e instanceof RestClientResponseException r ? r.getStatusCode().value() : 0;
-        log.warn("Consulta ao Checkout Pro indisponível: HTTP={} motivo={}", status, providerReason(e));
+        String reason = providerReason(e);
+        if (command == null) log.warn("Mercado Pago indisponível: HTTP={} motivo={}", status, reason);
+        else log.warn("Mercado Pago PIX: operation=create action=failed checkout={} reference={} correlation_id={} HTTP={} motivo={} request_id={}",
+                command.checkout().sessionId(), logUuid(command.checkout().externalReference()), correlationId, status, reason,
+                requestId(e instanceof RestClientResponseException response ? response.getResponseHeaders() : null));
+        if ("unauthorized_live_credentials".equals(reason))
+            return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    command == null
+                            ? "O Mercado Pago não autorizou esta operação. Peça à organização para revisar as permissões da aplicação."
+                            : "O Mercado Pago não autorizou esta credencial a criar pagamentos Pix. Peça à organização para revisar as permissões da aplicação e renovar a autorização em Recebimentos.");
+        if ("user_allowed_only_in_test".equals(reason))
+            return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "O Mercado Pago recusou esta combinação de dados e credenciais no ambiente de teste. Peça à organização para revisar a configuração do pagamento.");
         return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
                 "Não foi possível consultar o Mercado Pago. Tente novamente em instantes.");
     }
@@ -244,7 +385,17 @@ public class MercadoPagoGateway implements PaymentGateway {
             JsonNode body = new ObjectMapper().readTree(response.getResponseBodyAsString());
             for (String field : List.of("error", "message")) {
                 String reason = text(body.path(field));
+                if (response.getStatusCode().value() == 401 && "Unauthorized use of live credentials".equals(reason))
+                    return "unauthorized_live_credentials";
+                // A Payments API também envolve esse código numa mensagem de erro interno.
+                if (reason != null && reason.contains("user_allowed_only_in_test")) return "user_allowed_only_in_test";
                 if (known.contains(reason == null ? "" : reason)) return reason;
+            }
+            for (JsonNode cause : body.path("cause")) {
+                String description = text(cause.path("description"));
+                if (response.getStatusCode().value() == 401 && "Unauthorized use of live credentials".equals(description))
+                    return "unauthorized_live_credentials";
+                if (description != null && description.contains("user_allowed_only_in_test")) return "user_allowed_only_in_test";
             }
         } catch (Exception ignored) { /* Não registra o corpo, a URL ou credenciais do provedor. */ }
         return "provider_error";

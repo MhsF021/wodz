@@ -1,0 +1,28 @@
+{
+  "created_at": "2026-10-11T20:17:26.8835682-03:00",
+  "seller_test_verified": true,
+  "requested_test_token": true,
+  "oauth_http": 200,
+  "user_matches": true,
+  "credential_type": "TEST",
+  "live_mode": null,
+  "refresh_persisted": true,
+  "oauth_error": null,
+  "pix_http": 500,
+  "payment_id": null,
+  "payment_status": null,
+  "payment_live_mode": null,
+  "qr_present": false,
+  "qr_image_present": false,
+  "external_reference": "pixdiag-f786096b-4f60-4c6b-9371-9d62c7f47326",
+  "collector_matches": null,
+  "amount": null,
+  "safe_error_messages": [
+    "fill and validate error list: user_allowed_only_in_test\n: 400"
+  ],
+  "original_access_http": 401,
+  "original_seller_matches": false,
+  "original_access_value_preserved_during_test": true,
+  "original_access_invalidated": true,
+  "provider_error_status": 500
+}

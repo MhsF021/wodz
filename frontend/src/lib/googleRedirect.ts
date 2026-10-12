@@ -48,4 +48,7 @@ export function consumeGoogleRedirect(): GoogleRedirectResult | null {
   return consumed;
 }
 
-export function clearGoogleRedirect() { consumed = null; }
+export function clearGoogleRedirect() {
+  consumed = null;
+  try { sessionStorage.removeItem(FLOW_KEY); sessionStorage.removeItem(RESULT_KEY); } catch { /* storage bloqueado */ }
+}

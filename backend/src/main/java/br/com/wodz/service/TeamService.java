@@ -77,7 +77,7 @@ public class TeamService {
         if (!championship.isAcceptingRegistrations(now)) {
             throw ApiException.unprocessable("As inscrições deste campeonato estão fechadas");
         }
-        Category category = categories.findById(req.categoryId())
+        Category category = categories.lockById(req.categoryId())
                 .filter(c -> c.getChampionship().getId().equals(championship.getId()))
                 .orElseThrow(() -> ApiException.badRequest("Categoria inválida para este campeonato"));
 
@@ -85,6 +85,7 @@ public class TeamService {
             throw ApiException.badRequest("A categoria " + category.getName() + " exige "
                     + category.getTeamSize() + " atleta(s) por equipe");
         }
+        CategoryComposition.validateTeam(category, req.members().stream().map(MemberRequest::gender).toList());
         Set<String> cpfs = new HashSet<>();
         for (MemberRequest m : req.members()) {
             if (!cpfs.add(Codes.digits(m.cpf()))) {
@@ -122,6 +123,22 @@ public class TeamService {
     @Transactional(readOnly = true)
     public List<TeamDto> myTeams(Long userId) {
         return teams.findByCaptainIdOrderByCreatedAtDesc(userId).stream().map(Mappers::team).toList();
+    }
+
+    /** O capitão pode desistir da inscrição enquanto ela aguarda pagamento. */
+    @Transactional
+    public TeamDto cancelRegistration(Long teamId, Long userId) {
+        // O mesmo lock usado nos pagamentos evita cancelar uma equipe já confirmada.
+        Team team = teams.lockById(teamId)
+                .filter(t -> t.getCaptain().getId().equals(userId))
+                .orElseThrow(() -> ApiException.notFound("Inscrição não encontrada"));
+        if (team.getStatus() == TeamStatus.CANCELLED) return Mappers.team(team);
+        if (team.getStatus() != TeamStatus.PENDING_PAYMENT) {
+            throw ApiException.conflict("Somente inscrições aguardando pagamento podem ser canceladas pelo capitão. Fale com a organização.");
+        }
+        team.setStatus(TeamStatus.CANCELLED);
+        teams.saveAndFlush(team);
+        return Mappers.team(team);
     }
 
     @Transactional(readOnly = true)

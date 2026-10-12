@@ -1,10 +1,7 @@
-import { plateColor } from '../lib/format';
-
-/** Disco na cor de uma anilha olímpica: identifica a categoria em toda a interface. */
-export function PlateChip({ index, name }: { index: number; name: string }) {
+/** Identificação textual da categoria. */
+export function PlateChip({ name }: { index: number; name: string }) {
   return (
     <span className="plate">
-      <span className="plate__disc" style={{ backgroundColor: plateColor(index) }} aria-hidden />
       {name}
     </span>
   );
