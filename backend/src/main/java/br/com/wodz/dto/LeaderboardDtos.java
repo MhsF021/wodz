@@ -21,7 +21,8 @@ public final class LeaderboardDtos {
 
     /** results: workoutId -> resultado da equipe naquela prova. */
     public record LeaderboardRow(long rank, Long teamId, String teamName, String boxName, BigDecimal totalPoints,
-                                 int workoutsCompleted, int firstPlaces, Map<Long, ResultCell> results) {
+                                 int workoutsCompleted, int firstPlaces, Map<Long, ResultCell> results,
+                                 List<String> athleteNames) {
     }
 
     public record LeaderboardDto(ScoringSystem scoringSystem, Refs.CategoryRef category,

@@ -1,9 +1,10 @@
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 import { publicApi } from '../api/endpoints';
 import type { Leaderboard, LeaderboardRow, ResultCell, WorkoutRef } from '../api/types';
 import { ordinal, points, workoutTypeLabel } from '../lib/format';
+import { searchLeaderboard } from '../lib/leaderboardSearch';
 import { CategoryPicker } from './Plate';
 import { Empty, ErrorState, Loading } from './States';
 
@@ -22,6 +23,7 @@ function Cell({ cell }: { cell?: ResultCell }) {
 export function LeaderboardView({ slug, categories }: { slug: string; categories: { id: number; name: string }[] }) {
   const [categoryId, setCategoryId] = useState<number | null>(categories[0]?.id ?? null);
   const [open, setOpen] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
   const query = useQuery({
     queryKey: ['leaderboard', slug, categoryId],
     queryFn: () => publicApi.leaderboard(slug, categoryId ?? undefined),
@@ -30,33 +32,47 @@ export function LeaderboardView({ slug, categories }: { slug: string; categories
   return (
     <div className="leaderboard">
       <CategoryPicker categories={categories} value={categoryId} onChange={(id) => setCategoryId(id)} />
+      <div className="lb-search" role="search">
+        <label className="sr-only" htmlFor="leaderboard-search">Buscar atleta ou equipe</label>
+        <Search size={18} aria-hidden />
+        <input id="leaderboard-search" className="input" type="search" placeholder="Buscar atleta ou equipe"
+          value={search} onChange={(event) => { setSearch(event.target.value); setOpen(null); }} />
+        {search && <button type="button" className="lb-search__clear" aria-label="Limpar busca"
+          onClick={() => setSearch('')}><X size={18} aria-hidden /></button>}
+      </div>
       {query.isLoading && <Loading />}
       {query.error && <ErrorState error={query.error} />}
-      {query.data && <Board board={query.data} open={open} setOpen={setOpen} />}
+      {query.data && <Board board={query.data} search={search} open={open} setOpen={setOpen} />}
     </div>
   );
 }
 
 function Board({
   board,
+  search,
   open,
   setOpen,
 }: {
   board: Leaderboard;
+  search: string;
   open: number | null;
   setOpen: (id: number | null) => void;
 }) {
-  const rows = board.rows;
-  if (rows.length === 0) {
+  const rows = searchLeaderboard(board.rows, search);
+  if (board.rows.length === 0) {
     return (
       <Empty title="Nenhuma equipe confirmada nesta categoria ainda">
         <p>O leaderboard aparece quando houver equipes com inscrição paga.</p>
       </Empty>
     );
   }
+  if (rows.length === 0) return <Empty title="Nenhum atleta ou equipe encontrado">
+    <p>Tente outro nome ou limpe a busca para ver toda a categoria.</p>
+  </Empty>;
   const totalLabel = board.scoringSystem === 'RANK_SUM' ? 'Soma' : 'Pontos';
   return (
     <>
+      {search.trim() && <p className="note" role="status">{rows.length} {rows.length === 1 ? 'inscrição encontrada' : 'inscrições encontradas'}</p>}
       <p className="lb__rule">
         {board.scoringSystem === 'RANK_SUM'
           ? 'Soma das colocações: vence a menor soma.'

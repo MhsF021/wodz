@@ -21,11 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class WebhookController {
 
     private final PaymentService payments;
-    private final MercadoPagoSignatureVerifier verifier;
+    private final java.util.List<MercadoPagoSignatureVerifier> verifiers;
 
     public WebhookController(PaymentService payments, AppProperties props) {
         this.payments = payments;
-        this.verifier = new MercadoPagoSignatureVerifier(props.payment().mercadopago().webhookSecret());
+        this.verifiers = java.util.stream.Stream.of(props.payment().mercadopago().webhookSecret())
+                .map(MercadoPagoSignatureVerifier::new).filter(MercadoPagoSignatureVerifier::isConfigured).toList();
     }
 
     /** Notificação do Mercado Pago (configure MP_NOTIFICATION_URL apontando para cá). */
@@ -44,7 +45,7 @@ public class WebhookController {
         if (!"payment".equals(type) || dataId == null) {
             return ResponseEntity.ok().build();
         }
-        if (!verifier.verify(signature, requestId, dataId)) {
+        if (!verifiers.isEmpty() && verifiers.stream().noneMatch(v -> v.verify(signature, requestId, dataId))) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         payments.syncFromProvider(dataId, body == null ? null : MercadoPagoGateway.text(body.path("user_id")));

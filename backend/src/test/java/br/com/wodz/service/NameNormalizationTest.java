@@ -100,18 +100,20 @@ class NameNormalizationTest {
         when(categories.lockById(2L)).thenReturn(Optional.of(category));
         AppUser captain = new AppUser();
         captain.setId(3L);
+        captain.setGender(Gender.M);
+        captain.setDocument("52998224725"); captain.setPhone("11999990000");
         when(users.lockActiveById(3L)).thenReturn(Optional.of(captain));
         TeamService service = new TeamService(teams, categories, users, championships,
                 mock(ScheduleQueryService.class), mock(OwnershipGuard.class), mock(JdbcTemplate.class));
 
         var response = service.register("torneio-2030", 3L, new TeamRegistrationRequest(2L, " Família Forte ",
                 " Box São José ", " São Paulo ", List.of(new MemberRequest(" João D'Ávila ",
-                "JOAO@wodz.dev", "52998224725", LocalDate.of(1990, 1, 1), Gender.M, ShirtSize.M))));
+                "JOAO@wodz.dev", "52998224725", LocalDate.of(1990, 1, 1), Gender.M, ShirtSize.M, "11999990000"))));
 
         ArgumentCaptor<Team> saved = ArgumentCaptor.forClass(Team.class);
         verify(teams).saveAndFlush(saved.capture());
         Team value = saved.getValue();
-        assertEquals("FAMÍLIA FORTE", value.getName());
+        assertEquals("JOÃO D'ÁVILA", value.getName());
         assertEquals("BOX SÃO JOSÉ", value.getBoxName());
         assertEquals("SÃO PAULO", value.getCity());
         assertEquals("JOÃO D'ÁVILA", value.getMembers().getFirst().getFullName());

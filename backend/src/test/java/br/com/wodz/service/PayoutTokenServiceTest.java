@@ -22,6 +22,18 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.any;
 
 class PayoutTokenServiceTest {
+    @Test void conciliacaoCentralHistoricaIndependeDoModoDeTesteDoCartaoENaoRenovaOAuth() {
+        account.setCredentialSource(br.com.wodz.domain.PayoutCredentialSource.PLATFORM_DIRECT);
+        account.setStatus(PayoutAccountStatus.PLATFORM); account.setApplicationId("456");
+        account.setAccessToken(cipher.encrypt("APP_USR-456-localtest-123")); account.setRefreshToken(null);
+        service=new PayoutTokenService(accounts,cipher,provider,props(true));
+        var seller=service.seller(9L); assertTrue(seller.platformDirect());
+        assertEquals("APP_USR-456-localtest-123",seller.accessToken());
+        assertThrows(ApiException.class,()->service.seller(9L,true)); // contas históricas nunca originam novas cobranças.
+        verifyNoInteractions(oauth);
+        account.setAccessToken(cipher.encrypt("APP_USR-999-localtest-123"));
+        assertThrows(ApiException.class,()->service.seller(9L));
+    }
     private final PayoutAccountRepository accounts = mock(PayoutAccountRepository.class);
     private final MercadoPagoOAuthClient oauth = mock(MercadoPagoOAuthClient.class);
     private final TokenCipher cipher = new TokenCipher(new AppProperties(null,null,null,null,null,null,"dev",null));

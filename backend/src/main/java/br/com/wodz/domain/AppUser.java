@@ -48,7 +48,26 @@ public class AppUser {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 1)
+    private Gender gender;
+
     private String phone;
+
+    @Column(length = 14)
+    private String document;
+
+    @Column(length = 160)
+    private String street;
+
+    @Column(length = 20)
+    private String addressNumber;
+
+    @Column(length = 100)
+    private String city;
+
+    @Column(length = 8)
+    private String postalCode;
 
     @CreationTimestamp
     @Column(updatable = false)

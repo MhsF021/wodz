@@ -1,8 +1,8 @@
-import type { Role } from '../api/types';
+import type { Gender, Role } from '../api/types';
 import { localReturnPath } from './navigation';
 
 export type GoogleRedirectFlow =
-  | { kind: 'login'; role?: Role; next?: string | null }
+  | { kind: 'login'; role?: Role; gender?: Gender; next?: string | null }
   | { kind: 'unlink'; userId: number; accountClosed: boolean };
 type SavedFlow = GoogleRedirectFlow & { id: string; at: number };
 export type GoogleRedirectResult = { flow: SavedFlow; credential: string };
@@ -39,6 +39,7 @@ export function consumeGoogleRedirect(): GoogleRedirectResult | null {
       || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.credential)) return null;
     if (flow.kind === 'login') {
       if (flow.role !== undefined && flow.role !== 'ATHLETE' && flow.role !== 'ORGANIZER') return null;
+      if (flow.gender !== undefined && flow.gender !== 'M' && flow.gender !== 'F') return null;
       flow.next = localReturnPath(flow.next ?? null);
     } else if (flow.kind !== 'unlink' || !Number.isSafeInteger(flow.userId) || flow.userId < 1 || typeof flow.accountClosed !== 'boolean') {
       return null;

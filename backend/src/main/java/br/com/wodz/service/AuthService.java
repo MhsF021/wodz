@@ -3,7 +3,9 @@ package br.com.wodz.service;
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
 import br.com.wodz.common.PasswordPolicy;
+import br.com.wodz.common.ProfileValidation;
 import br.com.wodz.domain.AppUser;
+import br.com.wodz.domain.Role;
 import br.com.wodz.dto.AuthDtos.AuthResponse;
 import br.com.wodz.dto.AuthDtos.GoogleLoginRequest;
 import br.com.wodz.dto.AuthDtos.GoogleLoginResult;
@@ -40,6 +42,8 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest req) {
+        if (req.role() == Role.ATHLETE && req.gender() == null) throw ApiException.badRequest("Informe o sexo para criar sua conta");
+        if (!ProfileValidation.validPhone(req.phone())) throw ApiException.badRequest("Informe um telefone válido com DDD");
         PasswordPolicy.validateNewPassword(req.password());
         String email = req.email().trim().toLowerCase(Locale.ROOT);
         if (users.existsByEmailIgnoreCase(email)) {
@@ -50,6 +54,7 @@ public class AuthService {
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         user.setRole(req.role());
+        user.setGender(req.role() == Role.ATHLETE ? req.gender() : null);
         user.setPhone(Codes.blankToNull(req.phone()));
         users.save(user);
         return tokens.issue(user);
@@ -105,7 +110,7 @@ public class AuthService {
             user.setGoogleSub(profile.sub());
             return signedIn(user);
         }
-        if (req.role() == null) {
+        if (req.role() == null || (req.role() == Role.ATHLETE && req.gender() == null)) {
             return new GoogleLoginResult(null, new PendingGoogleSignup(profile.email(), Codes.uppercase(profile.name())));
         }
         AppUser user = new AppUser();
@@ -113,6 +118,7 @@ public class AuthService {
         user.setEmail(profile.email());
         user.setGoogleSub(profile.sub());
         user.setRole(req.role());
+        user.setGender(req.role() == Role.ATHLETE ? req.gender() : null);
         users.save(user);
         return signedIn(user);
     }

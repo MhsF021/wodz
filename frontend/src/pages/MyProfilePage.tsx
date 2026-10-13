@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate, useSearchParams } from 'react-router';
 import { authApi, publicApi } from '../api/endpoints';
-import type { Role, User } from '../api/types';
+import type { Gender, Role, User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { Field } from '../components/Field';
 import { InlineError, Loading } from '../components/States';
 import { GoogleButton } from '../components/GoogleButton';
 import { PayoutAccountSection } from '../components/PayoutAccountSection';
+import { isValidCpf, isValidCnpj, isValidPhone, maskCpf, maskDocument, normalizeDocument, onlyDigits } from '../lib/format';
+import { isProfileComplete, localReturnPath } from '../lib/navigation';
 
 const ROLE_LABEL: Record<Role, string> = { ATHLETE: 'Atleta', ORGANIZER: 'Organizador' };
 
@@ -42,7 +45,16 @@ export default function MyProfilePage() {
 
 function ProfileSection({ user }: { user: User }) {
   const { updateProfile } = useAuth();
-  const [form, setForm] = useState({ name: user.name, email: user.email, phone: user.phone ?? '' });
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = localReturnPath(params.get('next'));
+  const athlete = user.role === 'ATHLETE';
+  const fields = (u: User) => ({ name: u.name, email: u.email, phone: u.phone ?? '',
+    document: athlete ? maskCpf(u.document ?? '') : maskDocument(u.document ?? ''),
+    street: u.street ?? '', addressNumber: u.addressNumber ?? '', city: u.city ?? '',
+    postalCode: u.postalCode?.replace(/^(\d{5})(\d{3})$/, '$1-$2') ?? '' });
+  const [form, setForm] = useState(() => fields(user));
+  const [gender, setGender] = useState<Gender | ''>(user.gender ?? '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -57,8 +69,21 @@ function ProfileSection({ user }: { user: User }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (athlete && !gender) { setError(new Error('Informe o sexo no seu cadastro')); return; }
     if (!form.name.trim() || !form.email.trim()) {
       setError(new Error('Preencha nome e e-mail'));
+      return;
+    }
+    if (!isValidCpf(form.document) && (athlete || !isValidCnpj(form.document))) {
+      setError(new Error(athlete ? 'Informe um CPF válido' : 'Informe um CPF ou CNPJ válido'));
+      return;
+    }
+    if ((athlete || form.phone.trim()) && !isValidPhone(form.phone)) {
+      setError(new Error('Informe um telefone válido com DDD'));
+      return;
+    }
+    if (!athlete && form.postalCode && !/^\d{5}-?\d{3}$/.test(form.postalCode)) {
+      setError(new Error('Informe um CEP válido'));
       return;
     }
     if (emailChanged && user.googleLinked) {
@@ -76,11 +101,17 @@ function ProfileSection({ user }: { user: User }) {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
+        gender: athlete ? gender || undefined : undefined,
+        document: normalizeDocument(form.document),
+        ...(!athlete ? { street: form.street.trim(), addressNumber: form.addressNumber.trim(),
+          city: form.city.trim(), postalCode: onlyDigits(form.postalCode) } : {}),
         currentPassword: emailChanged ? currentPassword : undefined,
       });
-      setForm({ name: updated.name, email: updated.email, phone: updated.phone ?? '' });
+      setForm(fields(updated));
+      setGender(updated.gender ?? '');
       setCurrentPassword('');
       setSaved(true);
+      if (next && isProfileComplete(updated)) navigate(next, { replace: true });
     } catch (e) {
       setError(e);
     } finally {
@@ -91,6 +122,7 @@ function ProfileSection({ user }: { user: User }) {
   return (
     <section className="panel" aria-labelledby="account-profile">
       <h2 id="account-profile" className="panel__title">Dados de cadastro</h2>
+      {!isProfileComplete(user) && <p className="note" role="status">Complete os campos obrigatórios para continuar seu cadastro.</p>}
       {user.role === 'ATHLETE' && (
         <p className="panel__lead">O organizador usa esses dados para falar com você sobre as inscrições.</p>
       )}
@@ -99,16 +131,46 @@ function ProfileSection({ user }: { user: User }) {
           <input id="acc-name" className="input" autoComplete="name" required maxLength={120}
             value={form.name} onChange={set('name')} />
         </Field>
+        {athlete && <Field label="Sexo" htmlFor="acc-gender">
+          <select id="acc-gender" className="input" required value={gender}
+            onChange={(e) => { setGender(e.target.value as Gender | ''); setSaved(false); }}>
+            <option value="">Selecione</option><option value="F">Feminino</option><option value="M">Masculino</option>
+          </select>
+        </Field>}
+        <Field label={athlete ? 'CPF (obrigatório)' : 'CPF/CNPJ (obrigatório)'} htmlFor="acc-document"
+          hint={athlete ? 'Seu CPF será preenchido automaticamente nas inscrições.' : undefined}>
+          <input id="acc-document" className="input" inputMode={athlete ? 'numeric' : 'text'} required maxLength={athlete ? 14 : 18}
+            placeholder={athlete ? '000.000.000-00' : 'CPF ou CNPJ'} value={form.document}
+            onChange={(e) => { setSaved(false); setForm(f => ({ ...f, document: athlete ? maskCpf(e.target.value) : maskDocument(e.target.value) })); }} />
+        </Field>
         <div className="grid-2">
           <Field label="E-mail" htmlFor="acc-email" hint={user.googleLinked ? "E-mail da sua conta Google." : "É com ele que você entra no WODZ."}>
             <input id="acc-email" className="input" type="email" autoComplete="email" required maxLength={160}
               readOnly={user.googleLinked} value={form.email} onChange={set('email')} />
           </Field>
-          <Field label="Celular (opcional)" htmlFor="acc-phone">
-            <input id="acc-phone" className="input" type="tel" autoComplete="tel" maxLength={20}
+          <Field label={athlete ? 'Telefone (obrigatório)' : 'Telefone (opcional)'} htmlFor="acc-phone" hint="Inclua o DDD.">
+            <input id="acc-phone" className="input" type="tel" autoComplete="tel" required={athlete} maxLength={20}
               value={form.phone} onChange={set('phone')} />
           </Field>
         </div>
+        {!athlete && <fieldset className="form-section">
+          <legend className="form-section__title">Endereço (opcional)</legend>
+          <div className="grid-2">
+            <Field label="Rua" htmlFor="acc-street" uppercase>
+              <input id="acc-street" className="input" autoComplete="address-line1" maxLength={160} value={form.street} onChange={set('street')} />
+            </Field>
+            <Field label="Número" htmlFor="acc-number">
+              <input id="acc-number" className="input" maxLength={20} value={form.addressNumber} onChange={set('addressNumber')} />
+            </Field>
+            <Field label="Cidade" htmlFor="acc-city" uppercase>
+              <input id="acc-city" className="input" autoComplete="address-level2" maxLength={100} value={form.city} onChange={set('city')} />
+            </Field>
+            <Field label="CEP" htmlFor="acc-cep">
+              <input id="acc-cep" className="input" inputMode="numeric" autoComplete="postal-code" maxLength={9} placeholder="00000-000"
+                value={form.postalCode} onChange={(e) => { setSaved(false); setForm(f => ({ ...f, postalCode: onlyDigits(e.target.value).slice(0, 8).replace(/^(\d{5})(\d)/, '$1-$2') })); }} />
+            </Field>
+          </div>
+        </fieldset>}
         {emailChanged && !user.googleLinked && user.hasPassword && (
           <Field label="Senha atual" htmlFor="acc-email-password" hint="Para trocar o e-mail, confirme sua senha.">
             <input id="acc-email-password" className="input" type="password" autoComplete="current-password" required
@@ -119,7 +181,7 @@ function ProfileSection({ user }: { user: User }) {
           <InlineError error={error} />
           {saved && <p className="form-ok" role="status">Dados atualizados.</p>}
           <button type="submit" className="btn btn--primary" disabled={busy}>
-            {busy ? 'Salvando…' : 'Salvar alterações'}
+            {busy ? 'Salvando…' : next ? 'Salvar e continuar' : 'Salvar alterações'}
           </button>
         </div>
       </form>

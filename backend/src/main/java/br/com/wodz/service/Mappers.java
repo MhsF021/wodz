@@ -25,7 +25,8 @@ public final class Mappers {
 
     public static UserDto user(AppUser u) {
         return new UserDto(u.getId(), u.getName(), u.getEmail(), u.getRole(), u.getPhone(), u.hasPassword(),
-                u.getGoogleSub() != null);
+                u.getGoogleSub() != null, u.getGender(), u.getDocument(), u.getStreet(),
+                u.getAddressNumber(), u.getCity(), u.getPostalCode());
     }
 
     public static WorkoutDto workout(Workout w) {
@@ -55,7 +56,7 @@ public final class Mappers {
 
     public static MemberDto member(TeamMember m) {
         return new MemberDto(m.getId(), m.getFullName(), m.getEmail(), m.getCpf(), m.getBirthDate(), m.getGender(),
-                m.getShirtSize(), m.isCaptain());
+                m.getShirtSize(), m.isCaptain(), m.getPhone());
     }
 
     public static TeamDto team(Team t) {
@@ -63,6 +64,6 @@ public final class Mappers {
         return new TeamDto(t.getId(), t.getName(), t.getBoxName(), t.getCity(), t.getStatus(),
                 t.getRegistrationCode(), t.getCreatedAt(), t.getConfirmedAt(),
                 championshipRef(category.getChampionship()), categoryRef(category),
-                t.getMembers().stream().map(Mappers::member).toList());
+                t.getMembers().stream().map(Mappers::member).toList(), t.getRegistrationAmount(), t.getCaptain().getId());
     }
 }

@@ -14,6 +14,29 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PaymentServiceTest {
+    @Test void conciliacaoAtrasadaNaoApagaReembolsoParcialJaConfirmado() {
+        account.setCredentialSource(PayoutCredentialSource.PLATFORM_DIRECT); account.setLiveMode(true); account.setTestAccount(false);
+        Payment existing=new Payment(); existing.setId(30L); existing.setTeam(team); existing.setCheckoutSessionId(20L);
+        existing.setPayoutAccountId(7L); existing.setAmount(new BigDecimal("150.00")); existing.setStatus(PaymentStatus.APPROVED);
+        existing.setProviderRefundedAmount(new BigDecimal("25.00"));
+        when(payments.findByProviderAndProviderPaymentId("MERCADO_PAGO","300")).thenReturn(Optional.of(existing));
+        when(gateway.fetch(eq("300"),any())).thenReturn(new GatewayPayment("300",PaymentStatus.APPROVED,"accredited",
+                new BigDecimal("150.00"),"BRL","reference","123",true,PaymentMethod.PIX,null,Instant.now(),new BigDecimal("150.00"),BigDecimal.ZERO));
+        service.checkoutStatus("ABC",20L,"300");
+        assertEquals(new BigDecimal("25.00"),existing.getProviderRefundedAmount());
+        verify(payments).saveAndFlush(existing);
+    }
+    @Test void cartaoUsaTotalCotadoDaEquipeSemAlterarPreferenciaOuComissaoAtual() {
+        team.setRegistrationAmount(new BigDecimal("299.97"));
+        team.getCategory().setPrice(new BigDecimal("109.99"));
+        service.createCheckout("ABC");
+        var capture = ArgumentCaptor.forClass(CheckoutCommand.class);
+        verify(gateway).createCheckout(capture.capture());
+        assertEquals(new BigDecimal("299.97"), capture.getValue().amount());
+        assertEquals(new BigDecimal("15.00"), capture.getValue().marketplaceFee());
+        assertEquals(new BigDecimal("299.97"), service.summary("ABC").amount());
+    }
+
     private final TeamRepository teams = mock(TeamRepository.class);
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final CheckoutSessionRepository sessions = mock(CheckoutSessionRepository.class);
@@ -24,7 +47,7 @@ class PaymentServiceTest {
             new AppProperties.PaymentProps("mercadopago",Duration.ofMinutes(30),
                     new AppProperties.MercadoPagoProps("secret","https://wodz.test/api/webhooks/mercadopago",
                             "client","secret",new BigDecimal("5"),true)),null,null,"dev",null);
-    private final PaymentService service = new PaymentService(teams,payments,sessions,accounts,gateway,props,tokens,new br.com.wodz.common.TokenCipher(props),new PixDraftService(sessions));
+    private final PaymentService service = new PaymentService(teams,payments,sessions,accounts,gateway,props,tokens);
     private Team team;
     private PayoutAccount account;
     private CheckoutSession session;
@@ -59,7 +82,7 @@ class PaymentServiceTest {
     }
     private GatewayPayment payment(String id, PaymentStatus status) {
         return new GatewayPayment(id,status,"detail",new BigDecimal("150.00"),"BRL","reference","123",
-                false,PaymentMethod.PIX,null,status==PaymentStatus.APPROVED?Instant.now():null);
+                false,PaymentMethod.CREDIT_CARD,1,status==PaymentStatus.APPROVED?Instant.now():null);
     }
     @Test void checkoutUsaValorDoServidorContaOAuthETaxaDaPreferencia() {
         var result=service.createCheckout("abc");
@@ -247,131 +270,52 @@ class PaymentServiceTest {
         when(gateway.search(eq("reference"),any())).thenReturn(List.of(payment("300",PaymentStatus.APPROVED)));
         service.reconcileCheckout(20L); verify(tokens).seller(7L);verify(tokens,never()).seller(7L,true);
     }
-    private br.com.wodz.dto.PaymentDtos.CheckoutRequest pixRequest(String cpf) {
-        return new br.com.wodz.dto.PaymentDtos.CheckoutRequest(CheckoutMethod.PIX, cpf, true);
+
+    @Test void exigeAceiteAntesDeConsultarContaOuProvedor() {
+        assertThrows(ApiException.class, () -> service.createCheckout("ABC",
+                new br.com.wodz.dto.PaymentDtos.CheckoutRequest(CheckoutMethod.CARD, false)));
+        verifyNoInteractions(gateway, accounts, tokens);
     }
-    private void pixResponse() {
-        AppUser captain = new AppUser(); captain.setEmail("payer@test.invalid"); team.setCaptain(captain);
-        when(gateway.createPix(any())).thenAnswer(i -> {
-            CheckoutCommand c = ((PixCommand)i.getArgument(0)).checkout();
-            return new GatewayPix(new GatewayPayment("900",PaymentStatus.PENDING,"pending_waiting_transfer",
-                    c.amount(),"BRL",c.externalReference(),"123",false,PaymentMethod.PIX,null,null),
-                    "000201-example","png",c.expiresAt());
-        });
+    @Test void contratoRecusaMetodoRemovidoAntesDeCriarCobranca() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class, () -> json.readValue(
+                "{\"method\":\"PIX\",\"termsAccepted\":true}", br.com.wodz.dto.PaymentDtos.CheckoutRequest.class));
+        var request = json.readValue("{\"method\":\"CARD\",\"termsAccepted\":true}", br.com.wodz.dto.PaymentDtos.CheckoutRequest.class);
+        assertEquals(CheckoutMethod.CARD, request.method());
+        verifyNoInteractions(gateway);
     }
-    @Test void pixUsaCpfNormalizadoEmailDoCadastroValorServidorEComissaoSemPreferencia() {
-        pixResponse();
-        var result = service.createCheckout("ABC",pixRequest("191.191.191-00"));
-        ArgumentCaptor<PixCommand> capture = ArgumentCaptor.forClass(PixCommand.class);
-        verify(gateway).createPix(capture.capture());
-        assertEquals("19119119100",capture.getValue().payerCpf());
-        assertEquals("payer@test.invalid",capture.getValue().payerEmail());
-        assertEquals(new BigDecimal("150.00"),capture.getValue().checkout().amount());
-        assertEquals(new BigDecimal("7.50"),capture.getValue().checkout().marketplaceFee());
-        assertTrue(result.expiresAt().isAfter(Instant.now().plusSeconds(30*60)));
-        assertEquals(CheckoutMethod.PIX,result.method()); assertNull(result.url());
-        verify(gateway,never()).createCheckout(any());
-        verify(payments).saveAndFlush(argThat(p -> p.getStatus()==PaymentStatus.PENDING && p.getExpiresAt()!=null));
-        ArgumentCaptor<CheckoutSession> saved=ArgumentCaptor.forClass(CheckoutSession.class);
-        verify(sessions,times(2)).saveAndFlush(saved.capture());
-        assertFalse(saved.getValue().getPixPayer().contains("19119119100"));
-        assertEquals("checkout-v1",saved.getValue().getTermsVersion());
-        assertNotNull(saved.getValue().getTermsAcceptedAt());
-    }
-    @Test void naoChamaProvedorSemAceiteOuComCpfInvalido() {
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",new br.com.wodz.dto.PaymentDtos.CheckoutRequest(CheckoutMethod.CARD,null,false)));
-        for(String cpf:List.of("", "11111111111", "19119119101", "19119119100x", "00000000000"))
-            assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest(cpf)));
-        verifyNoInteractions(gateway,tokens);
-    }
-    @Test void timeoutPixRetomaMesmaChavePayloadEValidadeMesmoComCpfEmailNovos() {
-        pixResponse();
-        doThrow(ApiException.badGateway("Timeout")).when(gateway).createPix(any());
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("19119119100")));
-        ArgumentCaptor<CheckoutSession> saved=ArgumentCaptor.forClass(CheckoutSession.class);
-        verify(sessions).saveAndFlush(saved.capture()); CheckoutSession draft=saved.getValue();
-        when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(draft));
-        team.getCaptain().setEmail("changed@test.invalid");
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("52998224725")));
-        ArgumentCaptor<PixCommand> commands=ArgumentCaptor.forClass(PixCommand.class);
-        verify(gateway,times(2)).createPix(commands.capture());
-        assertEquals(commands.getAllValues().get(0),commands.getAllValues().get(1));
-        verify(sessions,times(1)).saveAndFlush(any());
-    }
-    @Test void rascunhoPixSemPrazoMinimoNaoReenviaPostNemCriaOutraCobranca() {
-        session.setMethod(CheckoutMethod.PIX);
-        session.setExpiresAt(Instant.now().plusSeconds(29*60));
+    @Test void cobrancaAnteriorValidaBloqueiaNovoCheckoutSemRetomarMetodoRemovido() {
+        session.setMethod("PIX"); session.setCheckoutUrl(null);
         when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
-        ApiException error = assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("19119119100")));
-        assertTrue(error.getMessage().contains("prazo não permite"));
-        verify(gateway).search(eq("reference"),any());
-        verify(gateway,never()).createPix(any()); verify(gateway,never()).createCheckout(any());
-        verify(sessions,never()).saveAndFlush(any());
+        assertThrows(ApiException.class, () -> service.createCheckout("ABC"));
+        verify(gateway).search(eq("reference"), any());
+        verify(gateway, never()).createCheckout(any());
+        verify(gateway, never()).resumeCheckout(any(), any());
     }
-    @Test void recuperaPixPendenteAposTimeoutMesmoComPrazoCurtoSemReemitir() {
-        session.setMethod(CheckoutMethod.PIX);
+    @Test void cobrancaAnteriorVencidaPermiteCartaoAposConferirPagamento() {
+        session.setMethod("PIX"); session.setCheckoutUrl(null); session.setExpiresAt(Instant.now().minusSeconds(1));
         when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
-        when(gateway.search(eq("reference"),any())).thenReturn(List.of(payment("900",PaymentStatus.PENDING)));
-        when(gateway.fetchPix(eq("900"),any())).thenReturn(new GatewayPix(payment("900",PaymentStatus.PENDING),
-                "000201-example","png",session.getExpiresAt()));
-        var result = service.createCheckout("ABC",pixRequest("19119119100"));
-        assertEquals("000201-example",result.qrCode()); assertEquals("900",session.getProviderPaymentId());
-        verify(sessions).saveAndFlush(session); verify(payments).saveAndFlush(any());
-        verify(gateway,never()).createPix(any()); verify(gateway,never()).createCheckout(any());
+        assertEquals(CheckoutMethod.CARD, service.createCheckout("ABC").method());
+        var order = inOrder(gateway);
+        order.verify(gateway).search(eq("reference"), any());
+        order.verify(gateway).createCheckout(any());
     }
-    @Test void rascunhoComMaisDeUmPixPendenteNaoEscolheNemEmiteOutraCobranca() {
-        session.setMethod(CheckoutMethod.PIX);
+    @Test void cobrancaAnteriorAprovadaImpedeCartaoMesmoAposVencimento() {
+        session.setMethod("PIX"); session.setExpiresAt(Instant.now().minusSeconds(1));
         when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
-        when(gateway.search(eq("reference"),any())).thenReturn(List.of(payment("900",PaymentStatus.PENDING),payment("901",PaymentStatus.PENDING)));
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("19119119100")));
-        assertNull(session.getProviderPaymentId());
-        verify(gateway,never()).fetchPix(any(),any()); verify(gateway,never()).createPix(any());
-        verify(sessions,never()).saveAndFlush(any());
+        when(gateway.search(eq("reference"), any())).thenReturn(List.of(payment("900", PaymentStatus.APPROVED)));
+        assertThrows(ApiException.class, () -> service.createCheckout("ABC"));
+        verify(gateway, never()).createCheckout(any());
     }
-    @Test void recuperacaoPixNaoAssociaIdDiferenteDoEncontradoNaBusca() {
-        session.setMethod(CheckoutMethod.PIX);
+    @Test void resumoPreservaHistoricoSemOferecerRetomadaEDetalhesRecusamMetodoRemovido() {
+        session.setMethod("PIX");
         when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
-        when(gateway.search(eq("reference"),any())).thenReturn(List.of(payment("900",PaymentStatus.PENDING)));
-        when(gateway.fetchPix(eq("900"),any())).thenReturn(new GatewayPix(payment("901",PaymentStatus.PENDING),
-                "000201-example","png",session.getExpiresAt()));
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("19119119100")));
-        assertNull(session.getProviderPaymentId());
-        verify(payments,never()).saveAndFlush(any()); verify(sessions,never()).saveAndFlush(any());
-    }
-    @Test void pixLocalNaoExigeUrlDeRetornoDoCheckoutProMasCartaoExige() {
-        pixResponse();
-        AppProperties localProps = new AppProperties("http://localhost:8081",null,null,props.payment(),null,null,"dev",null);
-        PaymentService local = new PaymentService(teams,payments,sessions,accounts,gateway,localProps,tokens,
-                new br.com.wodz.common.TokenCipher(localProps),new PixDraftService(sessions));
-        assertNotNull(local.createCheckout("ABC",pixRequest("19119119100")).qrCode());
-        ArgumentCaptor<PixCommand> capture = ArgumentCaptor.forClass(PixCommand.class);
-        verify(gateway).createPix(capture.capture()); assertNull(capture.getValue().checkout().returnUrl());
-        assertThrows(ApiException.class,()->local.createCheckout("ABC"));
-        verify(gateway,never()).createCheckout(any());
-    }
-    @Test void pixPendenteRetomaQrSemNovoPostEImpedeTrocaDeMetodo() {
-        session.setMethod(CheckoutMethod.PIX); session.setProviderPaymentId("900");
-        when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
-        GatewayPix remote=new GatewayPix(payment("900",PaymentStatus.PENDING),"000201-example","png",session.getExpiresAt());
-        when(gateway.fetchPix(eq("900"),any())).thenReturn(remote);
-        assertEquals("000201-example",service.createCheckout("ABC",pixRequest("19119119100")).qrCode());
-        assertThrows(ApiException.class,()->service.createCheckout("ABC"));
-        verify(gateway,never()).createPix(any()); verify(gateway,never()).createCheckout(any());
-    }
-    @Test void detalhesPixNaoExibemCodigoAprovadoExpiradoOuDeOutraInscricao() {
-        session.setMethod(CheckoutMethod.PIX); session.setProviderPaymentId("900");
-        when(gateway.fetchPix(eq("900"),any())).thenReturn(new GatewayPix(payment("900",PaymentStatus.APPROVED),null,null,session.getExpiresAt()));
-        assertNull(service.checkoutDetails("ABC",20L).qrCode());
-        when(gateway.fetchPix(eq("900"),any())).thenReturn(new GatewayPix(payment("900",PaymentStatus.PENDING),"000201-example","png",Instant.now().minusSeconds(1)));
-        assertNull(service.checkoutDetails("ABC",20L).qrCode());
-        when(sessions.findByIdAndTeamId(20L,5L)).thenReturn(Optional.empty());
-        assertThrows(ApiException.class,()->service.checkoutDetails("ABC",20L));
-        verify(gateway,times(2)).fetchPix(any(),any());
-    }
-    @Test void pixIncompativelNaoESalvoComoPagamento() {
-        pixResponse();
-        doReturn(new GatewayPix(payment("900",PaymentStatus.PENDING),"qr","png",Instant.now().plusSeconds(40*60))).when(gateway).createPix(any());
-        assertThrows(ApiException.class,()->service.createCheckout("ABC",pixRequest("19119119100")));
-        verify(payments,never()).saveAndFlush(any());
+        Payment historical = new Payment(); historical.setId(40L); historical.setMethod(PaymentMethod.PIX);
+        historical.setAmount(session.getAmount()); historical.setStatus(PaymentStatus.APPROVED);
+        when(payments.findFirstByCheckoutSessionIdOrderByIdDesc(20L)).thenReturn(Optional.of(historical));
+        var summary = service.summary("ABC");
+        assertNull(summary.checkoutId()); assertEquals(PaymentMethod.PIX, summary.lastPayment().method());
+        assertThrows(ApiException.class, () -> service.checkoutDetails("ABC", 20L));
+        verify(gateway, never()).fetch(any(), any());
     }
 }

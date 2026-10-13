@@ -59,13 +59,19 @@ public class Payment {
 
     private String statusDetail;
 
-    /** Conta do organizador que recebeu (split); nula em cobranças anteriores ao split. */
+    /** Vínculo OAuth do Organizador ou conta central da Wodz, conforme credential_source. */
     @Column(name = "payout_account_id")
     private Long payoutAccountId;
 
-    /** Parte retida pela plataforma (application_fee do Mercado Pago). */
+    /** Comissão cotada no checkout; os valores das cobranças históricas são preservados. */
     @Column(precision = 10, scale = 2)
     private BigDecimal applicationFee;
+
+    /** Líquido confirmado na resposta autenticada do Mercado Pago; null impede apurar repasse. */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal providerNetAmount;
+    @Column(precision = 10, scale = 2)
+    private BigDecimal providerRefundedAmount;
 
     private Integer installments;
 

@@ -7,6 +7,7 @@ import type { HeatView, Team } from '../api/types';
 import { capLabel, clockTime, dayLabel, money, workoutTypeLabel } from '../lib/format';
 import { teamSchedule } from '../lib/teamSchedule';
 import { Dialog } from '../components/Dialog';
+import { useAuth } from '../auth/AuthContext';
 import { HeatBadge, TeamBadge } from '../components/StatusBadge';
 import { HeatTiming } from '../components/HeatTiming';
 import { Empty, ErrorState, InlineError, Loading } from '../components/States';
@@ -15,7 +16,8 @@ export default function MyTeamsPage() {
   const [params, setParams] = useSearchParams();
   const teams = useQuery({ queryKey: ['my-teams'], queryFn: athleteApi.teams,
     staleTime: 0, refetchInterval: params.has('equipe') ? 20_000 : false });
-  const selectedTeam = teams.data?.find((team) => String(team.id) === params.get('equipe'));
+  const activeTeams = teams.data?.filter((team) => team.status === 'PENDING_PAYMENT' || team.status === 'CONFIRMED');
+  const selectedTeam = activeTeams?.find((team) => String(team.id) === params.get('equipe'));
 
   function selectTeam(id?: number) {
     const next = new URLSearchParams(params);
@@ -33,11 +35,11 @@ export default function MyTeamsPage() {
       <p className="my-teams__intro">Selecione uma equipe para ver sua inscrição, os horários das baterias e as provas.</p>
       {teams.error && <ErrorState error={teams.error}
         action={<button className="btn btn--secondary" onClick={() => teams.refetch()}>Tentar novamente</button>} />}
-      {teams.data?.length === 0 && <Empty title="Você ainda não inscreveu nenhuma equipe">
+      {activeTeams?.length === 0 && <Empty title="Você ainda não inscreveu nenhuma equipe">
         <Link className="btn btn--primary" to="/">Encontrar um campeonato</Link>
       </Empty>}
       <ul className="team-mini-cards" aria-label="Suas equipes">
-        {teams.data?.map((team) => (
+        {activeTeams?.map((team) => (
           <li key={team.id}>
             <button type="button" className="team-mini-card" aria-haspopup="dialog"
               onClick={() => selectTeam(team.id)}>
@@ -59,15 +61,30 @@ function LocalLoading({ label }: { label: string }) {
 
 export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void }) {
   const cache = useQueryClient();
+  const { user } = useAuth();
+  const isCaptain = user?.id === team.captainId;
+  const [editingName, setEditingName] = useState(false);
+  const [teamName, setTeamName] = useState(team.name);
+  const rename = useMutation({
+    mutationFn: () => athleteApi.renameTeam(team.id, teamName.trim()),
+    onSuccess: (updated) => {
+      cache.setQueryData<Team[]>(['my-teams'], (previous = []) => previous.map(item => item.id === updated.id ? updated : item));
+      void cache.invalidateQueries({ queryKey: ['my-heats'] });
+      void cache.invalidateQueries({ queryKey: ['registration', team.registrationCode] });
+      setEditingName(false);
+    },
+  });
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const cancel = useMutation({
     mutationFn: () => athleteApi.cancelRegistration(team.id),
-    onSuccess: (updated) => {
-      cache.setQueryData<Team[]>(['my-teams'], (previous = []) => previous.map((item) => item.id === updated.id ? updated : item));
+    onSuccess: () => {
+      cache.setQueryData<Team[]>(['my-teams'], (previous = []) => previous.filter((item) => item.id !== team.id));
       void cache.invalidateQueries({ queryKey: ['my-teams'] });
       void cache.invalidateQueries({ queryKey: ['my-heats'] });
       void cache.invalidateQueries({ queryKey: ['championship', team.championship.slug] });
       void cache.invalidateQueries({ queryKey: ['registration', team.registrationCode] });
       void cache.invalidateQueries({ queryKey: ['checkout-status', team.registrationCode] });
+      onClose();
     },
     onError: () => { void cache.invalidateQueries({ queryKey: ['my-teams'] }); },
   });
@@ -88,21 +105,50 @@ export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void
     requestAnimationFrame(() => document.getElementById(`team-heat-${heatId}`)?.focus());
   }
 
+  if (editingName && isCaptain) return <Dialog title="Alterar nome da equipe" onClose={() => { if (!rename.isPending) setEditingName(false); }}>
+    <form onSubmit={event => { event.preventDefault(); rename.mutate(); }}>
+      <label htmlFor="edit-team-name">Nome da equipe</label>
+      <input id="edit-team-name" className="input" autoFocus required maxLength={80} value={teamName}
+        onChange={event => setTeamName(event.target.value)} />
+      <InlineError error={rename.error} />
+      <div className="row-actions">
+        <button type="button" className="btn btn--secondary" disabled={rename.isPending} onClick={() => setEditingName(false)}>Voltar</button>
+        <button type="submit" className="btn btn--primary" disabled={rename.isPending || !teamName.trim()}>{rename.isPending ? 'Salvando…' : 'Salvar nome'}</button>
+      </div>
+    </form>
+  </Dialog>;
+
+  if (confirmingCancel && isCaptain) return (
+    <Dialog title="Cancelar inscrição?" subtitle={`${team.name} · ${team.category.name}`}
+      closeLabel="Voltar aos detalhes da inscrição" onClose={() => { if (!cancel.isPending) setConfirmingCancel(false); }}>
+      <p>Sua inscrição no {team.championship.name} será cancelada, a vaga será liberada e a equipe sairá de Minhas equipes.</p>
+      <p className="note">Você poderá se inscrever novamente enquanto as inscrições estiverem abertas e houver vagas.</p>
+      <InlineError error={cancel.error} />
+      <div className="row-actions">
+        <button type="button" className="btn btn--secondary" autoFocus disabled={cancel.isPending}
+          onClick={() => setConfirmingCancel(false)}>Manter inscrição</button>
+        <button type="button" className="btn btn--danger" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+          {cancel.isPending ? 'Cancelando…' : 'Sim, cancelar inscrição'}
+        </button>
+      </div>
+    </Dialog>
+  );
+
   return (
     <Dialog title={team.championship.name} subtitle={`${team.name} · ${team.category.name}`} onClose={onClose}>
       <div className="team-details__registration">
         <TeamBadge status={team.status} />
         {team.status === 'PENDING_PAYMENT' && <div className="row-actions">
           {!cancel.isPending && <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}`}>
-            Pagar inscrição · {money(team.category.price)}
+            Pagar inscrição · {money(team.registrationAmount ?? team.category.price)}
           </Link>}
-          <button type="button" className="btn btn--danger" disabled={cancel.isPending}
-            onClick={() => {
-              if (window.confirm(`Cancelar a inscrição de ${team.name}? Sua equipe perderá a vaga e poderá se inscrever novamente enquanto as inscrições estiverem abertas.`)) cancel.mutate();
-            }}>
+          {isCaptain && <button type="button" className="btn btn--danger" disabled={cancel.isPending}
+            onClick={() => setConfirmingCancel(true)}>
             {cancel.isPending ? 'Cancelando…' : 'Cancelar a inscrição'}
-          </button>
+          </button>}
         </div>}
+        {isCaptain && team.members.length > 1 && team.status !== 'CANCELLED' && <button type="button" className="btn btn--secondary"
+          onClick={() => { setTeamName(team.name); rename.reset(); setEditingName(true); }}>Alterar nome da equipe</button>}
       </div>
       <InlineError error={cancel.error} />
       {team.status === 'PENDING_PAYMENT' ? (

@@ -57,6 +57,14 @@ test('standards appear exclusively in the selected category popup', () => {
   assert.doesNotMatch(details, /<dt>Vagas|5 de 20 disponíveis|Limite de 20 equipes/);
 });
 
+test('category shows unit price per athlete and the total for its team size', () => {
+  const page = harness();
+  const html = renderToStaticMarkup(page.CategoryDetails({ category: { ...category, price: 59.99, teamSize: 3 }, championship, onClose() {} }));
+  assert.match(html, /Inscrição por atleta/);
+  assert.match(html, /Total da equipe/);
+  assert.match(html, /179,97/);
+});
+
 test('composition filters select actual category rules, include individuals, and restore all categories', () => {
   const items = [category, { ...category, id: 2, name: 'RX individual masculino', genderPolicy: 'MALE', teamSize: 1 },
     { ...category, id: 3, name: 'Iniciante feminino', genderPolicy: 'FEMALE' },

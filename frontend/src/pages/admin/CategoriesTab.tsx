@@ -98,7 +98,7 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
                 <PlateChip index={i} name={c.name} />
                 <p className="rows__meta">{categoryComposition(c)}</p>
                 <p className="rows__meta">
-                  Equipes de {c.teamSize}, {Number(c.price) === 0 ? 'gratuita' : money(c.price)},{' '}
+                  Equipes de {c.teamSize}, {Number(c.price) === 0 ? 'gratuita' : `${money(c.price)} por atleta · ${money(Number(c.price) * c.teamSize)} por equipe`},{' '}
                   {c.workouts.length} prova{c.workouts.length === 1 ? '' : 's'}
                 </p>
               </div>
@@ -127,7 +127,7 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
             <Field label="Atletas por equipe" htmlFor="cat-size">
               <input id="cat-size" className="input" type="number" min={1} max={10} value={form.teamSize} onChange={set('teamSize')} />
             </Field>
-            <Field label="Valor da inscrição (R$)" htmlFor="cat-price">
+            <Field label="Valor por atleta (R$)" htmlFor="cat-price" hint="O total da inscrição é este valor multiplicado pelo número de atletas da equipe.">
               <input id="cat-price" className="input" inputMode="decimal" placeholder="220,00" value={form.price} onChange={set('price')} />
             </Field>
             <Field label="Limite de equipes" htmlFor="cat-max" hint="Vazio = sem limite">

@@ -14,7 +14,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class MercadoPagoGatewayTest {
-    private static final String PNG="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4YQAAAAASUVORK5CYII=";
     private MockRestServiceServer server;
     private MercadoPagoGateway gateway;
     @BeforeEach void fixture() {
@@ -241,159 +240,69 @@ class MercadoPagoGatewayTest {
                  "point_of_interaction":{"transaction_data":{"qr_code":"000201-test","qr_code_base64":"%s"}}}
                 """.formatted(OffsetDateTime.now().plusMinutes(31),base64);
     }
-    @Test void criaPixComCamposDaPaymentsApiOAuthIdempotenciaCpfETaxaApplicationFee() {
-        server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                .andExpect(method(HttpMethod.POST)).andExpect(header("Authorization","Bearer APP_USR-test"))
-                .andExpect(header("X-Idempotency-Key","reference"))
-                .andExpect(jsonPath("$.transaction_amount").value(150.00))
-                .andExpect(jsonPath("$.payment_method_id").value("pix"))
-                .andExpect(jsonPath("$.payer.email").value("payer@test.invalid"))
-                .andExpect(jsonPath("$.payer.identification.type").value("CPF"))
-                .andExpect(jsonPath("$.payer.identification.number").value("19119119100"))
-                .andExpect(jsonPath("$.application_fee").value(7.50))
-                .andExpect(jsonPath("$.marketplace_fee").doesNotExist())
-                .andExpect(jsonPath("$.date_of_expiration").isNotEmpty())
-                .andExpect(jsonPath("$.notification_url").value("https://wodz.test/api/webhooks/mercadopago"))
-                .andRespond(withSuccess(pixResponse(PNG),MediaType.APPLICATION_JSON));
-        GatewayPix pix=gateway.createPix(new PixCommand(command("APP_USR-test"),"payer@test.invalid","19119119100","https://wodz.test/api/webhooks/mercadopago"));
-        assertEquals("900",pix.payment().providerPaymentId()); assertEquals("000201-test",pix.qrCode());
-        assertEquals(PNG,pix.qrCodeBase64()); server.verify();
-    }
-    @Test void naoAceitaImagemOuMetodoPixInvalidosDoProvedor() {
-        for(String body:new String[]{pixResponse("PHN2Zz48L3N2Zz4="),pixResponse(PNG).replace("\"pix\"","\"master\""),
-                pixResponse(PNG).replace("000201-test","invalid"),pixResponse(PNG).replace("date_of_expiration","missing")}) {
-            server.reset(); server.expect(requestTo("https://api.mercadopago.com/v1/payments/900"))
-                    .andRespond(withSuccess(body,MediaType.APPLICATION_JSON));
-            assertThrows(ApiException.class,()->gateway.fetchPix("900",command("APP_USR-test").seller())); server.verify();
+
+
+
+
+
+
+    @Test void recusa401NasConsultasNaoExpoeCredenciais() {
+        var seller = command("APP_USR-test").seller();
+        String[] urls = {
+                "https://api.mercadopago.com/v1/payments/900",
+                "https://api.mercadopago.com/v1/payments/search?external_reference=reference&sort=date_created&criteria=asc&limit=50&offset=0",
+                "https://api.mercadopago.com/checkout/preferences/pref"
+        };
+        org.junit.jupiter.api.function.Executable[] operations = {
+                () -> gateway.fetch("900", seller),
+                () -> gateway.search("reference", seller),
+                () -> gateway.resumeCheckout("pref", command("APP_USR-test"))
+        };
+        for (int i = 0; i < operations.length; i++) {
+            server.reset();
+            server.expect(requestTo(urls[i])).andExpect(method(HttpMethod.GET))
+                    .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
+                            .body("{\"message\":\"Unauthorized use of live credentials\"}"));
+            ApiException error = assertThrows(ApiException.class, operations[i]);
+            assertEquals(HttpStatus.BAD_GATEWAY, error.getStatus());
+            server.verify();
         }
     }
-    @Test void erroDeCredencialDeTestePixTemMotivoSeguroSemVazarDadosDoProvedor() {
+
+
+    @Test void falhaNaBuscaLogaOperacaoReferenciaERequestIdSemDadosPrivadosOuLogDuplicado() {
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MercadoPagoGateway.class);
         var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         logs.start(); logger.addAppender(logs);
         try {
-            server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                    .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
-                            .header("X-Request-ID", "53732375-6bf8-4e6e-846e-14683fae51cf").body("""
-                            {"error":"internal_server_error","message":"fill and validate error list: user_allowed_only_in_test : 400",
-                             "payer":{"email":"PRIVATE-BUYER@example.invalid","identification":{"number":"19119119100"}},
-                             "private":"APP_USR-PRIVATE-ACCESS"}
-                            """));
-            ApiException error = assertThrows(ApiException.class, () -> gateway.createPix(new PixCommand(
-                    command("APP_USR-PRIVATE-ACCESS"), "PRIVATE-BUYER@example.invalid", "19119119100", null)));
-            assertEquals(HttpStatus.BAD_GATEWAY, error.getStatus());
-            assertTrue(error.getMessage().contains("combinação de dados e credenciais"));
-            assertFalse(error.getMessage().contains("autorização de teste do organizador"));
-            assertEquals(2, logs.list.size());
-            String sent = logs.list.get(0).getFormattedMessage();
-            assertTrue(sent.contains("operation=create action=sent checkout=20 reference=unavailable"));
-            assertTrue(sent.contains("credential_source=SELLER_OAUTH credential_type=APP_USR client=client"));
-            assertTrue(sent.contains("payer_email_present=true payer_email_format=true payer_cpf_digits_11=true"));
-            String message = logs.list.get(1).getFormattedMessage();
-            assertTrue(message.contains("operation=create action=failed checkout=20"));
-            assertTrue(message.contains("HTTP=500 motivo=user_allowed_only_in_test"));
-            assertTrue(message.contains("request_id=53732375-6bf8-4e6e-846e-14683fae51cf"));
-            var correlation = java.util.regex.Pattern.compile("correlation_id=([0-9a-f-]{36})").matcher(sent);
-            assertTrue(correlation.find()); assertTrue(message.contains("correlation_id=" + correlation.group(1)));
-            for (var entry : logs.list) {
-                assertFalse(entry.getFormattedMessage().contains("PRIVATE"));
-                assertFalse(entry.getFormattedMessage().contains("19119119100"));
-                assertFalse(java.util.Arrays.toString(entry.getArgumentArray()).contains("PRIVATE"));
+            String reference = "187558cf-63b5-4671-9384-3f8b3cc1eb5d";
+            String requestId = "f4efb40d-7c98-4aa7-bca3-c35cb18d0aa8";
+            String[] references = {reference, "PRIVATE-REFERENCE"};
+            for (int i = 0; i < references.length; i++) {
+                String searchReference = references[i];
+                server.reset();
+                server.expect(request -> assertEquals("/v1/payments/search", request.getURI().getPath()))
+                        .andExpect(method(HttpMethod.GET))
+                        .andRespond(withStatus(i == 0 ? HttpStatus.UNAUTHORIZED : HttpStatus.INTERNAL_SERVER_ERROR)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .header("X-Request-ID", i == 0 ? requestId : "PRIVATE-HEADER")
+                                .body(i == 0
+                                        ? "{\"message\":\"Unauthorized use of live credentials\",\"private\":\"PRIVATE-BODY\"}"
+                                        : "{\"message\":\"PRIVATE-BODY\"}"));
+                ApiException error = assertThrows(ApiException.class, () -> gateway.search(
+                        searchReference, command("APP_USR-PRIVATE-ACCESS").seller()));
+                assertEquals(i + 1, logs.list.size());
+                String message = logs.list.getLast().getFormattedMessage();
+                assertTrue(message.contains("operation=search action=failed"));
+                assertTrue(message.contains("reference=" + (i == 0 ? reference : "unknown")));
+                assertTrue(message.contains(i == 0 ? "HTTP=401 motivo=unauthorized_live_credentials" : "HTTP=500 motivo=provider_error"));
+                assertTrue(message.contains("request_id=" + (i == 0 ? requestId : "unavailable")));
+                assertFalse(message.contains("PRIVATE"));
+                assertFalse(message.contains("https://"));
+                assertFalse(java.util.Arrays.toString(logs.list.getLast().getArgumentArray()).contains("PRIVATE"));
+                server.verify();
             }
-            assertFalse(error.getMessage().contains("PRIVATE"));
-            server.verify();
         } finally { logger.detachAppender(logs); logs.stop(); }
-    }
-
-    @Test void pixLogaMetadadosCorrelacionadosSemEmailCpfTokenQrOuRespostaBruta() {
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MercadoPagoGateway.class);
-        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
-        logs.start(); logger.addAppender(logs);
-        try {
-            CheckoutCommand original = command("APP_USR-PRIVATE-ACCESS");
-            String reference = "a5e479ca-48b9-414d-92c8-3e0edc54cfc7";
-            CheckoutCommand c = new CheckoutCommand(original.sessionId(), reference, original.amount(),
-                    "PRIVATE-DESCRIPTION", original.returnUrl(), original.expiresAt(), original.seller(),
-                    original.marketplaceFee(), original.testMode());
-            String response = pixResponse(PNG).replace("reference", reference).replace("000201-test", "000201-PRIVATE-QR");
-            server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                    .andExpect(header("X-Idempotency-Key", reference))
-                    .andRespond(withSuccess(response, MediaType.APPLICATION_JSON)
-                            .header("X-Request-ID", "849dcd23-e2d4-4e4d-8e90-d6f34f54330d"));
-            assertNotNull(gateway.createPix(new PixCommand(c, "PRIVATE-BUYER@example.invalid", "19119119100", "https://PRIVATE.test/webhook")));
-            assertEquals(2, logs.list.size());
-            String sent = logs.list.getFirst().getFormattedMessage();
-            assertTrue(sent.contains("reference=" + reference));
-            assertTrue(sent.contains("transaction_amount_present=true description_present=true"));
-            assertTrue(sent.contains("application_fee_present=true notification_url_present=true"));
-            assertTrue(sent.contains("expires_at=" + c.expiresAt()));
-            String created = logs.list.getLast().getFormattedMessage();
-            assertTrue(created.contains("operation=create action=created checkout=20"));
-            assertTrue(created.contains("payment_status=PENDING live_mode=false"));
-            assertTrue(created.contains("request_id=849dcd23-e2d4-4e4d-8e90-d6f34f54330d"));
-            var correlation = java.util.regex.Pattern.compile("correlation_id=([0-9a-f-]{36})").matcher(sent);
-            assertTrue(correlation.find()); assertTrue(created.contains("correlation_id=" + correlation.group(1)));
-            for (var entry : logs.list) {
-                String message = entry.getFormattedMessage();
-                assertFalse(message.contains("PRIVATE")); assertFalse(message.contains("19119119100"));
-                assertFalse(message.contains(PNG)); assertFalse(message.contains("https://"));
-                assertFalse(java.util.Arrays.toString(entry.getArgumentArray()).contains("PRIVATE"));
-            }
-            server.verify();
-        } finally { logger.detachAppender(logs); logs.stop(); }
-    }
-
-    @Test void erroPixNaoLogaHeaderArbitrarioNemMensagemBrutaDesconhecida() {
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MercadoPagoGateway.class);
-        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
-        logs.start(); logger.addAppender(logs);
-        try {
-            server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                    .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
-                            .header("X-Request-ID", "PRIVATE-HEADER").body("{\"message\":\"PRIVATE-BODY\"}"));
-            assertThrows(ApiException.class, () -> gateway.createPix(new PixCommand(
-                    command("APP_USR-PRIVATE-ACCESS"), "PRIVATE-BUYER@example.invalid", "19119119100", null)));
-            assertEquals(2, logs.list.size());
-            String error = logs.list.getLast().getFormattedMessage();
-            assertTrue(error.contains("HTTP=400 motivo=provider_error request_id=unavailable"));
-            for (var entry : logs.list) assertFalse(entry.getFormattedMessage().contains("PRIVATE"));
-            server.verify();
-        } finally { logger.detachAppender(logs); logs.stop(); }
-    }
-
-    @Test void pix401PorCredenciaisNaoOrientaEsperarNemExpoeRespostaPrivada() {
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MercadoPagoGateway.class);
-        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
-        logs.start(); logger.addAppender(logs);
-        try {
-            server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                    .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
-                            .header("X-Request-ID", "c2e0287c-7359-4f49-83d8-e7c268d4d6c8").body("""
-                            {"error":"unauthorized","message":"Unauthorized use of live credentials",
-                             "private":"APP_USR-PRIVATE-ACCESS","email":"PRIVATE-BUYER@example.invalid"}
-                            """));
-            ApiException error = assertThrows(ApiException.class, () -> gateway.createPix(new PixCommand(
-                    command("APP_USR-PRIVATE-ACCESS"), "PRIVATE-BUYER@example.invalid", "19119119100", null)));
-            assertEquals(HttpStatus.BAD_GATEWAY,error.getStatus());
-            assertTrue(error.getMessage().contains("permissões da aplicação"));
-            assertTrue(error.getMessage().contains("pagamentos Pix"));
-            assertFalse(error.getMessage().contains("em instantes"));
-            assertTrue(logs.list.getLast().getFormattedMessage().contains("HTTP=401 motivo=unauthorized_live_credentials"));
-            for(var entry : logs.list) {
-                assertFalse(entry.getFormattedMessage().contains("PRIVATE"));
-                assertFalse(entry.getFormattedMessage().contains("19119119100"));
-            }
-            assertFalse(error.getMessage().contains("PRIVATE")); server.verify();
-        } finally { logger.detachAppender(logs); logs.stop(); }
-    }
-
-    @Test void erroComMesmoTextoForaDo401ContinuaGenerico() {
-        server.expect(requestTo("https://api.mercadopago.com/v1/payments"))
-                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
-                        .body("{\"message\":\"Unauthorized use of live credentials\"}"));
-        ApiException error=assertThrows(ApiException.class,()->gateway.createPix(new PixCommand(
-                command("APP_USR-test"),"payer@test.invalid","19119119100",null)));
-        assertTrue(error.getMessage().contains("em instantes")); server.verify();
     }
 
     @Test void atualizarPreferenciaLegadaExcluiPixSemCriarOutroCheckout() {

@@ -1,3 +1,3 @@
 package br.com.wodz.payment;
 
-public enum CheckoutMethod { CARD, PIX }
+public enum CheckoutMethod { CARD }

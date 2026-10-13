@@ -29,10 +29,19 @@ class AthleteExperienceDatabaseTest {
                 VALUES (1,1,'Legado','legado','Arena','Recife','PE',CURRENT_DATE+30,CURRENT_DATE+31,'PUBLISHED',TRUE);
                 INSERT INTO category(id,championship_id,name,team_size,price) VALUES (1,1,'RX',1,150);
                 INSERT INTO team(category_id,captain_id,name,registration_code) VALUES (1,2,'Legado','LEGADO1234');
+                INSERT INTO team_member(team_id,full_name,email,cpf,birth_date,gender,is_captain)
+                VALUES (1,'Atleta de sobrenome completo para conferir a migração e a preservação de nomes com mais de oitenta caracteres',
+                        'athlete@test.invalid','52998224725','1990-01-01','M',TRUE);
                 """);
         Flyway.configure().dataSource(pg.getPostgresDatabase()).locations("classpath:db/migration").load().migrate();
         assertEquals("LEGADO1234",jdbc.queryForObject("SELECT registration_code FROM team",String.class));
         assertEquals("LEGADO1234",jdbc.queryForObject("SELECT registration_code FROM vw_team_overview",String.class));
+        String athleteName = jdbc.queryForObject("SELECT upper(trim(full_name)) FROM team_member", String.class);
+        assertTrue(athleteName.length() > 80);
+        assertEquals(athleteName, jdbc.queryForObject("SELECT name FROM team", String.class));
+        assertEquals(athleteName, jdbc.queryForObject("SELECT team_name FROM vw_team_overview", String.class));
+        assertNull(jdbc.queryForObject("SELECT gender FROM app_user WHERE id=2", String.class));
+        assertThrows(DataAccessException.class, () -> jdbc.update("UPDATE app_user SET gender='X' WHERE id=2"));
     }
     @AfterAll static void close() throws Exception { if (pg != null) pg.close(); }
     @BeforeEach void fixture() {
@@ -49,6 +58,87 @@ class AthleteExperienceDatabaseTest {
     }
     private void insert(int category, String name, String status) {
         jdbc.update("INSERT INTO team(category_id,captain_id,name,status) VALUES (?,2,?,?)", category, name, status);
+    }
+
+    @Test void memberLinkPersistsAndRepositoryGrantsAccessOnlyAfterAcceptance() throws Exception {
+        jdbc.execute("UPDATE category SET team_size=2 WHERE id=1");
+        teamWithGenders("MF");
+        jdbc.execute("INSERT INTO app_user(id,name,email,password_hash,role) VALUES (3,'Colega','friend@test.invalid','x','ATHLETE')");
+        jdbc.update("UPDATE team_member SET email='FRIEND@test.invalid' WHERE cpf='11144477735'");
+        var factory = new org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean();
+        factory.setDataSource(pg.getPostgresDatabase());
+        factory.setPackagesToScan("br.com.wodz.domain");
+        factory.setJpaVendorAdapter(new org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter());
+        factory.setJpaPropertyMap(java.util.Map.of("hibernate.hbm2ddl.auto", "none",
+                "hibernate.physical_naming_strategy", "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy"));
+        try {
+            factory.afterPropertiesSet();
+            try (var em = factory.getObject().createEntityManager()) {
+                var repositories = new org.springframework.data.jpa.repository.support.JpaRepositoryFactory(em);
+                var teams = repositories.getRepository(br.com.wodz.repository.TeamRepository.class);
+                var users = repositories.getRepository(br.com.wodz.repository.AppUserRepository.class);
+                var championships = org.mockito.Mockito.mock(ChampionshipService.class);
+                var championship = new br.com.wodz.domain.Championship(); championship.setId(1L);
+                org.mockito.Mockito.when(championships.findPublic("evento")).thenReturn(championship);
+                var service = new TeamService(teams, org.mockito.Mockito.mock(br.com.wodz.repository.CategoryRepository.class),
+                        users, championships, org.mockito.Mockito.mock(ScheduleQueryService.class),
+                        org.mockito.Mockito.mock(OwnershipGuard.class), jdbc);
+                em.getTransaction().begin();
+                assertTrue(service.myTeams(3L).isEmpty());
+                assertEquals(100L, service.linkCandidates("evento", 3L).getFirst().teamId());
+                service.linkMember("evento", 100L, 3L);
+                em.getTransaction().commit(); em.clear();
+                em.getTransaction().begin();
+                assertEquals(100L, service.myTeams(3L).getFirst().id());
+                assertEquals(100L, service.myTeams(2L).getFirst().id());
+                assertTrue(service.linkCandidates("evento", 3L).isEmpty());
+                assertThrows(br.com.wodz.common.ApiException.class, () -> service.rename(100L, 3L, "Proibido"));
+                assertEquals("NOVO NOME", service.rename(100L, 2L, "Novo nome").name());
+                em.getTransaction().commit();
+                assertEquals(3L, jdbc.queryForObject("SELECT user_id FROM team_member WHERE cpf='11144477735'", Long.class));
+            }
+        } finally { factory.destroy(); }
+    }
+
+    @Test void leaderboardPublicaNomesDosAtletasConfirmadosParaBuscaSemDadosDeCadastro() throws Exception {
+        jdbc.execute("UPDATE category SET gender_policy='MALE' WHERE id=1");
+        teamWithGenders("M");
+        jdbc.update("UPDATE team SET status='CONFIRMED' WHERE id=100");
+        var championship = new br.com.wodz.domain.Championship(); championship.setId(1L);
+        var category = new br.com.wodz.domain.Category(); category.setId(1L); category.setName("RX");
+        var championships = org.mockito.Mockito.mock(ChampionshipService.class);
+        var categories = org.mockito.Mockito.mock(br.com.wodz.repository.CategoryRepository.class);
+        var workouts = org.mockito.Mockito.mock(br.com.wodz.repository.WorkoutRepository.class);
+        org.mockito.Mockito.when(championships.findPublic("evento")).thenReturn(championship);
+        org.mockito.Mockito.when(categories.findByChampionshipIdOrderByDisplayOrderAscNameAsc(1L))
+                .thenReturn(java.util.List.of(category));
+        var board = new LeaderboardService(championships, categories, workouts, jdbc).forChampionship("evento", 1L);
+        assertEquals(java.util.List.of("Atleta"), board.rows().getFirst().athleteNames());
+    }
+
+    @Test void painelOrganizadorCarregaAtletasComCamisasEPreservaCamposDoPerfil() throws Exception {
+        jdbc.execute("UPDATE category SET team_size=2,gender_policy='MIXED',allowed_male_counts=ARRAY[1] WHERE id=1");
+        teamWithGenders("MF");
+        jdbc.update("UPDATE team_member SET is_captain=TRUE,shirt_size='G',phone='11999990000' WHERE cpf='52998224725'");
+        jdbc.update("UPDATE team_member SET full_name='Parceira',shirt_size='P',phone='21999990000' WHERE cpf='11144477735'");
+        jdbc.update("UPDATE app_user SET document='11222333000181',street='RUA A',address_number='10',city='RECIFE',postal_code='50000000' WHERE id=1");
+        var guard = org.mockito.Mockito.mock(OwnershipGuard.class);
+        var service = new TeamService(org.mockito.Mockito.mock(br.com.wodz.repository.TeamRepository.class),
+                org.mockito.Mockito.mock(br.com.wodz.repository.CategoryRepository.class),
+                org.mockito.Mockito.mock(br.com.wodz.repository.AppUserRepository.class),
+                org.mockito.Mockito.mock(ChampionshipService.class), org.mockito.Mockito.mock(ScheduleQueryService.class), guard, jdbc);
+        var result = service.adminList(1L, null, 1L);
+        assertEquals(1, result.size());
+        assertEquals(2, result.getFirst().members().size());
+        assertEquals(br.com.wodz.domain.ShirtSize.G, result.getFirst().members().getFirst().shirtSize());
+        assertTrue(result.getFirst().members().getFirst().captain());
+        assertEquals("Parceira", result.getFirst().members().get(1).fullName());
+        assertEquals(br.com.wodz.domain.ShirtSize.P, result.getFirst().members().get(1).shirtSize());
+        assertTrue(service.adminList(2L, null, 1L).isEmpty());
+        assertTrue(service.adminList(1L, 2L, 1L).isEmpty());
+        org.mockito.Mockito.verify(guard).championship(2L, 1L);
+        assertEquals("11222333000181", jdbc.queryForObject("SELECT document FROM app_user WHERE id=1", String.class));
+        assertEquals("50000000", jdbc.queryForObject("SELECT postal_code FROM app_user WHERE id=1", String.class));
     }
 
     @Test void codigoGeradoNoBancoEImprevisivelEPreservaLinksAntigos() {

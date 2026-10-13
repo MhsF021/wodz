@@ -30,33 +30,42 @@ public final class TeamDtos {
             @NotBlank @Pattern(regexp = "\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}", message = "CPF inválido") String cpf,
             @NotNull @Past LocalDate birthDate,
             @NotNull Gender gender,
-            ShirtSize shirtSize) {
+            @NotNull(message = "Selecione o tamanho da camiseta") ShirtSize shirtSize,
+            @NotBlank(message = "Informe o telefone do atleta") @Size(max = 20) String phone) {
     }
 
     public record TeamRegistrationRequest(
             @NotNull Long categoryId,
-            @NotBlank @Size(max = 80) String name,
+            @Size(max = 80) String name,
             @Size(max = 120) String boxName,
             @Size(max = 100) String city,
             @NotEmpty @Size(max = 10) List<@Valid MemberRequest> members) {
     }
 
     public record MemberDto(Long id, String fullName, String email, String cpf, LocalDate birthDate, Gender gender,
-                            ShirtSize shirtSize, boolean captain) {
+                            ShirtSize shirtSize, boolean captain, String phone) {
     }
 
     public record TeamDto(Long id, String name, String boxName, String city, TeamStatus status,
                           String registrationCode, Instant createdAt, Instant confirmedAt,
-                          Refs.ChampionshipRef championship, Refs.CategoryRef category, List<MemberDto> members) {
+                          Refs.ChampionshipRef championship, Refs.CategoryRef category, List<MemberDto> members,
+                          BigDecimal registrationAmount, Long captainId) {
     }
+
+    public record LinkCandidate(Long teamId, String teamName, String captainName) {}
+
+    public record TeamNameRequest(@NotBlank @Size(max = 80) String name) {}
 
     /** Linha da view vw_team_overview. */
     public record TeamOverview(Long teamId, String teamName, String boxName, String city, TeamStatus status,
                                String registrationCode, Instant createdAt, Instant confirmedAt, Long categoryId,
                                String categoryName, BigDecimal price, String captainName, String captainEmail,
                                String captainPhone, int memberCount, String memberNames,
-                               PaymentStatus lastPaymentStatus, PaymentMethod lastPaymentMethod, Instant paidAt) {
+                               PaymentStatus lastPaymentStatus, PaymentMethod lastPaymentMethod, Instant paidAt,
+                               List<OverviewMember> members) {
     }
+
+    public record OverviewMember(Long id, String fullName, ShirtSize shirtSize, boolean captain) {}
 
     public record TeamStatusRequest(@NotNull TeamStatus status) {
     }

@@ -37,7 +37,7 @@ export function CategoryCards({ championship }: { championship: ChampionshipDeta
     <ul className="category-cards">
       {visible.map(category => <li key={category.id}>
         <article className={`category-card category-card--${category.genderPolicy?.toLowerCase() ?? 'pending'}`}>
-          <div className="category-card__heading"><span className="category-card__format"><Users size={14} aria-hidden /> {teamLabel(category)}</span><span className="category-card__price">{Number(category.price) === 0 ? 'Gratuita' : money(category.price)}</span></div>
+          <div className="category-card__heading"><span className="category-card__format"><Users size={14} aria-hidden /> {teamLabel(category)}</span><span className="category-card__price">{Number(category.price) === 0 ? 'Gratuita' : `${money(category.price)} / atleta`}</span></div>
           <h3><button type="button" className="category-card__open" aria-haspopup="dialog" onClick={() => setSelectedId(category.id)}>
             {category.name}<ArrowUpRight size={20} aria-hidden /></button></h3>
           <p className="category-card__composition">{categoryComposition(category)}</p>
@@ -54,7 +54,8 @@ export function CategoryDetails({ category, championship, onClose }: { category:
     <dl className="category-details__facts">
       <div><dt>Formato</dt><dd>{teamLabel(category)} · {category.teamSize} atleta{category.teamSize > 1 ? 's' : ''}</dd></div>
       <div><dt>Composição</dt><dd>{categoryComposition(category)}</dd></div>
-      <div><dt>Inscrição</dt><dd>{Number(category.price) === 0 ? 'Gratuita' : money(category.price)}</dd></div>
+      <div><dt>Inscrição por atleta</dt><dd>{Number(category.price) === 0 ? 'Gratuita' : money(category.price)}</dd></div>
+      {Number(category.price) > 0 && <div><dt>Total da equipe</dt><dd>{category.teamSize} × {money(category.price)} = {money(Number(category.price) * category.teamSize)}</dd></div>}
     </dl>
     {category.description && <p className="category-details__description">{category.description}</p>}
     <section className="category-details__section"><h3>Cargas e movimentos</h3><MovementStandardsTable category={category} /></section>

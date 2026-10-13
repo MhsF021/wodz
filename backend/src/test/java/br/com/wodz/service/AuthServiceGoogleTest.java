@@ -3,6 +3,7 @@ package br.com.wodz.service;
 import br.com.wodz.common.ApiException;
 import br.com.wodz.domain.AppUser;
 import br.com.wodz.domain.Role;
+import br.com.wodz.domain.Gender;
 import br.com.wodz.dto.AuthDtos.AuthResponse;
 import br.com.wodz.dto.AuthDtos.GoogleLoginRequest;
 import br.com.wodz.dto.AuthDtos.GoogleLoginResult;
@@ -63,7 +64,7 @@ class AuthServiceGoogleTest {
         when(users.lockActiveByEmail("ana@outro.test")).thenReturn(Optional.of(existing));
 
         ApiException exception = assertThrows(ApiException.class,
-                () -> service.google(new GoogleLoginRequest("third-party", null)));
+                () -> service.google(new GoogleLoginRequest("third-party", null, null)));
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatus());
         assertNull(existing.getGoogleSub());
@@ -78,7 +79,7 @@ class AuthServiceGoogleTest {
         when(google.verify("workspace")).thenReturn(new GoogleProfile("google-w", "ana@workspace.test", "Ana", "workspace.test"));
         when(users.lockActiveByEmail("ana@workspace.test")).thenReturn(Optional.of(existing));
 
-        GoogleLoginResult result = service.google(new GoogleLoginRequest("workspace", null));
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("workspace", null, null));
 
         assertSame(issued, result.auth());
         assertEquals("google-w", existing.getGoogleSub());
@@ -86,7 +87,7 @@ class AuthServiceGoogleTest {
 
     @Test
     void primeiroAcessoSemPerfilPedeEscolhaENaoCriaConta() {
-        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null));
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null, null));
 
         assertNull(result.auth());
         assertEquals("ana@gmail.com", result.pending().email());
@@ -96,7 +97,7 @@ class AuthServiceGoogleTest {
 
     @Test
     void primeiroAcessoComPerfilCriaContaSemSenha() {
-        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", Role.ORGANIZER));
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", Role.ORGANIZER, null));
 
         ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
         verify(users).save(saved.capture());
@@ -106,18 +107,49 @@ class AuthServiceGoogleTest {
         assertEquals("ANA LIMA", saved.getValue().getName());
         assertEquals("google-123", saved.getValue().getGoogleSub());
         assertEquals(Role.ORGANIZER, saved.getValue().getRole());
+        assertNull(saved.getValue().getGender());
         assertFalse(saved.getValue().hasPassword());
+    }
+
+    @Test void primeiroAcessoGoogleComPerfilMasSemSexoNaoCriaConta() {
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", Role.ATHLETE, null));
+        assertNull(result.auth());
+        assertNotNull(result.pending());
+        verify(users, never()).save(any());
+    }
+
+    @Test void cadastroLocalExigeSexoAntesDeCriarConta() {
+        assertThrows(ApiException.class, () -> service.register(
+                new RegisterRequest("Ana", "ana@test.invalid", "senha-12345", Role.ATHLETE, null, null)));
+        verify(users, never()).save(any());
+    }
+
+    @Test void cadastroLocalOrganizadorDispensaSexo() {
+        service.register(new RegisterRequest("Ana", "ana@test.invalid", "senha-12345", Role.ORGANIZER, "11999990000", null));
+        ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
+        verify(users).save(saved.capture());
+        assertEquals(Role.ORGANIZER, saved.getValue().getRole());
+        assertNull(saved.getValue().getGender());
+    }
+
+    @Test void cadastroLocalExigeTelefone() {
+        for (String phone : new String[] {null, "", " ", "99999-0000"}) {
+            assertThrows(ApiException.class, () -> service.register(new RegisterRequest(
+                    "Ana", "ana@test.invalid", "senha-12345", Role.ATHLETE, phone, Gender.F)));
+        }
+        verify(users, never()).save(any());
     }
 
     @Test
     void cadastroNormalizaNomeComAcentosSemAlterarSenha() {
         String password = "sEnHa-CaseSensitive";
-        service.register(new RegisterRequest("  João D'Ávila  ", "JOAO@wodz.dev", password, Role.ATHLETE, null));
+        service.register(new RegisterRequest("  João D'Ávila  ", "JOAO@wodz.dev", password, Role.ATHLETE, "11999990000", Gender.M));
 
         ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
         verify(users).save(saved.capture());
         assertEquals("JOÃO D'ÁVILA", saved.getValue().getName());
         assertEquals("joao@wodz.dev", saved.getValue().getEmail());
+        assertEquals(Gender.M, saved.getValue().getGender());
         assertTrue(encoder.matches(password, saved.getValue().getPasswordHash()));
         assertFalse(encoder.matches(password.toUpperCase(java.util.Locale.ROOT), saved.getValue().getPasswordHash()));
     }
@@ -127,7 +159,7 @@ class AuthServiceGoogleTest {
         AppUser linked = user("google-123", "outro-email@gmail.com");
         when(users.findByGoogleSub("google-123")).thenReturn(Optional.of(linked));
 
-        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null));
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null, null));
 
         assertSame(issued, result.auth());
         verify(tokens).issue(linked);
@@ -139,7 +171,7 @@ class AuthServiceGoogleTest {
         existing.setPasswordHash(encoder.encode("senha-123"));
         when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
 
-        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null));
+        GoogleLoginResult result = service.google(new GoogleLoginRequest("credencial", null, null));
 
         assertNotNull(result.auth());
         assertEquals("google-123", existing.getGoogleSub());
@@ -151,7 +183,7 @@ class AuthServiceGoogleTest {
         when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> service.google(new GoogleLoginRequest("credencial", null)));
+                () -> service.google(new GoogleLoginRequest("credencial", null, null)));
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
     }
 
@@ -164,7 +196,7 @@ class AuthServiceGoogleTest {
         when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(existing));
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> service.google(new GoogleLoginRequest("credencial", Role.ATHLETE)));
+                () -> service.google(new GoogleLoginRequest("credencial", Role.ATHLETE, Gender.F)));
 
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
         assertNull(existing.getGoogleSub());
@@ -179,7 +211,7 @@ class AuthServiceGoogleTest {
         current.setGoogleLinkDisabled(true);
         when(users.lockActiveByEmail("ana@gmail.com")).thenReturn(Optional.of(current));
 
-        assertThrows(ApiException.class, () -> service.google(new GoogleLoginRequest("credencial", null)));
+        assertThrows(ApiException.class, () -> service.google(new GoogleLoginRequest("credencial", null, null)));
 
         assertNull(current.getGoogleSub());
         verify(users).lockActiveByEmail("ana@gmail.com");

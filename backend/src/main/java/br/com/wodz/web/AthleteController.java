@@ -2,6 +2,8 @@ package br.com.wodz.web;
 
 import br.com.wodz.common.CurrentUser;
 import br.com.wodz.dto.TeamDtos.MyHeats;
+import br.com.wodz.dto.TeamDtos.LinkCandidate;
+import br.com.wodz.dto.TeamDtos.TeamNameRequest;
 import br.com.wodz.dto.TeamDtos.TeamDto;
 import br.com.wodz.dto.TeamDtos.TeamRegistrationRequest;
 import br.com.wodz.service.TeamService;
@@ -15,6 +17,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -45,6 +48,22 @@ public class AthleteController {
     @GetMapping("/teams")
     public List<TeamDto> myTeams(@AuthenticationPrincipal Jwt jwt) {
         return teams.myTeams(CurrentUser.id(jwt));
+    }
+
+    @GetMapping("/championships/{slug}/team-links")
+    public List<LinkCandidate> linkCandidates(@AuthenticationPrincipal Jwt jwt, @PathVariable String slug) {
+        return teams.linkCandidates(slug, CurrentUser.id(jwt));
+    }
+
+    @PostMapping("/championships/{slug}/teams/{teamId}/link")
+    public TeamDto linkMember(@AuthenticationPrincipal Jwt jwt, @PathVariable String slug, @PathVariable Long teamId) {
+        return teams.linkMember(slug, teamId, CurrentUser.id(jwt));
+    }
+
+    @PutMapping("/teams/{teamId}/name")
+    public TeamDto rename(@AuthenticationPrincipal Jwt jwt, @PathVariable Long teamId,
+                          @Valid @RequestBody TeamNameRequest req) {
+        return teams.rename(teamId, CurrentUser.id(jwt), req.name());
     }
 
     @PostMapping("/teams/{teamId}/cancel")

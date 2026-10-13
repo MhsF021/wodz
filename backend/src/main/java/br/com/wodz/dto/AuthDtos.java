@@ -1,6 +1,7 @@
 package br.com.wodz.dto;
 
 import br.com.wodz.domain.Role;
+import br.com.wodz.domain.Gender;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,7 +19,8 @@ public final class AuthDtos {
             @NotBlank @Email @Size(max = 160) String email,
             @NotBlank @Size(min = 8, max = 72, message = "A senha precisa ter entre 8 e 72 caracteres") String password,
             @NotNull Role role,
-            @Size(max = 20) String phone) {
+            @NotBlank(message = "Informe o telefone") @Size(max = 20) String phone,
+            Gender gender) {
     }
 
     public record LoginRequest(@NotBlank @Email @Size(max = 160) String email,
@@ -27,7 +29,8 @@ public final class AuthDtos {
 
     /** hasPassword: falso para quem só entra com o Google; googleLinked: conta vinculada ao Google. */
     public record UserDto(Long id, String name, String email, Role role, String phone, boolean hasPassword,
-                          boolean googleLinked) {
+                          boolean googleLinked, Gender gender, String document, String street,
+                          String addressNumber, String city, String postalCode) {
     }
 
     /** A senha atual só é exigida quando o e-mail muda. */
@@ -35,7 +38,13 @@ public final class AuthDtos {
             @NotBlank @Size(max = 120) String name,
             @NotBlank @Email @Size(max = 160) String email,
             @Size(max = 20) String phone,
-            @Size(max = 72) String currentPassword) {
+            @Size(max = 72) String currentPassword,
+            Gender gender,
+            @NotBlank(message = "Informe o CPF ou CNPJ") @Size(max = 18) String document,
+            @Size(max = 160) String street,
+            @Size(max = 20) String addressNumber,
+            @Size(max = 100) String city,
+            @Size(max = 9) String postalCode) {
     }
 
     /** A primeira senha de uma conta Google exige nova confirmação Google; depois exige a senha atual. */
@@ -64,7 +73,7 @@ public final class AuthDtos {
     }
 
     /** credential: ID token do botão do Google. role: só no primeiro acesso, quando a conta ainda não existe. */
-    public record GoogleLoginRequest(@NotBlank @Size(max = 8192) String credential, Role role) {
+    public record GoogleLoginRequest(@NotBlank @Size(max = 8192) String credential, Role role, Gender gender) {
     }
 
     public record PendingGoogleSignup(String email, String name) {

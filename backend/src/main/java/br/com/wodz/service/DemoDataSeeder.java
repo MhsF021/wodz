@@ -465,14 +465,17 @@ public class DemoDataSeeder implements ApplicationRunner {
             Member captain = athlete == null ? person(captainGender) : athlete(athlete);
             AppUser captainUser = athlete != null ? athlete : user(captain.name(), captain.email(), Role.ATHLETE,
                     passwordHash, random);
+            captainUser.setGender(captain.gender());
 
             Team team = new Team();
             team.setCategory(category);
             team.setCaptain(captainUser);
-            team.setName(athlete != null ? "Tico e Teco" : regionTeamNames.get(teamSeq % regionTeamNames.size()) + " " + (++teamSeq));
+            team.setName(category.getTeamSize() == 1 ? captain.name()
+                    : athlete != null ? "Tico e Teco" : regionTeamNames.get(teamSeq % regionTeamNames.size()) + " " + (++teamSeq));
             team.setBoxName(region.boxes()[random.nextInt(region.boxes().length)]);
             team.setCity(region.cities()[random.nextInt(region.cities().length)]);
             team.setRegistrationCode(Codes.registrationCode());
+            team.setRegistrationAmount(category.getPrice().multiply(BigDecimal.valueOf(category.getTeamSize())));
             boolean free = category.getPrice().signum() == 0;
             team.setStatus(free ? TeamStatus.CONFIRMED : TeamStatus.PENDING_PAYMENT);
             team.setConfirmedAt(free ? confirmedAt : null);
