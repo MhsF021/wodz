@@ -46,6 +46,10 @@ public class PayoutAccount {
     @Column(name = "application_id", length = 40)
     private String applicationId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private PayoutCredentialSource credentialSource = PayoutCredentialSource.SELLER_OAUTH;
+
     private String accountLabel;
 
     /** Cifrado. */

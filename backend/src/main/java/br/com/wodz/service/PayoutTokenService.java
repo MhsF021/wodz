@@ -42,6 +42,17 @@ public class PayoutTokenService {
     public SellerAccount seller(Long accountId, boolean requireActive) {
         PayoutAccount account = accounts.lockById(accountId)
                 .orElseThrow(() -> ApiException.unprocessable("Conta de recebimento não encontrada."));
+        if (account.getCredentialSource() == br.com.wodz.domain.PayoutCredentialSource.PLATFORM_DIRECT) {
+            if (account.getAccessToken() == null || !Boolean.FALSE.equals(account.getTestAccount()) || !account.isLiveMode())
+                throw ApiException.unprocessable("Conta histórica indisponível para conciliação.");
+            if (requireActive)
+                throw ApiException.unprocessable("Esta conta histórica não está habilitada para novas cobranças.");
+            String directToken = cipher.decrypt(account.getAccessToken());
+            if (!directToken.startsWith("APP_USR-" + account.getApplicationId() + "-")
+                    || !directToken.endsWith("-" + account.getProviderUserId()))
+                throw ApiException.unprocessable("Credencial histórica incompatível.");
+            return new SellerAccount(account.getId(), account.getProviderUserId(), directToken, true);
+        }
         if ((requireActive && !account.isActive()) || account.getAccessToken() == null) {
             throw ApiException.unprocessable("A conta Mercado Pago precisa ser conectada novamente.");
         }

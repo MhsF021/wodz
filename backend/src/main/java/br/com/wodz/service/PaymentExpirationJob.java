@@ -4,7 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Expira cobranças pendentes vencidas (Pix e boletos antigos) chamando a procedure sp_expire_pending_payments. */
+/** Expira cobranças pendentes vencidas chamando a procedure sp_expire_pending_payments. */
 @Component
 public class PaymentExpirationJob {
 

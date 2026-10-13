@@ -3,6 +3,7 @@ package br.com.wodz.service;
 import br.com.wodz.common.ApiException;
 import br.com.wodz.domain.AppUser;
 import br.com.wodz.domain.Role;
+import br.com.wodz.domain.Gender;
 import br.com.wodz.domain.Team;
 import br.com.wodz.domain.TeamStatus;
 import br.com.wodz.dto.AuthDtos.ChangePasswordRequest;
@@ -59,19 +60,24 @@ class AccountServiceTest {
         user.setName("Ana Souza");
         user.setEmail("ana@wodz.dev");
         user.setPhone("11999990000");
+        user.setDocument("52998224725");
         user.setRole(Role.ATHLETE);
+        user.setGender(Gender.F);
         user.setPasswordHash(encoder.encode(SENHA));
         when(users.lockActiveById(7L)).thenReturn(Optional.of(user));
     }
 
     @Test
     void atualizaNomeECelularSemPedirSenha() {
-        UserDto dto = service.update(7L, new UpdateProfileRequest("  Ana Paula Souza ", "ANA@wodz.dev", " ", null));
+        UserDto dto = service.update(7L, new UpdateProfileRequest("  Ana Paula Souza ", "ANA@wodz.dev", "11999990000", null, Gender.F,
+                "529.982.247-25", null, null, null, null));
 
         assertEquals("ANA PAULA SOUZA", dto.name());
         assertEquals("ANA PAULA SOUZA", user.getName());
         assertEquals("ana@wodz.dev", dto.email());
-        assertNull(dto.phone());
+        assertEquals("11999990000", dto.phone());
+        assertEquals("52998224725", dto.document());
+        assertEquals(Gender.F, dto.gender());
     }
 
     @Test void sairRevogaCredenciaisEAutorizacoesPendentesSemApagarPerfil() {
@@ -82,21 +88,52 @@ class AccountServiceTest {
         verify(payoutAccounts).cancelPendingAuthorizations(7L);
     }
 
+    @Test void perfilAtletaExigeCpfETelefone() {
+        for (String phone : new String[] {null, "", " ", "99999-0000"}) {
+            assertThrows(ApiException.class, () -> service.update(7L, new UpdateProfileRequest(
+                    "Ana", user.getEmail(), phone, null, Gender.F, "52998224725", null, null, null, null)));
+        }
+        for (String document : new String[] {null, "", "52998224724", "11.222.333/0001-81"}) {
+            assertThrows(ApiException.class, () -> service.update(7L, new UpdateProfileRequest(
+                    "Ana", user.getEmail(), "11999990000", null, Gender.F, document, null, null, null, null)));
+        }
+    }
+
+    @Test void organizadorSalvaEnderecoSeparadoEPodeDeixarEnderecoETelefoneVazios() {
+        user.setRole(Role.ORGANIZER);
+        user.setGender(null);
+        var dto = service.update(7L, new UpdateProfileRequest("Ana", user.getEmail(), "", null, null,
+                "11.222.333/0001-81", " Rua São João ", "10 A", " São Paulo ", "01310-100"));
+        assertEquals("11222333000181", dto.document());
+        assertNull(dto.gender());
+        assertEquals("RUA SÃO JOÃO", dto.street()); assertEquals("10 A", dto.addressNumber());
+        assertEquals("SÃO PAULO", dto.city()); assertEquals("01310100", dto.postalCode()); assertNull(dto.phone());
+        dto = service.update(7L, new UpdateProfileRequest("Ana", user.getEmail(), null, null, Gender.F,
+                "00.000.000/E08G-12", null, null, null, null));
+        assertEquals("00000000E08G12", dto.document());
+        assertNull(dto.street()); assertNull(dto.addressNumber()); assertNull(dto.city()); assertNull(dto.postalCode());
+        assertThrows(ApiException.class, () -> service.update(7L, new UpdateProfileRequest("Ana", user.getEmail(), null,
+                null, Gender.F, "", null, null, null, null)));
+    }
+
     @Test
     void trocarEmailExigeSenhaAtual() {
         ApiException semSenha = assertThrows(ApiException.class,
-                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", null, null)));
+                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", "11999990000", null, Gender.F,
+                        "52998224725", null, null, null, null)));
         assertEquals(HttpStatus.BAD_REQUEST, semSenha.getStatus());
 
         ApiException senhaErrada = assertThrows(ApiException.class,
-                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", null, "errada")));
+                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", "11999990000", "errada", Gender.F,
+                        "52998224725", null, null, null, null)));
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, senhaErrada.getStatus());
         assertEquals("ana@wodz.dev", user.getEmail());
     }
 
     @Test
     void trocaEmailComSenhaCorreta() {
-        UserDto dto = service.update(7L, new UpdateProfileRequest("Ana", " Nova@Wodz.dev ", null, SENHA));
+        UserDto dto = service.update(7L, new UpdateProfileRequest("Ana", " Nova@Wodz.dev ", "11999990000", SENHA, Gender.F,
+                "52998224725", null, null, null, null));
 
         assertEquals("nova@wodz.dev", dto.email());
     }
@@ -106,7 +143,8 @@ class AccountServiceTest {
         when(users.existsByEmailIgnoreCaseAndIdNot("outra@wodz.dev", 7L)).thenReturn(true);
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> service.update(7L, new UpdateProfileRequest("Ana", "outra@wodz.dev", null, SENHA)));
+                () -> service.update(7L, new UpdateProfileRequest("Ana", "outra@wodz.dev", "11999990000", SENHA, Gender.F,
+                        "52998224725", null, null, null, null)));
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
     }
 
@@ -138,6 +176,7 @@ class AccountServiceTest {
         assertEquals("Conta excluída", user.getName());
         assertEquals("excluida-7@wodz.invalid", user.getEmail());
         assertNull(user.getPhone());
+        assertNull(user.getGender());
         assertFalse(encoder.matches(SENHA, user.getPasswordHash()));
         assertEquals(TeamStatus.CANCELLED, pendente.getStatus());
     }
@@ -174,7 +213,8 @@ class AccountServiceTest {
         user.setDeletedAt(Instant.now());
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> service.update(7L, new UpdateProfileRequest("Ana", "ana@wodz.dev", null, null)));
+                () -> service.update(7L, new UpdateProfileRequest("Ana", "ana@wodz.dev", "11999990000", null, Gender.F,
+                        "52998224725", null, null, null, null)));
         assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
     }
 
@@ -222,7 +262,8 @@ class AccountServiceTest {
         contaSoComGoogle();
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", null, null)));
+                () -> service.update(7L, new UpdateProfileRequest("Ana", "nova@wodz.dev", "11999990000", null, Gender.F,
+                        "52998224725", null, null, null, null)));
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
         assertEquals("ana@wodz.dev", user.getEmail());
     }

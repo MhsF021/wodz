@@ -32,11 +32,18 @@ public class TeamMember {
     @JoinColumn(name = "team_id")
     private Team team;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private AppUser user;
+
     @Column(nullable = false, length = 120)
     private String fullName;
 
     @Column(nullable = false, length = 160)
     private String email;
+
+    @Column(length = 20)
+    private String phone;
 
     @Column(nullable = false, length = 11)
     private String cpf;

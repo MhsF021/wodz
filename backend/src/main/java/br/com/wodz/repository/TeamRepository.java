@@ -19,6 +19,12 @@ public interface TeamRepository extends JpaRepository<Team, Long> {
 
     List<Team> findByCaptainIdOrderByCreatedAtDesc(Long captainId);
 
+    @org.springframework.data.jpa.repository.Query("select t from Team t where t.captain.id = :userId or exists (select m.id from TeamMember m where m.team = t and m.user.id = :userId) order by t.createdAt desc")
+    List<Team> findAccessibleByUserId(Long userId);
+
+    @org.springframework.data.jpa.repository.Query("select distinct t from Team t join t.members m where t.category.championship.id = :championshipId and t.status <> br.com.wodz.domain.TeamStatus.CANCELLED and m.captain = false and m.user is null and lower(m.email) = lower(:email) order by t.id")
+    List<Team> findLinkCandidates(Long championshipId, String email);
+
     List<Team> findByCaptainIdAndStatus(Long captainId, TeamStatus status);
 
     boolean existsByCaptainIdAndCategory_Championship_IdAndStatusNot(Long captainId, Long championshipId, TeamStatus status);

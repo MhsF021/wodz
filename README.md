@@ -3,7 +3,7 @@
 Sistema para campeonatos de CrossFit. O **organizador** cadastra o campeonato,
 as categorias e as provas, abre o formulário de inscrição, acompanha as equipes,
 monta e controla as baterias e lança os resultados. O **atleta** busca
-campeonatos, inscreve a equipe, paga por Pix ou no checkout do Mercado Pago, vê o horário
+campeonatos, inscreve a equipe, paga no checkout do Mercado Pago, vê o horário
 e o status das suas baterias e acompanha o leaderboard ao vivo.
 
 | Camada | Tecnologia |
@@ -119,7 +119,7 @@ verificado com as chaves públicas do Google.
 - **E-mail já cadastrado com senha:** o vínculo automático exige que o Google
   seja responsável pelo endereço (Gmail ou Google Workspace com domínio validado).
   Para endereços de outros provedores, entre com a senha existente.
-- **Primeiro acesso:** a tela pede o perfil (atleta ou organizador) antes de criar a conta. No cadastro, vale o perfil já marcado na página.
+- **Primeiro acesso:** a tela pede o perfil (atleta ou organizador) e o sexo antes de criar a conta. No cadastro, valem as opções já marcadas na página. O login Google atual não inclui sexo no ID token; quando ainda não informado no WODZ, esse dado é preenchido pelo usuário, sem dedução por nome. A leitura pela People API exigiria integração e autorização adicionais.
 - **Conta vinculada ao Google:** "Minha conta" mostra "Desvincular conta Google"
   no lugar da seção de senha. A confirmação usa a mesma conta Google, nesta aba.
 - **Desvincular Google:** `DELETE /api/auth/me/google` recebe uma nova credencial
@@ -168,7 +168,7 @@ Deixe a variável vazia para desligar o login com Google.
 ## Pagamentos
 
 O WODZ cria uma preferência de **Checkout Pro** no servidor e redireciona o comprador
-para o Mercado Pago na mesma aba. Não existem formulário de cartão, QR Code Pix,
+para o Mercado Pago na mesma aba. Não existem formulário de cartão, QR Code,
 tokenização, SDK de pagamentos, desafio 3DS incorporado ou simulador local no WODZ.
 Os meios disponíveis são definidos pelo Mercado Pago no checkout hospedado.
 
@@ -309,9 +309,8 @@ Configuração externa, uma vez por ambiente:
    `SEED_DEMO=false` e `JWT_SECRET` próprio. Conecte uma conta de produção; contas
    de teste são recusadas nesse ambiente. Valide primeiro em homologação com
    `MP_TEST_MODE=true`, contas de teste vendedor/comprador, incluindo
-   autorização, renovação, checkout hospedado e webhook assinado. O teste Pix
-   pela Payments API exige uma credencial sandbox compatível; `MP_TEST_MODE`
-   não altera sozinho o tipo do OAuth. Confira o diagnóstico e as condições em
+   autorização, renovação, checkout hospedado e webhook assinado.
+   Confira o diagnóstico e as condições em
    [Checkout Mercado Pago](docs/MERCADOPAGO_CHECKOUT.md).
 
 Os tokens ficam cifrados com AES-256-GCM no servidor, com renovação automática
@@ -328,22 +327,21 @@ Com o provedor desativado, pagamentos e OAuth ficam indisponíveis. Publicar/abr
 Referências oficiais: [configuração Marketplace / split 1:1](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/integration-configuration/create-configuration)
 e [OAuth com PKCE](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation).
 
-### Checkout Pix e cartão
+### Checkout de pagamento
 
-A página de pagamento permite escolher **Pix (QR Code)** ou **Cartão / Outros**.
-Pix solicita apenas o CPF do responsável pagador, utiliza o e-mail cadastrado e
-apresenta o QR Code e o Copia e Cola retornados pelo Mercado Pago na própria
-plataforma. Cartão redireciona ao Checkout Pro na mesma aba, com Pix excluído
-da preferência. O valor atual da inscrição é mantido, sem a taxa adicional dos
-exemplos visuais.
+A página de pagamento redireciona ao Checkout Pro do Mercado Pago na mesma aba,
+com o valor cotado da inscrição. O pagamento exige aceite dos documentos públicos
+em `/termos` e `/privacidade`; o servidor registra data e versão dos termos.
+A inscrição é confirmada somente após a API conferir o pagamento no provedor.
+Um checkout válido pode ser retomado após a validação da preferência.
 
-Ambas as opções exigem aceite dos documentos públicos em `/termos` e
-`/privacidade`. O servidor registra data e versão, verifica os dados financeiros
-no provedor e confirma a inscrição após aprovação. Um checkout válido é retomado;
-para trocar de método após a emissão, aguarde seu vencimento. O vendedor deve
-ter uma chave Pix registrada para receber por esse meio. Campos, contratos,
-idempotência, testes e limites do ambiente de teste estão documentados em
-[Checkout Mercado Pago](docs/MERCADOPAGO_CHECKOUT.md).
+Os fluxos de emissão de QR Code e de repasses centralizados foram removidos.
+Não existe configuração para reativá-los. A preferência hospedada mantém o meio
+removido excluído. Cobranças e repasses históricos permanecem no banco; migrações
+já aplicadas não devem ser alteradas. Uma cobrança antiga ainda válida impede
+outro pagamento até seu vencimento, e uma aprovação no provedor impede duplicação.
+
+Veja [Checkout Mercado Pago](docs/MERCADOPAGO_CHECKOUT.md).
 
 ### Horários das baterias
 
@@ -375,8 +373,9 @@ categoria. Ao abrir o card, um único pop-up apresenta os horários de Brasília
 e as raias da equipe. Selecionar uma bateria mostra sua prova nesse mesmo
 pop-up, com opção de voltar aos horários. Pagamentos pendentes podem ser
 retomados dentro dele. O capitão também pode usar **Cancelar a inscrição**
-enquanto o pagamento estiver pendente, após confirmar a desistência. Isso libera
-a vaga e permite uma nova inscrição enquanto as inscrições estiverem abertas.
+enquanto o pagamento estiver pendente, após confirmar a desistência em um pop-up.
+Isso libera a vaga e remove a inscrição de **Minhas equipes**, onde ficam apenas
+inscrições pendentes ou confirmadas. Permite uma nova inscrição enquanto as inscrições estiverem abertas.
 Inscrições confirmadas precisam ser tratadas com a organização. Uma aprovação
 de pagamento recebida depois do cancelamento é registrada sem reativar a equipe
 (migration V23). A situação da inscrição e a grade são atualizadas
@@ -392,11 +391,25 @@ Uma conta de atleta pode ter somente uma inscrição não cancelada por
 campeonato, mesmo antes do pagamento e mesmo escolhendo outra categoria.
 Uma nova tentativa informa **Você já possui uma inscrição para esse campeonato**
 e oferece continuar o pagamento existente. O serviço e a migration V16
-protegem também tentativas simultâneas. Inscrições antigas não são removidas;
+protegem também tentativas simultâneas. Os registros financeiros e administrativos antigos são preservados;
 uma inscrição cancelada permite uma nova tentativa. A migration V17 adiciona
 a busca com filtros. Ambas são aplicadas pelo Flyway na inicialização da API.
 
 ## Categorias e imagem do campeonato
+
+O cadastro local exige sexo (masculino ou feminino), persistido na conta pela
+migration V28. Contas existentes completam essa informação em **Minha conta**
+antes de uma nova inscrição. O formulário usa o sexo do capitão e desabilita
+categorias incompatíveis; categorias exclusivamente femininas ou masculinas
+oferecem apenas o sexo permitido aos demais integrantes. A API também confere
+o sexo do capitão com seu cadastro. Inscrições individuais dispensam o nome da
+equipe e usam o nome completo do atleta; V28 também atualiza os nomes individuais
+existentes e amplia o campo para 120 caracteres.
+
+O **Leaderboard** permite pesquisar pelo nome da equipe ou de qualquer atleta
+confirmado na categoria atual, sem distinguir maiúsculas ou acentos. O filtro
+preserva as posições oficiais. A tela de pagamento aprovado mostra um check
+discreto e o resumo da inscrição usando a paleta do site.
 
 Ao criar uma categoria, escolha **Feminina**, **Masculina** ou **Mista**. Em
 categorias mistas, marque uma ou mais composições permitidas, por exemplo
@@ -458,7 +471,7 @@ ranking) estão no próprio PostgreSQL.
 |---|---|
 | `sp_start_heat` | Marca a bateria como em andamento e conclui a que estava rodando. |
 | `sp_generate_heats` | Distribui as equipes confirmadas em baterias de até 8 equipes, de forma equilibrada (17 equipes viram 5 + 6 + 6). As piores colocadas correm primeiro e os líderes na última. |
-| `sp_expire_pending_payments` | Expira cobranças pendentes vencidas (Pix e boletos antigos). |
+| `sp_expire_pending_payments` | Expira cobranças pendentes vencidas. |
 
 **Triggers**
 
@@ -494,7 +507,7 @@ Documentação interativa em `/swagger-ui`, disponível somente com `APP_ENV=dev
 | Autenticação | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/google` (ID token do botão do Google; no primeiro acesso sem `role` devolve `pending` para escolher o perfil), `GET /api/auth/me`, `POST /api/auth/logout` (revoga todos os tokens da conta) |
 | Minha conta | `PUT /api/auth/me` (trocar o e-mail exige a senha atual), `PUT /api/auth/me/password` (revoga todas as sessões; é necessário entrar novamente), `DELETE /api/auth/me` (anonimiza a conta; recusa se houver campeonato ativo ou equipe confirmada em campeonato não encerrado) |
 | Público | `GET /api/public/championships?q=&state=`, `GET /api/public/championships/{slug}`, `GET .../{slug}/schedule`, `GET .../{slug}/leaderboard?categoryId=`, `GET .../{slug}/stream` (SSE) |
-| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout` (método, CPF Pix e aceite), `GET .../checkout/{id}/details` (QR/retomada), `GET .../checkout/{id}?paymentId=...` (situação), `GET .../payments/{id}` (histórico) |
+| Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout` (método CARD e aceite), `GET .../checkout/{id}/details` (retomada), `GET .../checkout/{id}?paymentId=...` (situação), `GET .../payments/{id}` (histórico) |
 | Webhook | `POST /api/webhooks/mercadopago` |
 | Atleta | `POST /api/athlete/championships/{slug}/teams`, `GET /api/athlete/teams`, `GET /api/athlete/heats` |
 | Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `POST /workouts/{id}/heats/generate` refaz uma prova, até 8 equipes por bateria; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/{teamId}`, só com a bateria da equipe concluída e com o nome do judge da raia) |
@@ -512,7 +525,7 @@ backend/
     repository/   Spring Data
     dto/          contratos da API (records)
     service/      regras de negócio, consultas às views, SSE, seed
-    payment/      Checkout Pro, Pix via Payments API, provedor desativado e verificação de webhook
+    payment/      Checkout Pro, provedor desativado e verificação de webhook
     web/          controllers REST
   src/main/resources/db/migration/   V1 tabelas, V2 functions/procedures, V3 triggers, V4 views
 frontend/
@@ -547,8 +560,7 @@ teclado e suporte a `prefers-reduced-motion`. Consultas de pagamento em segundo
 plano não interrompem a navegação. A toolbar usa hover neutro e um traço de cor
 na página ativa.
 
-Cartão é pago no checkout hospedado do Mercado Pago, na mesma aba. Pix apresenta
-o QR Code e o Copia e Cola na página WODZ, com atualização automática da situação.
+O pagamento é feito no checkout hospedado do Mercado Pago, na mesma aba.
 A inscrição acompanha o resultado confirmado pela API. A autorização de
 recebimentos no Mercado Pago redireciona e retorna na mesma aba; a conta é
 conferida pela API.

@@ -10,11 +10,11 @@ public final class PaymentDtos {
     private PaymentDtos() { }
     public record PaymentDto(Long id, PaymentMethod method, PaymentStatus status, String statusDetail,
                              BigDecimal amount, Instant paidAt, Instant createdAt) { }
-    public record CheckoutRequest(@NotNull CheckoutMethod method, String payerCpf, boolean termsAccepted) { }
-    public record CheckoutDto(Long id, String url, Instant expiresAt, CheckoutMethod method,
-                              String qrCode, String qrCodeBase64) { }
+    public record CheckoutRequest(@NotNull CheckoutMethod method, boolean termsAccepted) { }
+    public record CheckoutDto(Long id, String url, Instant expiresAt, CheckoutMethod method) { }
     public record RegistrationSummary(String code, Long teamId, String teamName, String championshipName,
                                       String championshipSlug, String categoryName, BigDecimal amount,
                                       TeamStatus teamStatus, boolean championshipStarted, PaymentDto lastPayment, Long checkoutId) { }
     public record PublicConfig(String paymentProvider, String googleClientId, boolean mercadoPagoTestMode) { }
+
 }

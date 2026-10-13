@@ -13,7 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { LOGOUT_EVENT, tokenStore, revokeRemoteSession } from '../api/client';
 import { clearGoogleRedirect } from '../lib/googleRedirect';
-import type { PendingGoogleSignup, RegisterInput, Role, UpdateProfileInput, User } from '../api/types';
+import type { Gender, PendingGoogleSignup, RegisterInput, Role, UpdateProfileInput, User } from '../api/types';
 
 /** Resultado do login com Google: entrou, ou é o primeiro acesso e falta escolher o perfil. */
 export type GoogleLoginOutcome = { user: User; pending?: undefined } | { user?: undefined; pending: PendingGoogleSignup };
@@ -24,7 +24,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<User>;
   signup: (input: RegisterInput) => Promise<User>;
   /** role só é usado no primeiro acesso, quando a conta ainda não existe. */
-  loginWithGoogle: (credential: string, role?: Role) => Promise<GoogleLoginOutcome>;
+  loginWithGoogle: (credential: string, role?: Role, gender?: Gender) => Promise<GoogleLoginOutcome>;
   /** Recarrega o usuário da API (ex.: depois de criar a primeira senha). */
   refreshUser: () => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<User>;
@@ -132,9 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.user;
   }, [adoptSession]);
 
-  const loginWithGoogle = useCallback(async (credential: string, role?: Role): Promise<GoogleLoginOutcome> => {
+  const loginWithGoogle = useCallback(async (credential: string, role?: Role, gender?: Gender): Promise<GoogleLoginOutcome> => {
     const version = tokenStore.version();
-    const res = await authApi.google(credential, role);
+    const res = await authApi.google(credential, role, gender);
     if (version !== tokenStore.version()) throw new Error('Esta tentativa de login foi encerrada. Entre novamente.');
     if (res.auth) {
       adoptSession(res.auth.token, res.auth.user);

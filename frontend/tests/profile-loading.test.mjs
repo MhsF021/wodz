@@ -11,6 +11,8 @@ const source=file=>ts.transpileModule(readFileSync(new URL(file,import.meta.url)
 const react={...React,useState:init=>[typeof init==='function'?init():init,()=>{}]};
 function profile(user){
  const exports={};runInNewContext(source('../src/pages/MyProfilePage.tsx'),{exports,require:id=>{
+  if(id==='react-router')return{useNavigate:()=>()=>{},useSearchParams:()=>[new URLSearchParams()]};
+  if(id==='../lib/format'||id==='../lib/navigation'){const helpers={};runInNewContext(source(id==='../lib/format'?'../src/lib/format.ts':'../src/lib/navigation.ts'),{exports:helpers,URL});return helpers;}
   if(id==='react')return react;
   if(id==='react/jsx-runtime')return require(id);
   if(id==='@tanstack/react-query')return{useQuery:()=>({isPending:false,data:null})};

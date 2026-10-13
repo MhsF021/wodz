@@ -21,6 +21,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,7 +45,7 @@ public class Team {
     @JoinColumn(name = "captain_id")
     private AppUser captain;
 
-    @Column(nullable = false, length = 80)
+    @Column(nullable = false, length = 120)
     private String name;
 
     private String boxName;
@@ -59,6 +60,15 @@ public class Team {
     private String registrationCode;
 
     private Instant confirmedAt;
+
+    /** Total cotado na inscrição; alterações posteriores do preço não mudam a cobrança. */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal registrationAmount;
+
+    public BigDecimal getRegistrationAmount() {
+        // Compatibilidade com registros legados ainda sem a cotação persistida.
+        return registrationAmount == null ? category.getPrice() : registrationAmount;
+    }
 
     @OneToMany(mappedBy = "team", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("captain DESC, id ASC")

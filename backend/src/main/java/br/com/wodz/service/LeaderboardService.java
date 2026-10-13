@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -67,6 +68,12 @@ public class LeaderboardService {
                                 rs.getString("result_display"))),
                 category.getId());
 
+        Map<Long, List<String>> athleteNames = new HashMap<>();
+        jdbc.query("SELECT m.team_id, m.full_name FROM team_member m JOIN team t ON t.id = m.team_id"
+                        + " WHERE t.category_id = ? AND t.status = 'CONFIRMED' ORDER BY m.id",
+                (RowCallbackHandler) rs -> athleteNames.computeIfAbsent(rs.getLong("team_id"), k -> new ArrayList<>())
+                        .add(rs.getString("full_name")), category.getId());
+
         List<LeaderboardRow> rows = jdbc.query("SELECT * FROM fn_category_leaderboard(?)", (rs, rowNum) -> {
             Long teamId = rs.getLong("team_id");
             return new LeaderboardRow(
@@ -77,7 +84,7 @@ public class LeaderboardService {
                     rs.getBigDecimal("total_points"),
                     rs.getInt("workouts_completed"),
                     rs.getInt("first_places"),
-                    cells.getOrDefault(teamId, Map.of()));
+                    cells.getOrDefault(teamId, Map.of()), athleteNames.getOrDefault(teamId, List.of()));
         }, category.getId());
 
         return new LeaderboardDto(championship.getScoringSystem(), Mappers.categoryRef(category), refs,

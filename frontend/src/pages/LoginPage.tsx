@@ -5,7 +5,7 @@ import { Field } from '../components/Field';
 import { InlineError } from '../components/States';
 import { GoogleAuth } from '../components/GoogleAuth';
 import type { User } from '../api/types';
-import { localReturnPath } from '../lib/navigation';
+import { localReturnPath, profileReturnPath } from '../lib/navigation';
 import { getGoogleDisconnectNotice, subscribeGoogleDisconnect } from '../lib/googleDisconnect';
 import { Loading } from '../components/States';
 
@@ -24,7 +24,7 @@ export default function LoginPage() {
   const notice = googleDisconnected && disconnectNotice?.accountClosed === accountClosed ? disconnectNotice : null;
 
   const goOn = (user: User) =>
-    navigate(next ?? (user.role === 'ORGANIZER' ? '/organizador' : '/minhas-equipes'), { replace: true });
+    navigate(profileReturnPath(user, next), { replace: true });
 
   async function submit(event: FormEvent) {
     event.preventDefault();

@@ -1,6 +1,6 @@
 # Segurança e privacidade — WODZ
 
-Revisão técnica do código em 11/10/2026. Este documento registra controles
+Revisão técnica do código em 11/10/2026, atualizada em 13/10/2026 após a remoção dos fluxos de QR Code e repasses centralizados. Este documento registra controles
 encontrados, correções implementadas e decisões que dependem do responsável pelo
 serviço. Uma revisão do repositório não certifica conformidade jurídica completa
 nem verifica a infraestrutura efetivamente publicada.
@@ -9,14 +9,13 @@ nem verifica a infraestrutura efetivamente publicada.
 
 | Operação | Dados tratados | Destino / acesso |
 | --- | --- | --- |
-| Conta | Nome, e-mail, telefone opcional, hash de senha, identificador Google, papel | `app_user`; próprio usuário e autenticação da API |
+| Conta | Nome, e-mail, sexo, telefone opcional, hash de senha, identificador Google, papel | `app_user`; próprio usuário e autenticação da API; sexo usado para conferir a categoria da inscrição |
 | Inscrição | Nome/e-mail/CPF/data de nascimento de cada membro, gênero, camiseta; equipe/box/cidade | `team_member` e equipe; capitão e organizador autorizado |
-| Resultados e agenda | Equipe, participantes exibidos pela agenda, classificação e pontuação | Páginas e stream públicos de campeonatos publicados |
-| Pagamento | Preferência, valor, conta recebedora e status | Checkout hospedado Mercado Pago; WODZ não coleta dados de cartão/Pix/pagador. Registros históricos permanecem sujeitos à política de retenção |
+| Resultados e agenda | Nomes da equipe e dos atletas confirmados, classificação e pontuação | Páginas, busca do leaderboard e stream públicos de campeonatos publicados; CPF, e-mail, sexo e nascimento não são expostos no leaderboard |
+| Pagamento | Preferência, valor, conta recebedora e status | Checkout hospedado Mercado Pago; WODZ não coleta dados de cartão ou do pagador no checkout. Registros históricos permanecem sujeitos à política de retenção |
 | Recebimentos do organizador | Identificador/descrição da conta, tokens OAuth e PKCE | Banco; tokens cifrados com AES-GCM; backend acessa Mercado Pago |
 | Navegador | Bearer por aba, sinal temporário de retorno externo | `sessionStorage` e memória; saída limpa os dados WODZ dos dois armazenamentos, caches e formulários |
 | Imagem do campeonato | Imagem escolhida pelo organizador | JPEG sem metadados em `championship_image`; endpoint público, inclusive enquanto o evento é rascunho. O formulário informa esse caráter público |
-| Pagador Pix | CPF do responsável, e-mail do cadastro e dados estáveis da tentativa | `checkout_session`; CPF/e-mail cifrados com AES-GCM; enviados pelo backend ao Mercado Pago |
 | Aceite do checkout | Data e versão dos termos de compra e privacidade | `checkout_session`; documentos públicos em `/termos` e `/privacidade` |
 | Terceiros do frontend | IP e metadados de conexão para Google Fonts; Google Identity quando o botão é usado; redirecionamento de cartão ao Mercado Pago | Serviços externos, conforme integração habilitada |
 
@@ -43,11 +42,11 @@ corretas continuam necessárias.
 | Transporte | URLs públicas/origens HTTPS fora de dev; headers encaminhados não alteram URLs da API; nginx verifica certificado do backend HTTPS e usa CA do sistema | Implementado no código. TLS do site/banco remoto, terminação efetiva de HSTS e segmentação precisam ser verificados na infraestrutura. `BACKEND_URL` com certificado privado exige instalar sua CA confiável |
 | Segredos | `EnvironmentGuard` rejeita valores de desenvolvimento fora de dev; `TokenCipher` cifra tokens OAuth; contextos Docker excluem `.env`; Compose aceita `DB_PASSWORD` e `JWT_TTL` | Implementado. Cofre, permissões, rotação e proteção dos volumes/backups dependem da operação |
 | Logs e erros | Access log nginx só tem horário/método/status/tamanho/duração; backend evita corpo cru de erro do provedor e stacks de SQL/HTTP | Implementado nessa saída. `error_log` nginx e logs de proxy/CDN podem conter URI/IP/código de inscrição/OAuth: redigir, restringir acesso e definir retenção antes da produção |
-| Pagamentos | `PayoutAccountService`, `MercadoPagoSignatureVerifier`, `PaymentService`: PKCE/state, assinatura de webhook e confirmação consultando provedor; logout cancela autorizações pendentes e requisição antiga não inicia nova conexão | Implementado no código e testes. Cartão hospedado, sem coleta de cartão pelo WODZ; Pix com CPF/e-mail cifrados, chave de idempotência persistida antes do envio e QR retornado pela API. Homologação com provedor, escopos, conciliação e operação continuam necessários |
+| Pagamentos | `PayoutAccountService`, `MercadoPagoSignatureVerifier`, `PaymentService`: PKCE/state, assinatura de webhook e confirmação consultando provedor; logout cancela autorizações pendentes e requisição antiga não inicia nova conexão | Implementado no código e testes. Cartão hospedado, sem coleta de cartão pelo WODZ; sem emissão de QR Code pela API de pagamentos. Homologação com provedor, escopos, conciliação e operação continuam necessários |
 | Link de pagamento | Novos códigos da aplicação usam SecureRandom, 26 caracteres/130 bits; fallback SQL usa UUID v4 aleatório; DTOs públicos limitam dados | Implementado para novos links via V20. Links antigos são preservados e não ganham aleatoriedade retroativamente. Link continua capacidade compartilhável: quem o recebe pode consultar/retomar a cobrança. Expiração/reemissão e autenticação do destinatário são evoluções pendentes |
 | Perfil/exclusão | `AccountService`: edição do próprio perfil, confirmação adicional para e-mail/exclusão; anonimiza `app_user` e remove vínculo/tokens de recebimentos | Parcial. Não elimina membros de equipes, inscrições/resultados nem cópias de backup |
 | Google desvinculado | `DELETE /api/auth/me/google` exige ID token validado da mesma identidade; com senha remove vínculo, bloqueia autoassociação e revoga sessões; sem senha encerra conta pelas restrições existentes | Implementado no backend. A revogação do consentimento no Google é uma segunda operação; falha externa não restaura o vínculo WODZ |
-| Categorias | Validação no serviço e triggers PostgreSQL diferidas (V18) exigem tamanho e composição declarados; alterações incompatíveis com inscrições existentes são bloqueadas | Implementado. Gênero é informado no cadastro de cada integrante; o sistema não verifica identidade civil nem deduz gênero por nome |
+| Categorias | Validação no serviço e triggers PostgreSQL diferidas (V18) exigem tamanho e composição declarados; serviço também compara o sexo do capitão com sua conta (V28) | Implementado. Sexo é declarado pelo usuário; o sistema não verifica identidade civil nem deduz sexo por nome. Google ID token não fornece essa informação; o primeiro cadastro pede o dado quando ainda não informado |
 | Upload | `ChampionshipImages` limita bytes/dimensões antes de decodificar, regrava JPEG sem metadados e só aceita JPEG/PNG no servidor; propriedade conferida no serviço | Implementado e testado. WebP é convertido no navegador. O endpoint não aceita HTML/SVG e não busca URLs no servidor |
 | Dependências | Lockfile/npm ci; auditorias npm e OSV das dependências Maven de runtime; versões corrigidas no pom e nginx atualizado | npm: zero alertas; OSV: dois alertas Spring MVC sem condições de exploração identificadas no código atual, detalhados abaixo. Não é certificação de ausência de falhas; imagens Docker ainda precisam de análise após build |
 
@@ -208,7 +207,7 @@ Testes do cliente cobrem domínios ngrok, URLs de API distintas, domínios parec
 respostas não JSON e transporte interrompido, sem expor conteúdo de proxy.
 O Docker local estava indisponível; a atualização do frontend servido pelo túnel
 ainda depende de reconstruir sua imagem no ambiente que hospeda o site.
-O teste anterior do formulário/Pix sandbox é histórico: esses fluxos foram removidos em favor do Checkout Pro.
+Os testes anteriores de emissão de QR Code são históricos: esses fluxos foram removidos.
 Os novos testes de retorno cobrem CSRF, nonce, CORS específico, tentativa expirada,
 resposta não solicitada, remoção de credenciais temporárias e perfis Google sem
 campos de senha. O fluxo externo real ainda exige homologação e a URI Google

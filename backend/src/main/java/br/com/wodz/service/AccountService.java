@@ -3,9 +3,11 @@ package br.com.wodz.service;
 import br.com.wodz.common.ApiException;
 import br.com.wodz.common.Codes;
 import br.com.wodz.common.PasswordPolicy;
+import br.com.wodz.common.ProfileValidation;
 import br.com.wodz.domain.AppUser;
 import br.com.wodz.domain.ChampionshipStatus;
 import br.com.wodz.domain.TeamStatus;
+import br.com.wodz.domain.Role;
 import br.com.wodz.dto.AuthDtos.ChangePasswordRequest;
 import br.com.wodz.dto.AuthDtos.DeleteAccountRequest;
 import br.com.wodz.dto.AuthDtos.UpdateProfileRequest;
@@ -63,6 +65,19 @@ public class AccountService {
     @Transactional
     public UserDto update(Long userId, UpdateProfileRequest req) {
         AppUser user = load(userId);
+        boolean athlete = user.getRole() == Role.ATHLETE;
+        if (athlete && req.gender() == null) throw ApiException.badRequest("Informe o sexo no seu cadastro");
+        String document = ProfileValidation.document(req.document());
+        if (!ProfileValidation.validCpf(document) && (athlete || !ProfileValidation.validCnpj(document))) {
+            throw ApiException.badRequest(athlete ? "Informe um CPF válido" : "Informe um CPF ou CNPJ válido");
+        }
+        if ((athlete || Codes.blankToNull(req.phone()) != null) && !ProfileValidation.validPhone(req.phone())) {
+            throw ApiException.badRequest("Informe um telefone válido com DDD");
+        }
+        String postalCode = Codes.blankToNull(req.postalCode());
+        if (postalCode != null && !postalCode.matches("[0-9]{5}-?[0-9]{3}")) {
+            throw ApiException.badRequest("Informe um CEP válido");
+        }
         String email = req.email().trim().toLowerCase(Locale.ROOT);
         if (!email.equalsIgnoreCase(user.getEmail())) {
             if (!user.hasPassword()) {
@@ -79,6 +94,14 @@ public class AccountService {
         }
         user.setName(Codes.uppercase(req.name().trim()));
         user.setPhone(Codes.blankToNull(req.phone()));
+        if (athlete) user.setGender(req.gender());
+        user.setDocument(document);
+        if (!athlete) {
+            user.setStreet(Codes.uppercase(Codes.blankToNull(req.street())));
+            user.setAddressNumber(Codes.blankToNull(req.addressNumber()));
+            user.setCity(Codes.uppercase(Codes.blankToNull(req.city())));
+            user.setPostalCode(Codes.digits(postalCode));
+        }
         return Mappers.user(user);
     }
 
@@ -146,6 +169,12 @@ public class AccountService {
         user.setName("Conta excluída");
         user.setEmail("excluida-" + user.getId() + "@wodz.invalid");
         user.setPhone(null);
+        user.setDocument(null);
+        user.setStreet(null);
+        user.setAddressNumber(null);
+        user.setCity(null);
+        user.setPostalCode(null);
+        user.setGender(null);
         user.setGoogleSub(null);
         user.setGoogleLinkDisabled(true);
         user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));

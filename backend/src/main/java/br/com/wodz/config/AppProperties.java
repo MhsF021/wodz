@@ -25,8 +25,7 @@ public record AppProperties(
     public record JwtProps(String secret, Duration ttl, String issuer) {
     }
 
-    public record PaymentProps(String provider, Duration checkoutExpiration, MercadoPagoProps mercadopago) {
-    }
+    public record PaymentProps(String provider, Duration checkoutExpiration, MercadoPagoProps mercadopago) { }
 
     /**
      * Mercado Pago em modelo de split 1:1: cada organizador conecta a própria conta

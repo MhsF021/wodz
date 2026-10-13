@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation } from 'react-router';
 import type { Role } from '../api/types';
 import { useAuth } from './AuthContext';
 import { Loading } from '../components/States';
+import { isProfileComplete, profileReturnPath } from '../lib/navigation';
 
 /** Sem `role`, basta estar logado. */
 export function RequireRole({ role, children }: { role?: Role; children: ReactNode }) {
@@ -26,6 +27,9 @@ export function RequireRole({ role, children }: { role?: Role; children: ReactNo
         <Link className="btn btn--secondary" to="/">Voltar para os campeonatos</Link>
       </div>
     );
+  }
+  if (location.pathname !== '/minha-conta' && !isProfileComplete(user)) {
+    return <Navigate to={profileReturnPath(user, location.pathname + location.search)} replace />;
   }
   return <>{children}</>;
 }

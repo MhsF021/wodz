@@ -12,23 +12,26 @@ function module(path,imports,context={}) {
  const exports={};runInNewContext(compile(path),{exports,...context,require:id=>{
   if(id==='react/jsx-runtime')return nativeRequire(id);
   if(id in imports)return imports[id];
+  if(id==='lucide-react')return {Check:()=>null,Lock:()=>null};
   throw new Error(id);
  }});return exports;
 }
 const link=p=>React.createElement('a',{href:p.to,className:p.className},p.children);
 const fields={Field:p=>React.createElement('label',{},p.label,p.children)};
 const states={InlineError:()=>null,Loading:()=>null,ErrorState:()=>null,Empty:p=>React.createElement('div',{},p.title,p.children)};
+const navigation=module('../src/lib/navigation.ts',{}, {URL});
+const format=module('../src/lib/format.ts',{});
 
 test('different passwords stop signup before the API, matching passwords keep the selected event',async()=>{
  for(const confirmation of ['different','correct-password']) {
   let index=0;let calls=0;let destination;let error;
-  const values=[{name:'QA',email:'qa@example.invalid',phone:'',password:'correct-password'},confirmation,'ATHLETE',null,false];
+  const values=[{name:'QA',email:'qa@example.invalid',phone:'11999990000',password:'correct-password'},confirmation,'ATHLETE','F',null,false];
   const component=module('../src/pages/SignupPage.tsx',{
-   react:{...React,useState:()=>{const i=index++;return[values[i],v=>{if(i===3)error=v;}];}},
+   react:{...React,useState:()=>{const i=index++;return[values[i],v=>{if(i===4)error=v;}];}},
    'react-router':{Link:link,useSearchParams:()=>[new URLSearchParams('next=%2Fc%2Fevento%2Finscricao')],useNavigate:()=>p=>destination=p},
-   '../auth/AuthContext':{useAuth:()=>({signup:async()=>{calls++;return{role:'ATHLETE'};}})},
+   '../auth/AuthContext':{useAuth:()=>({signup:async()=>{calls++;return{role:'ATHLETE',gender:'F',document:'52998224725',phone:'11999990000'};}})},
    '../components/Field':fields,'../components/States':states,'../components/GoogleAuth':{GoogleAuth:()=>null},
-   '../components/RoleChoice':{RoleChoice:()=>null},'../lib/navigation':{localReturnPath:p=>p},
+   '../components/RoleChoice':{RoleChoice:()=>null},'../lib/navigation':navigation,'../lib/format':format,
   }).default;
   const element=component();const form=element.props.children.find(x=>x?.type==='form');
   await form.props.onSubmit({preventDefault(){}});
@@ -59,6 +62,7 @@ test('event cards have independent details and signup destinations without neste
 
 test('anonymous signup route redirects to login with the original registration destination',()=>{
  const component=module('../src/auth/RequireRole.tsx',{
+  '../lib/navigation':navigation,
   'react-router':{Link:link,Navigate:p=>React.createElement('div',{'data-to':p.to}),useLocation:()=>({pathname:'/c/evento/inscricao',search:'?categoria=1'})},
   '../auth/AuthContext':{useAuth:()=>({user:null,loading:false})},'./AuthContext':{useAuth:()=>({user:null,loading:false})},'../components/States':states,
  }).RequireRole;
@@ -109,9 +113,32 @@ test('return without a provider payment offers a retry instead of claiming a pen
   const html=renderToStaticMarkup(React.createElement(component));
   assert.doesNotMatch(html,/Pagamento confirmado/);
   assert.match(html,/Modo de teste do Mercado Pago/);
-  assert.match(html,/Não pague um QR Code de teste com uma conta bancária real/);
+  assert.doesNotMatch(html,/QR Code|Copia e Cola|Gerar Pix|Responsável Pagador/);
   if(!payment){assert.match(html,/ainda não registrou um pagamento/);assert.doesNotMatch(html,/Aguardando confirmação/);}
   else if(payment.status==='REJECTED'){assert.match(html,/não foi aprovado/);assert.doesNotMatch(html,/ainda não registrou|Aguardando confirmação/);}
   else{assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/ainda não registrou/);}
+ }
+});
+
+test('checkout requires consent and submits only the hosted method without payer or QR fields',async()=>{
+ for(const accepted of [false,true]) {
+  let mutation;let sent;let state=0;
+  const registration={code:'ABC',teamName:'EQUIPE',categoryName:'RX',championshipName:'EVENTO',championshipSlug:'evento',
+   amount:210,teamStatus:'PENDING_PAYMENT',lastPayment:null,checkoutId:null};
+  const Page=module('../src/pages/PaymentPage.tsx',{
+   react:{...React,useState:x=>[state++===1?accepted:x,()=>{}],useEffect:()=>{}},
+   'react-router':{Link:link,useParams:()=>({code:'ABC'}),useSearchParams:()=>[new URLSearchParams('checkout=10'),()=>{}]},
+   '@tanstack/react-query':{useQuery:o=>({isPending:false,data:o.queryKey[0]==='public-config'?{}:registration,refetch:()=>{}}),
+    useMutation:o=>{mutation=o;return{mutate(){}};}},
+   '../api/endpoints':{publicApi:{},paymentApi:{checkout:async(code,body)=>{sent={code,body};return{id:20,method:'CARD'};}}},
+   '../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination:x=>x},'../components/States':states,
+  }).default;
+  const html=renderToStaticMarkup(React.createElement(Page));
+  assert.match(html,/Pagar no Mercado Pago/);
+  assert.doesNotMatch(html,/Pix|QR Code|Copia e Cola|CPF|payment-methods|type="radio"/);
+  const button=html.match(/<button[^>]*>Pagar no Mercado Pago<\/button>/)[0];
+  assert.equal(button.includes('disabled'),!accepted);
+  if(accepted){await mutation.mutationFn();assert.equal(sent.code,'ABC');
+   assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{method:'CARD',termsAccepted:true});}
  }
 });

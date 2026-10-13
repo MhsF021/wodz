@@ -16,6 +16,7 @@ import type {
   GenerateAllHeatsInput,
   GenerateHeatsInput,
   GoogleLoginResult,
+  Gender,
   HeatStatus,
   HeatView,
   Leaderboard,
@@ -44,7 +45,7 @@ const enc = encodeURIComponent;
 export const authApi = {
   login: (email: string, password: string) => http.post<AuthResponse>('/api/auth/login', { email, password }),
   register: (input: RegisterInput) => http.post<AuthResponse>('/api/auth/register', input),
-  google: (credential: string, role?: Role) => http.post<GoogleLoginResult>('/api/auth/google', { credential, role }),
+  google: (credential: string, role?: Role, gender?: Gender) => http.post<GoogleLoginResult>('/api/auth/google', { credential, role, gender }),
   me: () => http.get<User>('/api/auth/me'),
   updateMe: (input: UpdateProfileInput) => http.put<User>('/api/auth/me', input),
   changePassword: (input: ChangePasswordInput) => http.put<void>('/api/auth/me/password', input),
@@ -67,7 +68,7 @@ export const publicApi = {
 
 export const paymentApi = {
   summary: (code: string) => http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}`),
-  checkout: (code: string, request: { method: 'CARD' | 'PIX'; payerCpf?: string; termsAccepted: boolean }) =>
+  checkout: (code: string, request: { method: 'CARD'; termsAccepted: boolean }) =>
     http.post<Checkout>(`/api/public/registrations/${enc(code)}/checkout`, request),
   checkoutDetails: (code: string, checkoutId: number) =>
     http.get<Checkout>(`/api/public/registrations/${enc(code)}/checkout/${checkoutId}/details`),
@@ -78,6 +79,9 @@ export const paymentApi = {
 };
 
 export const athleteApi = {
+  linkCandidates: (slug: string) => http.get<Array<{ teamId: number; teamName: string; captainName: string }>>(`/api/athlete/championships/${enc(slug)}/team-links`),
+  linkMember: (slug: string, id: number) => http.post<Team>(`/api/athlete/championships/${enc(slug)}/teams/${id}/link`),
+  renameTeam: (id: number, name: string) => http.put<Team>(`/api/athlete/teams/${id}/name`, { name }),
   register: (slug: string, input: TeamRegistrationInput) =>
     http.post<Team>(`/api/athlete/championships/${enc(slug)}/teams`, input),
   teams: () => http.get<Team[]>('/api/athlete/teams'),

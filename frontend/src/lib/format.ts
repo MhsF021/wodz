@@ -140,6 +140,32 @@ export const scoreStatusLabel: Record<ScoreStatus, string> = {
 
 export const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
+export function isValidPhone(value: string): boolean {
+  const length = onlyDigits(value).length;
+  return /^[+\d\s().-]+$/.test(value) && value.length <= 20 && length >= 10 && length <= 15;
+}
+
+export const normalizeDocument = (value: string) => value.replace(/[. /\s-]/g, '').toUpperCase();
+
+export function maskDocument(value: string): string {
+  const d = normalizeDocument(value).replace(/[^A-Z0-9]/g, '').slice(0, 14);
+  if (/^\d{0,11}$/.test(d)) return maskCpf(d);
+  return d.replace(/^(.{2})(.)/, '$1.$2').replace(/^(.{2})\.(.{3})(.)/, '$1.$2.$3')
+    .replace(/^(.{2})\.(.{3})\.(.{3})(.)/, '$1.$2.$3/$4').replace(/\/(.{4})(.)/, '/$1-$2');
+}
+
+export function isValidCnpj(value: string): boolean {
+  const d = normalizeDocument(value);
+  if (!/^[A-Z0-9]{12}\d{2}$/.test(d) || /^(\d)\1{13}$/.test(d)) return false;
+  for (let length = 12; length <= 13; length++) {
+    let sum = 0;
+    for (let i = 0; i < length; i++) sum += (d.charCodeAt(i) - 48) * (2 + (length - 1 - i) % 8);
+    const remainder = sum % 11;
+    if ((remainder < 2 ? 0 : 11 - remainder) !== Number(d[length])) return false;
+  }
+  return true;
+}
+
 export function maskCpf(value: string): string {
   const d = onlyDigits(value).slice(0, 11);
   return d
@@ -149,8 +175,8 @@ export function maskCpf(value: string): string {
 }
 
 export function isValidCpf(value: string): boolean {
-  const d = onlyDigits(value);
-  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const d = normalizeDocument(value);
+  if (!/^\d{11}$/.test(d) || /^(\d)\1{10}$/.test(d)) return false;
   const digit = (len: number) => {
     let sum = 0;
     for (let i = 0; i < len; i++) sum += Number(d[i]) * (len + 1 - i);

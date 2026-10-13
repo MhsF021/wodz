@@ -14,7 +14,7 @@ function pure(file) { const exports = {}; runInNewContext(source(file), { export
 const scheduleHelpers = pure('../src/lib/teamSchedule.ts');
 const filters = pure('../src/lib/championshipFilters.ts');
 const format = pure('../src/lib/format.ts');
-const team = { id: 2, name: 'EQUIPE DA ANA', status: 'CONFIRMED', registrationCode: 'REG2',
+const team = { id: 2, captainId: 10, name: 'EQUIPE DA ANA', status: 'CONFIRMED', registrationCode: 'REG2',
   category: { id: 3, name: 'RX', price: 150 }, championship: { id: 4, name: 'ARENA', slug: 'arena' }, members: [] };
 const heat = { heatId: 7, heatNumber: 2, scheduledAt: '2026-11-14T03:15:00Z', championshipId: 4,
   categoryId: 3, workoutId: 9, workoutNumber: 1, workoutName: 'PROVA DA ARENA', workoutType: 'FOR_TIME',
@@ -41,26 +41,31 @@ test('event times use Brasilia even across midnight UTC', () => {
   assert.match(format.dayLabel('2026-11-14T01:15:00Z'), /13\/11/);
 });
 function harness({ selectedTeam = null, status = 'CONFIRMED', data = [heat], teamsError,
-  confirmCancellation = true, cancelPending = false, cancelError } = {}) {
-  let selectedHeat = null; const queries = []; let nextParams; let focus;
+  confirmCancellation = true, cancelPending = false, cancelError, userId = 10 } = {}) {
+  let selectedHeat = null; let confirming = false; const queries = []; let nextParams; let focus; let closed = false;
   let currentTeam = { ...team, status }; const exports = {};
+  let cachedTeams = [currentTeam];
   let mutation; let cancellationRequests = 0; let requestedTeam; const invalidations = []; const confirmations = [];
+  let booleanHook = 0;
   runInNewContext(source('../src/pages/MyTeamsPage.tsx'), { exports, URLSearchParams,
     window: { confirm: message => { confirmations.push(message); return confirmCancellation; } },
     requestAnimationFrame: callback => callback(), document: { getElementById: id => ({ focus: () => { focus = id; } }) },
     require: id => {
-      if (id === 'react') return { ...React, useState: () => [selectedHeat, next => { selectedHeat = next; }], useRef: () => ({ current: null }), useEffect: () => {} };
+      if (id === 'react') return { ...React, useState: initial => typeof initial === 'boolean'
+        ? (++booleanHook === 1 ? [false, () => {}] : [confirming, next => { confirming = next; }])
+        : typeof initial === 'string' ? [initial, () => {}] : [selectedHeat, next => { selectedHeat = next; }], useRef: () => ({ current: null }), useEffect: () => {} };
+      if (id === '../auth/AuthContext') return { useAuth: () => ({ user: { id: userId } }) };
       if (id === 'react/jsx-runtime') return require(id);
       if (id === 'react-router') return { Link: props => React.createElement('a', { href: props.to }, props.children),
         useSearchParams: () => [new URLSearchParams(selectedTeam ? `equipe=${selectedTeam}` : ''), value => { nextParams = value; }] };
       if (id === '@tanstack/react-query') return { useQuery: options => { queries.push(options);
-        if (options.queryKey[0] === 'my-teams') return { data: [currentTeam], error: teamsError };
+        if (options.queryKey[0] === 'my-teams') return { data: cachedTeams, error: teamsError };
         if (options.queryKey[0] === 'my-heats') return { data: { heats: data }, isPending: false };
         return { data: { categories: [{ id: 3, workouts: [{ id: 9, type: 'FOR_TIME', timeCapSeconds: 600,
           description: '40 cal row\n30 thrusters', hasTiebreak: true }] }] }, isPending: false };
       }, useMutation: options => { mutation = options; return { mutate: () => { cancellationRequests++; }, isPending: cancelPending, error: cancelError }; },
         useQueryClient: () => ({
-          setQueryData: (key, update) => { currentTeam = update([currentTeam])[0]; },
+          setQueryData: (key, update) => { cachedTeams = update(cachedTeams); },
           invalidateQueries: options => { invalidations.push(Array.from(options.queryKey)); },
         }) };
       if (id === '../api/endpoints') return { athleteApi: { cancelRegistration: id => { requestedTeam = id; return { ...currentTeam, status: 'CANCELLED' }; } }, publicApi: {} };
@@ -75,9 +80,10 @@ function harness({ selectedTeam = null, status = 'CONFIRMED', data = [heat], tea
       throw new Error(id);
     },
   });
-  return { page: () => exports.default(), details: () => exports.TeamDetails({ team: currentTeam, onClose: () => {} }),
+  return { page: () => exports.default(), details: () => { booleanHook = 0; return exports.TeamDetails({ team: currentTeam, onClose: () => { closed = true; } }); },
     queries, params: () => nextParams, focus: () => focus,
-    mutation: () => mutation, cancellations: () => cancellationRequests, requestedTeam: () => requestedTeam, invalidations, confirmations };
+    mutation: () => mutation, cancellations: () => cancellationRequests, requestedTeam: () => requestedTeam,
+    closed: () => closed, cachedTeams: () => cachedTeams, invalidations, confirmations };
 }
 function nodes(element) {
   if (Array.isArray(element)) return element.flatMap(nodes);
@@ -108,6 +114,13 @@ test('pending payment stays discoverable inside the popup and never fetches a sc
   assert.equal(app.queries.find(query => query.queryKey[0] === 'my-heats').enabled, false);
 });
 
+test('a linked teammate can see payment and schedules but cannot cancel or rename', () => {
+  const html = renderToStaticMarkup(harness({ status: 'PENDING_PAYMENT', userId: 20 }).details());
+  assert.match(html, /Pagar inscrição/);
+  assert.doesNotMatch(html, /Cancelar a inscrição|Alterar nome da equipe/);
+  assert.match(renderToStaticMarkup(harness({ userId: 20 }).details()), /Horários das baterias/);
+});
+
 test('only pending registrations offer cancellation and declining confirmation does not send it', () => {
   for (const status of ['CONFIRMED', 'CANCELLED']) {
     assert.doesNotMatch(renderToStaticMarkup(harness({ status }).details()), /Cancelar a inscrição/);
@@ -115,17 +128,22 @@ test('only pending registrations offer cancellation and declining confirmation d
   const app = harness({ status: 'PENDING_PAYMENT', confirmCancellation: false });
   const button = nodes(app.details()).find(node => node.props.children === 'Cancelar a inscrição');
   assert.ok(button); button.props.onClick();
-  assert.equal(app.cancellations(), 0); assert.match(app.confirmations[0], /EQUIPE DA ANA/);
+  assert.equal(app.cancellations(), 0);
+  assert.match(renderToStaticMarkup(app.details()), /Cancelar inscrição\?.*EQUIPE DA ANA/);
+  nodes(app.details()).find(node => node.props.children === 'Manter inscrição').props.onClick();
+  assert.equal(app.cancellations(), 0); assert.match(renderToStaticMarkup(app.details()), /Pagar inscrição/);
 });
 
 test('confirmed cancellation targets the selected team and immediately updates the popup and cached registration', async () => {
   const app = harness({ status: 'PENDING_PAYMENT' });
   nodes(app.details()).find(node => node.props.children === 'Cancelar a inscrição').props.onClick();
+  assert.equal(app.cancellations(), 0);
+  nodes(app.details()).find(node => node.props.children === 'Sim, cancelar inscrição').props.onClick();
   assert.equal(app.cancellations(), 1);
   const updated = await app.mutation().mutationFn(); assert.equal(app.requestedTeam(), 2);
   app.mutation().onSuccess(updated);
-  const html = renderToStaticMarkup(app.details());
-  assert.match(html, /Inscrição cancelada/); assert.doesNotMatch(html, /Pagar inscrição|Cancelar a inscrição/);
+  assert.equal(app.closed(), true); assert.equal(app.cachedTeams().length, 0);
+  assert.doesNotMatch(renderToStaticMarkup(app.page()), /EQUIPE DA ANA/);
   assert.ok(app.invalidations.some(key => key[0] === 'my-teams'));
   assert.ok(app.invalidations.some(key => key[0] === 'championship' && key[1] === 'arena'));
   assert.ok(app.invalidations.some(key => key[0] === 'registration' && key[1] === 'REG2'));
@@ -194,6 +212,7 @@ test('an existing unpaid registration replaces the form with a clear warning and
       if (id === '../lib/categoryComposition') return pure('../src/lib/categoryComposition.ts');
     if (id === '../auth/AuthContext') return { useAuth: () => ({ user: { role:'ATHLETE' } }) };
     if (id === '../components/Field') return { Field: () => null };
+    if (id === '../components/Dialog') return { Dialog: () => null };
     if (id === '../components/Plate') return { PlateChip: () => null };
     if (id === '../components/States') return { Loading: () => null, ErrorState: () => null, InlineError: () => null };
     throw new Error(id);
@@ -201,4 +220,48 @@ test('an existing unpaid registration replaces the form with a clear warning and
   const html = renderToStaticMarkup(React.createElement(exports.default));
   assert.match(html, /Você já possui uma inscrição para esse campeonato/); assert.match(html, /Continuar pagamento/);
   assert.match(html, /href="\/pagamento\/REG2"/); assert.doesNotMatch(html, /<form/); assert.equal(registered, false);
+});
+
+test('signup offers the email link, declining opens the form and accepting opens the team', () => {
+  for (const accept of [false, true]) {
+    const exports = {}; const state = []; let hook = 0; let linkMutation; let requests = 0; let destination;
+    const user = { id: 20, role: 'ATHLETE', gender: 'F', email: 'friend@test.invalid', document: '52998224725', phone: '11999990000' };
+    const candidate = { teamId: 2, teamName: 'EQUIPE DA ANA', captainName: 'ANA' };
+    runInNewContext(source('../src/pages/TeamRegistrationPage.tsx'), { exports, URLSearchParams, require: id => {
+      if (id === 'react') return { ...React, useEffect: () => {}, useState: initial => {
+        const index = hook++; if (!(index in state)) state[index] = initial;
+        return [state[index], next => { state[index] = typeof next === 'function' ? next(state[index]) : next; }];
+      } };
+      if (id === 'react/jsx-runtime') return require(id);
+      if (id === 'react-router') return { Link: props => React.createElement('a', { href: props.to }, props.children),
+        useParams: () => ({ slug: 'arena' }), useNavigate: () => next => { destination = next; } };
+      if (id === '@tanstack/react-query') return {
+        useQuery: options => ({ data: options.queryKey[0] === 'team-links' ? [candidate]
+          : options.queryKey[0] === 'my-teams' ? [] : { id: 4, name: 'ARENA', slug: 'arena', categories: [], registrationOpen: true } }),
+        useMutation: options => { if (options.mutationFn.length === 1) linkMutation = options;
+          return { mutate: id => { requests++; assert.equal(id, 2); }, reset: () => {}, isPending: false }; },
+        useQueryClient: () => ({ setQueryData: () => {}, invalidateQueries: () => {} }),
+      };
+      if (id === '../api/endpoints') return { athleteApi: { linkMember: (slug, id) => { assert.equal(slug, 'arena'); assert.equal(id, 2); return team; } }, publicApi: {} };
+      if (id === '../auth/AuthContext') return { useAuth: () => ({ user }) };
+      if (id === '../lib/format') return format;
+      if (id === '../lib/teamSchedule') return scheduleHelpers;
+      if (id === '../lib/categoryComposition') return pure('../src/lib/categoryComposition.ts');
+      if (id === '../components/Dialog') return { Dialog: props => React.createElement('aside', { role: 'dialog' }, props.children) };
+      if (id === '../components/Field') return { Field: props => React.createElement('label', {}, props.children) };
+      if (id === '../components/Plate') return { PlateChip: () => null };
+      if (id === '../components/States') return { Loading: () => null, ErrorState: () => null, InlineError: () => null };
+      throw new Error(id);
+    } });
+    const render = () => { hook = 0; return exports.default(); };
+    const popup = render(); const html = renderToStaticMarkup(popup);
+    assert.match(html, /Esse e-mail foi informado para a equipe/); assert.match(html, /EQUIPE DA ANA/); assert.match(html, /ANA/);
+    nodes(popup).find(node => node.type === 'button' && node.props.children === (accept ? 'Sim' : 'Não')).props.onClick();
+    if (accept) {
+      assert.equal(requests, 1); linkMutation.onSuccess(linkMutation.mutationFn(2));
+      assert.equal(destination, '/minhas-equipes?equipe=2');
+    } else {
+      assert.equal(requests, 0); assert.match(renderToStaticMarkup(render()), /<form/);
+    }
+  }
 });

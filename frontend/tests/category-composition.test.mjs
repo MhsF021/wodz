@@ -6,7 +6,16 @@ import ts from 'typescript';
 const exports = {};
 runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/categoryComposition.ts',import.meta.url),'utf8'),
   {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports});
-const {matchesComposition,categoryComposition} = exports;
+const {matchesComposition,categoryComposition,categoryAllowsGender} = exports;
+
+test('captains only choose categories compatible with their account gender',()=>{
+  assert.equal(categoryAllowsGender({genderPolicy:'FEMALE'},'M'),false);
+  assert.equal(categoryAllowsGender({genderPolicy:'MALE'},'F'),false);
+  assert.equal(categoryAllowsGender({genderPolicy:'FEMALE'},'F'),true);
+  assert.equal(categoryAllowsGender({genderPolicy:'MALE'},'M'),true);
+  for(const gender of ['M','F']) assert.equal(categoryAllowsGender({genderPolicy:'MIXED'},gender),true);
+  assert.equal(categoryAllowsGender({genderPolicy:null},'F'),false);
+});
 test('single-sex categories reject the other composition and missing members',()=>{
   assert.equal(matchesComposition({genderPolicy:'FEMALE',teamSize:2},['F','F']),true);
   assert.equal(matchesComposition({genderPolicy:'FEMALE',teamSize:2},['M','F']),false);

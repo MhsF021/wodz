@@ -3,7 +3,7 @@ export type ChampionshipStatus = 'DRAFT' | 'PUBLISHED' | 'IN_PROGRESS' | 'FINISH
 export type ScoringSystem = 'POINTS_TABLE' | 'RANK_SUM';
 export type WorkoutType = 'FOR_TIME' | 'AMRAP' | 'MAX_LOAD' | 'MAX_REPS';
 export type TeamStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED';
-/** BOLETO só aparece em cobranças antigas; novas cobranças são Pix ou cartão. */
+/** BOLETO só aparece em cobranças antigas; novas cobranças usam o checkout hospedado. */
 export type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO' | 'MERCADO_PAGO';
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED';
 export type HeatStatus = 'UPCOMING' | 'IN_PROGRESS' | 'FINISHED';
@@ -18,9 +18,15 @@ export interface User {
   email: string;
   role: Role;
   phone?: string | null;
+  document?: string | null;
+  street?: string | null;
+  addressNumber?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
   /** Falso para quem só entra com o Google. */
   hasPassword: boolean;
   googleLinked: boolean;
+  gender: Gender | null;
 }
 
 export interface PayoutAccount {
@@ -49,7 +55,8 @@ export interface RegisterInput {
   email: string;
   password: string;
   role: Role;
-  phone?: string;
+  phone: string;
+  gender?: Gender;
 }
 
 /** currentPassword só é exigida quando o e-mail muda. */
@@ -58,6 +65,12 @@ export interface UpdateProfileInput {
   email: string;
   phone?: string;
   currentPassword?: string;
+  gender?: Gender;
+  document: string;
+  street?: string;
+  addressNumber?: string;
+  city?: string;
+  postalCode?: string;
 }
 
 /** Primeira senha confirma a mesma conta Google; senhas existentes exigem a atual. */
@@ -280,6 +293,7 @@ export interface LeaderboardRow {
   rank: number;
   teamId: number;
   teamName: string;
+  athleteNames: string[];
   boxName?: string | null;
   totalPoints: number;
   workoutsCompleted: number;
@@ -305,6 +319,7 @@ export interface Leaderboard {
 export interface MemberInput {
   fullName: string;
   email: string;
+  phone: string;
   cpf: string;
   birthDate: string;
   gender: Gender | '';
@@ -315,6 +330,7 @@ export interface Member {
   id: number;
   fullName: string;
   email: string;
+  phone?: string | null;
   cpf: string;
   birthDate: string;
   gender: Gender;
@@ -324,13 +340,14 @@ export interface Member {
 
 export interface TeamRegistrationInput {
   categoryId: number;
-  name: string;
+  name?: string;
   boxName?: string;
   city?: string;
-  members: Array<Omit<MemberInput, 'gender' | 'shirtSize'> & { gender: Gender; shirtSize: ShirtSize | null }>;
+  members: Array<Omit<MemberInput, 'gender' | 'shirtSize'> & { gender: Gender; shirtSize: ShirtSize }>;
 }
 
 export interface Team {
+  captainId: number;
   id: number;
   name: string;
   boxName?: string | null;
@@ -342,6 +359,7 @@ export interface Team {
   championship: ChampionshipRef;
   category: CategoryRef;
   members: Member[];
+  registrationAmount?: number;
 }
 
 export interface TeamOverview {
@@ -364,6 +382,7 @@ export interface TeamOverview {
   lastPaymentStatus?: PaymentStatus | null;
   lastPaymentMethod?: PaymentMethod | null;
   paidAt?: string | null;
+  members: Array<{ id: number; fullName: string; shirtSize: ShirtSize | null; captain: boolean }>;
 }
 
 export interface MyHeats {
@@ -400,9 +419,7 @@ export interface Checkout {
   id: number;
   url?: string | null;
   expiresAt: string;
-  method: 'CARD' | 'PIX';
-  qrCode?: string | null;
-  qrCodeBase64?: string | null;
+  method: 'CARD';
 }
 
 export interface PublicConfig {

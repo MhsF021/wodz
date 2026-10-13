@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,5 +64,15 @@ class TeamCancellationTest {
         fixture(TeamStatus.CANCELLED);
         assertEquals(TeamStatus.CANCELLED, service.cancelRegistration(7L, 2L).status());
         verify(teams, never()).saveAndFlush(any());
+    }
+
+    @Test void historicoDoAtletaRetornaApenasInscricoesPendentesEConfirmadas() {
+        Team pending = fixture(TeamStatus.PENDING_PAYMENT);
+        Team confirmed = fixture(TeamStatus.CONFIRMED);
+        Team cancelled = fixture(TeamStatus.CANCELLED);
+        when(teams.findAccessibleByUserId(2L)).thenReturn(List.of(pending, cancelled, confirmed));
+        assertEquals(List.of(TeamStatus.PENDING_PAYMENT, TeamStatus.CONFIRMED),
+                service.myTeams(2L).stream().map(t -> t.status()).toList());
+        verify(teams, never()).delete(any());
     }
 }

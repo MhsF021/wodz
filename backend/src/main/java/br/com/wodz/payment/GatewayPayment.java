@@ -7,4 +7,17 @@ import java.time.Instant;
 public record GatewayPayment(String providerPaymentId, PaymentStatus status, String statusDetail,
                              BigDecimal amount, String currency, String externalReference,
                              String collectorId, Boolean liveMode, PaymentMethod method,
-                             Integer installments, Instant paidAt) { }
+                             Integer installments, Instant paidAt, BigDecimal netReceivedAmount, BigDecimal refundedAmount) {
+    public GatewayPayment(String providerPaymentId, PaymentStatus status, String statusDetail,
+                          BigDecimal amount, String currency, String externalReference, String collectorId,
+                          Boolean liveMode, PaymentMethod method, Integer installments, Instant paidAt, BigDecimal netReceivedAmount) {
+        this(providerPaymentId,status,statusDetail,amount,currency,externalReference,collectorId,liveMode,method,
+                installments,paidAt,netReceivedAmount,null);
+    }
+    public GatewayPayment(String providerPaymentId, PaymentStatus status, String statusDetail,
+                          BigDecimal amount, String currency, String externalReference, String collectorId,
+                          Boolean liveMode, PaymentMethod method, Integer installments, Instant paidAt) {
+        this(providerPaymentId, status, statusDetail, amount, currency, externalReference, collectorId,
+                liveMode, method, installments, paidAt, null, null);
+    }
+}

@@ -13,9 +13,10 @@ function harness() {
   return { api: exports, storage, advance: n => now += n, complete: state => storage.set('wodz.google-result', JSON.stringify({ state, credential })) };
 }
 test('same-tab Google preserves a safe destination and consumes transient credentials', () => {
-  const h = harness(); const id = h.api.prepareGoogleRedirect({ kind: 'login', role: 'ORGANIZER', next: '/organizador?aba=equipes' }); h.complete(id);
+  const h = harness(); const id = h.api.prepareGoogleRedirect({ kind: 'login', role: 'ORGANIZER', gender: 'F', next: '/organizador?aba=equipes' }); h.complete(id);
   const result = h.api.consumeGoogleRedirect(); assert.equal(result.flow.next, '/organizador?aba=equipes'); assert.equal(result.flow.role, 'ORGANIZER'); assert.equal(result.credential, credential); assert.equal(h.storage.size, 0);
   assert.equal(h.api.consumeGoogleRedirect(), result); h.api.clearGoogleRedirect(); assert.equal(h.api.consumeGoogleRedirect(), null);
+  assert.equal(result.flow.gender, 'F');
 });
 test('unsolicited or mismatched returns never adopt an identity', () => {
   for (const mode of ['missing', 'mismatch']) { const h = harness(); if (mode === 'mismatch') h.api.prepareGoogleRedirect({ kind: 'login' }); h.complete('foreign'); assert.equal(h.api.consumeGoogleRedirect(), null); assert.equal(h.storage.size, 0); }
@@ -35,6 +36,7 @@ test('malformed data, privilege roles and credentials are discarded and erased',
   for (const mutate of [
     h => h.storage.set('wodz.google-flow', 'invalid'),
     h => { const f = JSON.parse(h.storage.get('wodz.google-flow')); f.role = 'ADMIN'; h.storage.set('wodz.google-flow', JSON.stringify(f)); },
+    h => { const f = JSON.parse(h.storage.get('wodz.google-flow')); f.gender = 'invalid'; h.storage.set('wodz.google-flow', JSON.stringify(f)); },
     h => { const r = JSON.parse(h.storage.get('wodz.google-result')); r.credential = '<script>'; h.storage.set('wodz.google-result', JSON.stringify(r)); },
     h => { const r = JSON.parse(h.storage.get('wodz.google-result')); r.credential = 'x'.repeat(8193); h.storage.set('wodz.google-result', JSON.stringify(r)); },
   ]) { const h = harness(); const id = h.api.prepareGoogleRedirect({ kind: 'login' }); h.complete(id); mutate(h); assert.equal(h.api.consumeGoogleRedirect(), null); assert.equal(h.storage.size, 0); }

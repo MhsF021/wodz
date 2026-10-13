@@ -1,5 +1,11 @@
 import type { Category, Gender } from '../api/types';
 
+export function categoryAllowsGender(category: Category, gender: Gender): boolean {
+  return category.genderPolicy === 'MIXED'
+    || category.genderPolicy === 'MALE' && gender === 'M'
+    || category.genderPolicy === 'FEMALE' && gender === 'F';
+}
+
 export function compositionLabel(men: number, size: number): string {
   const women = size - men;
   return `${men} ${men === 1 ? 'homem' : 'homens'} e ${women} ${women === 1 ? 'mulher' : 'mulheres'}`;
