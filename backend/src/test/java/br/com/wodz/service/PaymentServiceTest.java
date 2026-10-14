@@ -276,13 +276,63 @@ class PaymentServiceTest {
                 new br.com.wodz.dto.PaymentDtos.CheckoutRequest(CheckoutMethod.CARD, false)));
         verifyNoInteractions(gateway, accounts, tokens);
     }
-    @Test void contratoRecusaMetodoRemovidoAntesDeCriarCobranca() throws Exception {
+    @Test void contratoNaoExigeMetodoEMantemCompatibilidadeComCheckoutAntigo() throws Exception {
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
         assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class, () -> json.readValue(
                 "{\"method\":\"PIX\",\"termsAccepted\":true}", br.com.wodz.dto.PaymentDtos.CheckoutRequest.class));
         var request = json.readValue("{\"method\":\"CARD\",\"termsAccepted\":true}", br.com.wodz.dto.PaymentDtos.CheckoutRequest.class);
         assertEquals(CheckoutMethod.CARD, request.method());
         verifyNoInteractions(gateway);
+        var withoutMethod=json.readValue("{\"termsAccepted\":true}", br.com.wodz.dto.PaymentDtos.CheckoutRequest.class);
+        assertNull(withoutMethod.method());
+        assertNotNull(service.createCheckout("ABC",withoutMethod).url());
+        verify(gateway).createCheckout(any());
+    }
+
+    @Test void pixEscolhidoNoCheckoutHospedadoEConciliadoPelaContaDoOrganizador() {
+        when(gateway.search(eq("reference"),any())).thenReturn(List.of(new GatewayPayment("900",PaymentStatus.APPROVED,
+                "accredited",session.getAmount(),"BRL","reference","123",false,PaymentMethod.PIX,null,Instant.now())));
+        service.checkoutStatus("ABC",20L,null);
+        var captured=ArgumentCaptor.forClass(Payment.class);
+        verify(payments).saveAndFlush(captured.capture());
+        assertEquals(PaymentMethod.PIX,captured.getValue().getMethod());
+        assertEquals(PaymentStatus.APPROVED,captured.getValue().getStatus());
+        assertEquals(7L,captured.getValue().getPayoutAccountId());
+        assertEquals(20L,captured.getValue().getCheckoutSessionId());
+        assertNull(captured.getValue().getExpiresAt());
+        verify(tokens).seller(7L);
+    }
+
+    private GatewayPayment hostedPix(PaymentStatus status) {
+        return new GatewayPayment("900",status,"",session.getAmount(),"BRL","reference","123",false,
+                PaymentMethod.PIX,null,null);
+    }
+
+    @Test void pixPendenteImpedeNovoCheckoutMesmoQuandoPreferenciaVenceu() {
+        session.setExpiresAt(Instant.now().minusSeconds(1));
+        when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
+        when(gateway.search(eq("reference"),any())).thenReturn(List.of(hostedPix(PaymentStatus.PENDING)));
+        ApiException error=assertThrows(ApiException.class,()->service.createCheckout("ABC"));
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT,error.getStatus());
+        verify(gateway,never()).createCheckout(any());
+        verify(sessions,never()).saveAndFlush(any());
+    }
+
+    @Test void pixPendenteRetomaMesmaPreferenciaValidaSemDuplicarCheckout() {
+        when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
+        when(gateway.search(eq("reference"),any())).thenReturn(List.of(hostedPix(PaymentStatus.PENDING)));
+        when(gateway.resumeCheckout(eq("pref"),any())).thenReturn(new GatewayCheckout("pref",session.getCheckoutUrl()));
+        assertEquals(20L,service.createCheckout("ABC").id());
+        verify(gateway).resumeCheckout(eq("pref"),any());
+        verify(gateway,never()).createCheckout(any());
+    }
+
+    @Test void pixCanceladoPermiteNovoCheckoutDepoisDeVencerPreferencia() {
+        session.setExpiresAt(Instant.now().minusSeconds(1));
+        when(sessions.findFirstByTeamIdOrderByIdDesc(5L)).thenReturn(Optional.of(session));
+        when(gateway.search(eq("reference"),any())).thenReturn(List.of(hostedPix(PaymentStatus.CANCELLED)));
+        assertNotNull(service.createCheckout("ABC").url());
+        verify(gateway).createCheckout(any());
     }
     @Test void cobrancaAnteriorValidaBloqueiaNovoCheckoutSemRetomarMetodoRemovido() {
         session.setMethod("PIX"); session.setCheckoutUrl(null);
