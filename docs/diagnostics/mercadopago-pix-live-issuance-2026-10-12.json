@@ -1,0 +1,106 @@
+{
+  "checked_at": "2026-10-12T23:45:12.2238408+00:00",
+  "mode": "live_pix_issuance_and_cancel_only",
+  "expected_owner": "1681662071",
+  "expected_application_id": "6035581613565283",
+  "credential_source": "production_environment",
+  "credential_type": "APP_USR",
+  "payer_email_source": "synthetic_reserved_example",
+  "cpf_sent": false,
+  "amount": 1.0,
+  "currency": "BRL",
+  "reference": "wodzlivepix-e257a455-7f73-4a0d-928e-754af6e30e82",
+  "identity": {
+    "http": 200,
+    "request_id": "e697a2db-0148-4bc0-93a0-df44f9837f2f",
+    "owner_matches": true,
+    "test_user": false,
+    "site_brazil": true,
+    "active": true
+  },
+  "application": {
+    "http": 200,
+    "request_id": "57e3b10d-b2e5-40a0-ba6c-7c4a865be420",
+    "id_matches": true,
+    "active": true,
+    "blocked": false,
+    "disabled": false,
+    "literal_payments_scope": true
+  },
+  "issuance": {
+    "http": 201,
+    "request_id": "f8927081-dff6-4410-a084-e411142417f5",
+    "payment_id": "183850015666",
+    "qr_present": true,
+    "qr_image_present": true,
+    "safe_reasons": [],
+    "verification": {
+      "id_matches": true,
+      "reference_matches": true,
+      "collector_matches": true,
+      "application_matches": true,
+      "provider_application_id_present": false,
+      "application_id_source": "verified_credential_and_application",
+      "amount_matches": true,
+      "currency_matches": true,
+      "live_mode_true": true,
+      "method_pix": true,
+      "status": "pending",
+      "qr_present": true,
+      "qr_image_present": true,
+      "ownership_and_payment_verified": true
+    }
+  },
+  "before_cancel": {
+    "http": 200,
+    "request_id": "78bd230e-339b-4fe3-8c0e-efc74348c79a",
+    "verification": {
+      "id_matches": true,
+      "reference_matches": true,
+      "collector_matches": true,
+      "application_matches": true,
+      "provider_application_id_present": false,
+      "application_id_source": "verified_credential_and_application",
+      "amount_matches": true,
+      "currency_matches": true,
+      "live_mode_true": true,
+      "method_pix": true,
+      "status": "pending",
+      "qr_present": true,
+      "qr_image_present": true,
+      "ownership_and_payment_verified": true
+    }
+  },
+  "cancellation": {
+    "http": 200,
+    "request_id": "f7282696-bc0e-4b60-a83d-269a4fa641f6",
+    "status": "cancelled",
+    "safe_reasons": []
+  },
+  "after_cancel": {
+    "http": 200,
+    "request_id": "f16c4637-829f-458d-873d-b60331a4f0da",
+    "verification": {
+      "id_matches": true,
+      "reference_matches": true,
+      "collector_matches": true,
+      "application_matches": true,
+      "provider_application_id_present": false,
+      "application_id_source": "verified_credential_and_application",
+      "amount_matches": true,
+      "currency_matches": true,
+      "live_mode_true": true,
+      "method_pix": true,
+      "status": "cancelled",
+      "qr_present": true,
+      "qr_image_present": true,
+      "ownership_and_payment_verified": true
+    }
+  },
+  "outcome": "issued_pending_then_cancelled",
+  "payment_execution_requested": false,
+  "refund_requested": false,
+  "note": "Emissao produtiva isolada, sem inscricao Wodz. Apenas cria Pix e cancela a cobranca propria pendente. Sem tokens, email, CPF, QR ou resposta bruta.",
+  "issuance_post_sent": true,
+  "cancellation_put_sent": true
+}

@@ -1,0 +1,34 @@
+{
+  "checked_at": "2026-10-12T23:49:59Z",
+  "read_only": true,
+  "configuration": {
+    "payment_provider": "mercadopago",
+    "test_mode": true,
+    "application_id": "4961044287054715"
+  },
+  "payout_accounts": [
+    {
+      "id": 1,
+      "seller_id": "3758553874",
+      "application_id": "4961044287054715",
+      "test_account": true,
+      "status": "DISCONNECTED"
+    },
+    {
+      "id": 2,
+      "seller_id": "3740570257",
+      "application_id": "4961044287054715",
+      "test_account": true,
+      "status": "ACTIVE"
+    }
+  ],
+  "demo_team": {
+    "team_id": 353,
+    "status": "PENDING_PAYMENT",
+    "payment_count": 0,
+    "checkout_id": 9,
+    "payout_account_id": 2,
+    "provider_payment_present": false
+  },
+  "note": "Estado local consultado após controle produtivo isolado, que não possui vínculo com inscrição Wodz. Nenhuma mudança de credenciais ou modo produtivo na configuração do projeto."
+}

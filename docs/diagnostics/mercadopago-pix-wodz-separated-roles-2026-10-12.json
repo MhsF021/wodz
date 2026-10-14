@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-10-12T16:16:56.0564741-03:00",
+  "mode": "wodz_demo_test_account_only",
+  "team_id": 353,
+  "amount": 170.0,
+  "application_id": "4961044287054715",
+  "verified_seller_id": "3740570257",
+  "selected_payout_account_id": 2,
+  "no_previous_checkout": true,
+  "payer_email_source": "existing_seed_demo_captain",
+  "payer_email_matches_mp_test_buyer": false,
+  "cpf_source": "user_supplied_mp_example",
+  "http": 502,
+  "qr_present": false,
+  "qr_image_present": false,
+  "safe_message": null,
+  "outcome": {
+    "team_status": "PENDING_PAYMENT",
+    "payment_count": 0,
+    "checkout_id": 9,
+    "payout_account_id": 2,
+    "method": "PIX",
+    "reference": "45b8ecfd-604d-4147-9862-25e0f2911192",
+    "provider_payment_present": false,
+    "creation_rejected_at": "2026-10-12T16:16:52.19612-03:00",
+    "expires_at": "2026-10-12T16:47:50.951881-03:00"
+  },
+  "note": "Inscricao de demonstracao preservada. Nao paga, nao confirma equipe, nao registra codigo privado, credenciais, CPF, email ou QR.",
+  "provider_http": 401,
+  "provider_reason": "unauthorized_live_credentials",
+  "provider_request_id": "6b9de9a0-6663-4e53-b00a-f12007a74f0a",
+  "backend_correlation_id": "0851e83c-00fe-4492-8d85-0717314b812e"
+}

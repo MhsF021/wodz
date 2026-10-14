@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-12T15:34:43.4479757+00:00",
+  "mode": "read_only_payer_classification",
+  "checkout_id": 8,
+  "created_at": "2026-10-12T11:13:26.682138-03:00",
+  "cpf_digits_11": true,
+  "cpf_matches_documentation_fixture": false,
+  "email_present": true,
+  "email_matches_captain": true,
+  "email_uses_testuser_domain": false,
+  "notification_present": true,
+  "note": "Apenas classificacao; sem valores de CPF, e-mail, token ou dados cifrados."
+}

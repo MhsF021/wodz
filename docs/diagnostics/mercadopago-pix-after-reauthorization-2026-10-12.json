@@ -1,0 +1,50 @@
+{
+  "checked_at": "2026-10-12T13:50:43.4966310+00:00",
+  "mode": "verified_test_account_only",
+  "account_id": "1",
+  "application_id": "4961044287054715",
+  "seller_id": "3758553874",
+  "seller_verified_test_user": true,
+  "credential_type": "APP_USR",
+  "identity_http": 200,
+  "application": {
+    "http": 200,
+    "id": 4961044287054715,
+    "active": true,
+    "blocked": false,
+    "disabled": false,
+    "pkce": true,
+    "scopes": [
+      "read",
+      "offline_access",
+      "write"
+    ],
+    "configured_scopes": [],
+    "available_scope_names": []
+  },
+  "pix": {
+    "http": 401,
+    "request_id": "c813ad4f-4deb-4e17-8a6a-8416208b83dd",
+    "reference": "a1272680-d7f3-4b40-9e11-5ef0e252d5dc",
+    "amount": 1.0,
+    "expires_at": "2026-10-12T14:21:42.549+00:00",
+    "request_fields": [
+      "transaction_amount",
+      "payment_method_id",
+      "description",
+      "external_reference",
+      "date_of_expiration",
+      "payer",
+      "notification_url"
+    ],
+    "payment_id": null,
+    "status": null,
+    "live_mode": null,
+    "qr_present": false,
+    "safe_reasons": [
+      "unauthorized",
+      "Unauthorized use of live credentials"
+    ]
+  },
+  "note": "Emissao ficticia isolada; sem pagamento, renovacao OAuth ou alteracao de inscricoes. Sem token, email, CPF, QR ou corpo bruto no relatorio."
+}

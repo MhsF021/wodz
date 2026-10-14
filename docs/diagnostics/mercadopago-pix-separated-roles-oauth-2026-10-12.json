@@ -1,0 +1,79 @@
+{
+  "checked_at": "2026-10-12T16:06:58.533838-03:00",
+  "mode": "StoredPix",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "oauth",
+      "id": 3740570257,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "buyer",
+      "id": 3740570267,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "source": "oauth",
+      "credential_type": "APP_USR",
+      "sandbox_identity_http": null,
+      "expected_application_id": "4961044287054715",
+      "verified_collector": "3740570257",
+      "http": 401,
+      "request_id": "140ea20b-9756-4a8b-b84a-a733e82738fe",
+      "reference": "wodzmatrix-fc28a30c-40ca-4687-9f65-3d6386c00c51",
+      "amount": 1,
+      "cpf_source": "user_supplied_mp_example",
+      "email_source": "verified_test_buyer",
+      "request_fields": [
+        "transaction_amount",
+        "payment_method_id",
+        "description",
+        "external_reference",
+        "date_of_expiration",
+        "payer"
+      ],
+      "payment_id": null,
+      "status": null,
+      "status_detail": null,
+      "collector_id": null,
+      "application_id": null,
+      "live_mode": null,
+      "qr_present": false,
+      "qr_image_present": false,
+      "safe_reasons": [
+        "unauthorized",
+        "Unauthorized use of live credentials"
+      ],
+      "safe_error_messages": [
+        "Unauthorized use of live credentials",
+        "Unauthorized use of live credentials"
+      ],
+      "error_field_names": [
+        "cause",
+        "error",
+        "message",
+        "status"
+      ],
+      "cause_codes": [
+        "7"
+      ]
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}

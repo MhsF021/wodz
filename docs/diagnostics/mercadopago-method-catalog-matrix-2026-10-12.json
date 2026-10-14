@@ -1,0 +1,219 @@
+{
+  "checked_at": "2026-10-12T19:27:06.6150469+00:00",
+  "mode": "AuditMethods",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "integrator",
+      "id": 3758553874,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "seller",
+      "id": 3740570257,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "buyer",
+      "id": 3740570267,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "production",
+      "id": 1681662071,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": false,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "source": "integrator",
+      "credential_type": "APP_USR",
+      "http": 200,
+      "request_id": "25605d9d-f5a2-4fd5-8506-cc3e60e794dd",
+      "method_ids": [
+        "elo",
+        "master",
+        "visa",
+        "elo",
+        "amex",
+        "visa",
+        "master",
+        "account_money",
+        "debelo",
+        "mp_card",
+        "bolbradesco"
+      ],
+      "pix": []
+    },
+    {
+      "source": "integrator",
+      "credential_type": "TEST",
+      "http": 200,
+      "request_id": "667f8831-972f-4b28-ac37-57f9d2280d8c",
+      "method_ids": [
+        "debelo",
+        "master",
+        "amex",
+        "maestro",
+        "master",
+        "elo",
+        "debvisa",
+        "visa",
+        "elo",
+        "cabal",
+        "debcabal",
+        "visa",
+        "debmaster",
+        "meliplace",
+        "mp_card",
+        "senff",
+        "bolbradesco",
+        "account_money",
+        "cartao_de_todos"
+      ],
+      "pix": []
+    },
+    {
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "http": 200,
+      "request_id": "3f3063a2-c5b9-45c7-a9fe-ccc38bd3ab17",
+      "method_ids": [
+        "elo",
+        "master",
+        "visa",
+        "elo",
+        "amex",
+        "visa",
+        "master",
+        "bolbradesco",
+        "debelo",
+        "mp_card",
+        "account_money"
+      ],
+      "pix": []
+    },
+    {
+      "source": "seller",
+      "credential_type": "TEST",
+      "http": 200,
+      "request_id": "eba63cba-c93c-41d0-b4f3-46a56549b1b2",
+      "method_ids": [
+        "master",
+        "visa",
+        "cabal",
+        "visa",
+        "master",
+        "debvisa",
+        "elo",
+        "amex",
+        "debcabal",
+        "maestro",
+        "elo",
+        "debmaster",
+        "debelo",
+        "meliplace",
+        "mp_card",
+        "senff",
+        "account_money",
+        "cartao_de_todos",
+        "bolbradesco"
+      ],
+      "pix": []
+    },
+    {
+      "source": "buyer",
+      "credential_type": "APP_USR",
+      "http": 200,
+      "request_id": "65ce555e-c86c-4269-a958-c68fc3de2339",
+      "method_ids": [
+        "visa",
+        "elo",
+        "amex",
+        "visa",
+        "master",
+        "elo",
+        "master",
+        "debelo",
+        "mp_card",
+        "bolbradesco",
+        "account_money"
+      ],
+      "pix": []
+    },
+    {
+      "source": "production",
+      "credential_type": "APP_USR",
+      "http": 200,
+      "request_id": "3469840c-bfcb-495b-bef4-ae3d9ae136f0",
+      "method_ids": [
+        "visa",
+        "elo",
+        "amex",
+        "visa",
+        "master",
+        "elo",
+        "master",
+        "account_money",
+        "debelo",
+        "bolbradesco",
+        "mp_card"
+      ],
+      "pix": []
+    },
+    {
+      "source": "production",
+      "credential_type": "TEST",
+      "http": 200,
+      "request_id": "a7c07b90-99b7-4d63-9e5b-e903fb476804",
+      "method_ids": [
+        "master",
+        "amex",
+        "debcabal",
+        "maestro",
+        "debvisa",
+        "visa",
+        "elo",
+        "cabal",
+        "visa",
+        "master",
+        "elo",
+        "debmaster",
+        "debelo",
+        "mp_card",
+        "bolbradesco",
+        "account_money",
+        "meliplace",
+        "senff",
+        "cartao_de_todos"
+      ],
+      "pix": []
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}

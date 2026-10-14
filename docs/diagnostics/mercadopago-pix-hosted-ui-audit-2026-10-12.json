@@ -1,0 +1,44 @@
+{
+  "checked_at": "2026-10-12T16:37:42.2755031-03:00",
+  "http": 200,
+  "preference_id": "3740570257-d9561106-4a13-4f29-b4e5-aa6131140a44",
+  "collector_id": 3740570257,
+  "client_id": "4961044287054715",
+  "payment_methods": {
+    "default_card_id": null,
+    "default_payment_method_id": "pix",
+    "excluded_payment_methods": [
+      {
+        "id": ""
+      }
+    ],
+    "excluded_payment_types": [
+      {
+        "id": ""
+      }
+    ],
+    "installments": null,
+    "default_installments": null
+  },
+  "items": [
+    {
+      "id": "pix-diagnostic",
+      "currency_id": "BRL",
+      "quantity": 1,
+      "unit_price": 1
+    }
+  ],
+  "pix_observed_in_ui": false,
+  "observed_ui_options": [
+    "account_money",
+    "saved_cards",
+    "new_card",
+    "caixa_virtual_debit"
+  ],
+  "positive_control_amount": 1,
+  "positive_control_status": "approved_accredited",
+  "agent_payment_click": "rejected_by_automatic_approval_review",
+  "note": "Sem pagamento executado pelo agente, sem credenciais ou dados do pagador.",
+  "verified_payment_id": 182790974655,
+  "verified_payment_at": "2026-10-12T16:39:39.9081508-03:00"
+}

@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-10-12T16:38:42.5382959-03:00",
+  "http": 200,
+  "reference": "wodzhostpix-a7eb14d1-abe9-4a5f-9656-1d8f41450328",
+  "total": 1,
+  "payments": [
+    {
+      "id": 182790974655,
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_method_id": "account_money",
+      "collector_id": 3740570257,
+      "live_mode": true
+    }
+  ],
+  "agent_payment_executed": false,
+  "note": "Consulta somente leitura confirmou pagamento ficticio no controle positivo; detalhes verificados em mercadopago-positive-control-confirmed-2026-10-12.json."
+}

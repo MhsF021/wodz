@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-10-12T20:16:50Z",
+  "source": "Mercado Pago web /pix-keys-management/hub",
+  "verified_user_id": "1681662071",
+  "application_id": "6035581613565283",
+  "owner_match_method": "comparison_of_visible_profile_email_and_api_identity_without_logging_values",
+  "owner_match": true,
+  "key_count": 1,
+  "key_types": [
+    "random"
+  ],
+  "pending_warning_visible": false,
+  "explicit_active_status_label_visible": false,
+  "key_created_by_agent": false,
+  "key_values_saved": false,
+  "evidence_image": "mercadopago-conta-real-chave-cadastrada-2026-10-12.png",
+  "note": "Chave aleatoria listada na conta real autenticada. Primeira leitura exibiu somente cadastro; leitura posterior mostrou a chave. Sem inferir quem a cadastrou ou quando. Não comprova KYC completo, autorização Pix ou habilitação de contas ficticias."
+}

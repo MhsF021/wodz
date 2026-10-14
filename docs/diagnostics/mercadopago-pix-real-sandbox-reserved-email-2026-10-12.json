@@ -1,0 +1,62 @@
+{
+  "checked_at": "2026-10-12T20:14:13.2640183+00:00",
+  "mode": "ProductionSandboxPix",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "production",
+      "id": 1681662071,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": false,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "source": "production",
+      "credential_type": "TEST",
+      "sandbox_identity_http": 200,
+      "expected_application_id": "6035581613565283",
+      "verified_collector": "1681662071",
+      "http": 500,
+      "request_id": "e0b1d7c1-9a8e-4b8b-86a4-eb14da286bc1",
+      "reference": "wodzmatrix-019c1fbc-2e1f-4421-ae45-36db45c2d954",
+      "amount": 1,
+      "cpf_source": "user_supplied_mp_example",
+      "email_source": "synthetic_reserved_example",
+      "request_fields": [
+        "transaction_amount",
+        "payment_method_id",
+        "description",
+        "external_reference",
+        "date_of_expiration",
+        "payer"
+      ],
+      "payment_id": null,
+      "status": null,
+      "status_detail": null,
+      "collector_id": null,
+      "application_id": null,
+      "live_mode": null,
+      "qr_present": false,
+      "qr_image_present": false,
+      "safe_reasons": [],
+      "safe_error_messages": [
+        "fill and validate error list: not_found\n: 400"
+      ],
+      "error_field_names": [
+        "message",
+        "error",
+        "status",
+        "cause"
+      ],
+      "cause_codes": []
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}
