@@ -1,0 +1,13 @@
+{
+  "observed_period": "2026-10-12, auditoria da tarde anterior ao controle produtivo concluido as 20:45 de Brasilia",
+  "source": "Mercado Pago Developers, Gestao de integracoes",
+  "application_id": "6035581613565283",
+  "application_name": "payment-wodz",
+  "integration_label": "Integracao para a sua conta",
+  "product_label": "Checkout Pro",
+  "model_changed_by_agent": false,
+  "details_inspected": false,
+  "details_limitation": "Ao abrir detalhes, o servico exigiu nova validacao de identidade. A revisao automatica bloqueou acesso a origem de liveness por possivel exposicao de biometria. Nao houve acesso nem tentativa de contornar.",
+  "reverified_at_live_control": false,
+  "note": "Observacao historica da lista, sem inferir que este modelo causou erros nas aplicacoes ficticias nem que o produto Checkout Pro impede Pix. O controle direto com essa aplicacao emitiu Pix em producao."
+}

@@ -1,0 +1,50 @@
+{
+  "checked_at": "2026-10-12T19:19:01.4683818+00:00",
+  "mode": "HostedPix",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "oauth",
+      "id": 3740570257,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "buyer",
+      "id": 3740570267,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "source": "oauth",
+      "resource": "/checkout/preferences",
+      "http": 201,
+      "request_id": "cbbd5fc8-6499-4914-935a-6b3ad69d4854",
+      "reference": "wodzhostpix-a7eb14d1-abe9-4a5f-9656-1d8f41450328",
+      "amount": 1,
+      "preference_id": "3740570257-d9561106-4a13-4f29-b4e5-aa6131140a44",
+      "collector_id": 3740570257,
+      "client_id": "4961044287054715",
+      "url": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-d9561106-4a13-4f29-b4e5-aa6131140a44",
+      "pix_excluded": false,
+      "default_method": "pix",
+      "expires_at": "2026-10-12T19:50:06.6194078+00:00",
+      "safe_reasons": [],
+      "note": "Preferencia isolada, sem inscricao Wodz, criada para observar Pix no checkout do provedor."
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}

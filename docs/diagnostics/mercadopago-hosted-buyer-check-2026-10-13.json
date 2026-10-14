@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-10-14T00:07:53.7697746+00:00",
+  "server_date": "Wed, 14 Oct 2026 00:07:53 GMT",
+  "operation": "read_only",
+  "checkout_id": 17,
+  "seller_id": 3740570257,
+  "seller_test_user": true,
+  "seller_nickname": "TESTUSER3041627696758533338",
+  "preferences": [
+    {
+      "id": "3740570257-b1709fce-fdb2-49fd-8c28-840617e91dd8",
+      "collector_id": 3740570257,
+      "client_id": "4961044287054715",
+      "reference_matches": true,
+      "expires": true,
+      "preference_expired": true,
+      "expiration_date_from": "2026-10-13T21:05:41.055-03:00",
+      "expiration_date_to": "2026-10-13T21:35:40.714-03:00",
+      "success_matches": true,
+      "pending_matches": true,
+      "failure_matches": true,
+      "excluded_methods": [
+        ""
+      ],
+      "excluded_types": [
+        ""
+      ],
+      "init_point": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=3740570257-b1709fce-fdb2-49fd-8c28-840617e91dd8"
+    }
+  ]
+}

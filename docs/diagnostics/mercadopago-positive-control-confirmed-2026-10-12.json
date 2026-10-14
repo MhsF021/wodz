@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-10-12T19:39:39.9081508+00:00",
+  "http": 200,
+  "payment_id": 182790974655,
+  "status": "approved",
+  "status_detail": "accredited",
+  "amount": 1,
+  "currency": "BRL",
+  "method": "account_money",
+  "collector_id": 3740570257,
+  "payer_id": "3740570267",
+  "reference": "wodzhostpix-a7eb14d1-abe9-4a5f-9656-1d8f41450328",
+  "date_created": "2026-10-12T16:33:58-03:00",
+  "date_approved": "2026-10-12T16:33:58-03:00",
+  "live_mode": true,
+  "collector_previously_verified_test_user": true,
+  "payer_previously_verified_test_user": true,
+  "preference_id": "3740570257-d9561106-4a13-4f29-b4e5-aa6131140a44",
+  "preference_application_id": "4961044287054715",
+  "agent_payment_click": "rejected_by_automatic_approval_review",
+  "registered_against_wodz_team": false,
+  "note": "Controle positivo ficticio confirmado pela API; nenhuma inscricao Wodz confirmada com este pagamento. Sem tokens, CPF, email ou dados bancarios."
+}

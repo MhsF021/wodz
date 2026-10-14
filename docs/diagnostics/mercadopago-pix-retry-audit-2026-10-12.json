@@ -1,0 +1,97 @@
+{
+  "checked_at": "2026-10-12T13:31:46.5865097+00:00",
+  "operation": "read_only",
+  "requested_payment_id": "182705002681",
+  "requested_preference_id": "",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": "true",
+  "results": [
+    {
+      "source": "stored_seller_oauth",
+      "account_id": 1,
+      "stored_application_id": "4961044287054715",
+      "configured_application_id": "4961044287054715",
+      "credential_type": "APP_USR",
+      "identity_http": 200,
+      "seller_id": 3758553874,
+      "seller_test_user": true,
+      "seller_site": "MLB",
+      "payment_http": 200,
+      "payment": {
+        "id": 182705002681,
+        "status": "approved",
+        "status_detail": "accredited",
+        "application_id": null,
+        "collector_id": 3758553874,
+        "payer_id": "3740570267",
+        "live_mode": true,
+        "amount": 250,
+        "currency": "BRL",
+        "method": "account_money",
+        "type": "account_money",
+        "installments": 1,
+        "created": "2026-10-12T01:01:48-03:00",
+        "approved_at": "2026-10-12T01:01:48-03:00",
+        "updated": "2026-10-12T01:01:53-03:00",
+        "external_reference": "63f38f53-d23a-432c-b1c8-977ff7b343dd",
+        "order_id": "45188593453",
+        "order_type": "mercadopago",
+        "marketplace_fee": null,
+        "captured": true
+      },
+      "approved_order_http": 200,
+      "approved_order": {
+        "id": 45188593453,
+        "preference_id": "3758553874-ddf3fdde-9a77-4759-8225-1c08b5c24c59",
+        "collector_id": 3758553874,
+        "external_reference": "63f38f53-d23a-432c-b1c8-977ff7b343dd",
+        "status": "closed",
+        "order_status": "paid",
+        "total_amount": 250,
+        "paid_amount": 250
+      },
+      "approved_preference_http": 200,
+      "approved_preference": {
+        "id": "3758553874-ddf3fdde-9a77-4759-8225-1c08b5c24c59",
+        "client_id": "4961044287054715",
+        "collector_id": 3758553874,
+        "external_reference": "63f38f53-d23a-432c-b1c8-977ff7b343dd",
+        "created": "2026-10-12T01:00:09.393-03:00",
+        "expires": true,
+        "expiry": "2026-10-12T01:30:02.962-03:00",
+        "marketplace": "MP-MKT-4961044287054715",
+        "marketplace_fee": 0,
+        "auto_return": "approved",
+        "success_return_present": true,
+        "failure_return_present": true,
+        "pending_return_present": true,
+        "notification_present": true,
+        "excluded_methods": [
+          "pix"
+        ],
+        "items": [
+          {
+            "quantity": 1,
+            "unit_price": 250,
+            "currency": "BRL"
+          }
+        ]
+      },
+      "reference_searches": [
+        {
+          "reference": "20ec64be-9c27-4221-ade7-53b8d2aeaf89",
+          "http": 200,
+          "total": 0,
+          "payments": []
+        },
+        {
+          "reference": "f81a8d15-e443-4993-b48e-22c190878ecb",
+          "http": 200,
+          "total": 0,
+          "payments": []
+        }
+      ]
+    }
+  ],
+  "note": "Sem renovacao OAuth, criacao de cobranca, pagamento ou alteracao de inscricoes. Conteudo filtrado: sem tokens, cookies, CPF, email, QR ou respostas brutas."
+}

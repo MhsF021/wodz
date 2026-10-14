@@ -1,0 +1,187 @@
+{
+  "checked_at": "2026-10-12T19:24:45.2714141+00:00",
+  "mode": "AuditResults",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "integrator",
+      "id": 3758553874,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "seller",
+      "id": 3740570257,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "buyer",
+      "id": 3740570267,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "production",
+      "id": 1681662071,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": false,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "artifact": "mercadopago-pix-direct-matrix-2026-10-12.json",
+      "source": "integrator",
+      "credential_type": "APP_USR",
+      "reference": "wodzmatrix-0f9ac6cb-92f4-4e17-9289-6cdefb18a174",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "49e3adc2-8856-4e8b-af34-cfdecc362ef9",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-direct-matrix-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "reference": "wodzmatrix-75be1d45-6996-4e54-959e-14ddedf24ef6",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "9c92cbb7-6d3f-4251-8405-418f91abde7d",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-integrator-oauth-matrix-2026-10-12.json",
+      "source": "integrator",
+      "credential_type": "APP_USR",
+      "reference": "wodzmatrix-89bafbb6-95e2-4f7f-9c7a-ebfc8ecc52f3",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "4418b12b-6653-4616-875c-fb0ef169ace1",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-sandbox-direct-matrix-2026-10-12.json",
+      "source": "integrator",
+      "credential_type": "TEST",
+      "reference": "wodzmatrix-0f21609b-1bcb-4b40-b36e-7d1b04b9efc6",
+      "original_http": 500,
+      "search_http": 200,
+      "request_id": "d985cc7a-fe3c-419d-aae8-4990abcbd70b",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-sandbox-direct-matrix-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "TEST",
+      "reference": "wodzmatrix-68a3f8b2-1fae-4bb0-b048-52dc970c671e",
+      "original_http": 500,
+      "search_http": 200,
+      "request_id": "16d11c33-c24f-4733-93ca-38ad3319c28c",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-real-application-sandbox-matrix-2026-10-12.json",
+      "source": "production",
+      "credential_type": "TEST",
+      "reference": "wodzmatrix-f2bc5cfe-6d09-4e4c-b8db-df006c1106a1",
+      "original_http": 500,
+      "search_http": 200,
+      "request_id": "9950a048-86cf-4fc6-84b3-a5cd3069fe8d",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-separated-roles-oauth-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "reference": "wodzmatrix-fc28a30c-40ca-4687-9f65-3d6386c00c51",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "e7640bd4-73f5-45da-a72b-93e844d344f4",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-seller-payments-appusr-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "reference": "wodzmatrix-7c5683c7-5733-4bcf-bd11-1f51132d1a10",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "947d7339-f6fd-4411-b87c-554784e607eb",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-seller-payments-test-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "TEST",
+      "reference": "wodzmatrix-bc3b2469-462a-43ed-b13f-05d045e451a3",
+      "original_http": 500,
+      "search_http": 200,
+      "request_id": "c6b4064d-9c02-4aa5-9fb6-da4de42824d5",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-hosted-preference-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "reference": "wodzhostpix-a7eb14d1-abe9-4a5f-9656-1d8f41450328",
+      "original_http": 201,
+      "search_http": 200,
+      "request_id": "ef4ca01b-bdf4-4e5f-a3f5-610633259794",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    },
+    {
+      "artifact": "mercadopago-pix-wodz-separated-roles-2026-10-12.json",
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "reference": "45b8ecfd-604d-4147-9862-25e0f2911192",
+      "original_http": 401,
+      "search_http": 200,
+      "request_id": "e6650b60-f002-444d-a304-8dcab31d195d",
+      "total": 0,
+      "results": null,
+      "safe_reasons": []
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}

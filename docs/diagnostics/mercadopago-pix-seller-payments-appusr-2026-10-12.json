@@ -1,0 +1,90 @@
+{
+  "checked_at": "2026-10-12T19:10:34.6998730+00:00",
+  "mode": "DirectPix",
+  "configured_application_id": "4961044287054715",
+  "configured_test_mode": true,
+  "accounts": [
+    {
+      "source": "integrator",
+      "id": 3758553874,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "seller",
+      "id": 3740570257,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    },
+    {
+      "source": "buyer",
+      "id": 3740570267,
+      "identity_http": 200,
+      "site_id": "MLB",
+      "test_user": true,
+      "active": "active",
+      "user_type": "normal",
+      "email_present": true,
+      "credential_type": "APP_USR"
+    }
+  ],
+  "controls": [
+    {
+      "source": "seller",
+      "credential_type": "APP_USR",
+      "sandbox_identity_http": null,
+      "expected_application_id": "5387756444859415",
+      "verified_collector": "3740570257",
+      "http": 401,
+      "request_id": "d3834597-558a-4826-aaac-c6571b29b02a",
+      "reference": "wodzmatrix-7c5683c7-5733-4bcf-bd11-1f51132d1a10",
+      "amount": 1,
+      "cpf_source": "user_supplied_mp_example",
+      "email_source": "verified_test_buyer",
+      "request_fields": [
+        "transaction_amount",
+        "payment_method_id",
+        "description",
+        "external_reference",
+        "date_of_expiration",
+        "payer"
+      ],
+      "payment_id": null,
+      "status": null,
+      "status_detail": null,
+      "collector_id": null,
+      "application_id": null,
+      "live_mode": null,
+      "qr_present": false,
+      "qr_image_present": false,
+      "safe_reasons": [
+        "unauthorized",
+        "Unauthorized use of live credentials"
+      ],
+      "safe_error_messages": [
+        "Unauthorized use of live credentials",
+        "Unauthorized use of live credentials"
+      ],
+      "error_field_names": [
+        "cause",
+        "error",
+        "message",
+        "status"
+      ],
+      "cause_codes": [
+        "7"
+      ]
+    }
+  ],
+  "note": "Sem credenciais, email, CPF, QR ou resposta bruta. Emissoes restritas a contas ficticias verificadas ou credenciais TEST da aplicacao verificada. Nao paga nem altera inscricoes ou OAuth."
+}

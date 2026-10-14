@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-10-12T19:25:56.5229142+00:00",
+  "verified_seller_id": "3740570257",
+  "http": 200,
+  "count": 11,
+  "method_ids": [
+    "master",
+    "elo",
+    "master",
+    "visa",
+    "elo",
+    "amex",
+    "visa",
+    "debelo",
+    "mp_card",
+    "bolbradesco",
+    "account_money"
+  ],
+  "pix_present": false,
+  "note": "Catalogo consultado com credencial APP_USR do vendedor; nao comprova chave Pix cadastrada."
+}
