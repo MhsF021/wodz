@@ -42,14 +42,13 @@ public class MercadoPagoGateway implements PaymentGateway {
     public boolean supportsRemoteFetch() { return true; }
 
     public GatewayCheckout createCheckout(CheckoutCommand c) {
-        if (c.seller() != null && c.seller().platformDirect()) throw ApiException.unprocessable("Cartão exige a conta OAuth do organizador.");
+        if (c.seller() != null && c.seller().platformDirect()) throw ApiException.unprocessable("O checkout exige a conta OAuth do organizador.");
         requireCheckoutToken(c.seller());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("items", List.of(Map.of("id", c.externalReference(), "title", c.description(),
                 "currency_id", "BRL", "quantity", 1, "unit_price", c.amount())));
         body.put("external_reference", c.externalReference());
-        // Mantém este meio indisponível no checkout hospedado.
-        body.put("payment_methods", Map.of("excluded_payment_methods", List.of(Map.of("id", "pix"))));
+        // Sem seleção ou exclusões: o comprador escolhe entre os meios disponíveis no Checkout Pro.
         body.put("back_urls", Map.of("success", c.returnUrl() + "&retorno=sucesso",
                 "pending", c.returnUrl() + "&retorno=pendente", "failure", c.returnUrl() + "&retorno=erro"));
         body.put("auto_return", "approved");
@@ -66,7 +65,7 @@ public class MercadoPagoGateway implements PaymentGateway {
                     .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().toEntity(JsonNode.class);
             GatewayCheckout checkout = preference(response.getBody(), c, null);
             if (checkout == null) throw invalidPreference(c, "expired_or_return_url");
-            if (!excludesPix(response.getBody())) throw invalidPreference(c, "payment_methods");
+            if (hasPaymentExclusions(response.getBody())) throw invalidPreference(c, "payment_methods");
             logCheckout("created", c, checkout, response.getHeaders(), response.getBody());
             return checkout;
         } catch (RestClientException e) { throw unavailable(e); }
@@ -74,7 +73,7 @@ public class MercadoPagoGateway implements PaymentGateway {
 
     /** Só retoma uma preferência que o provedor ainda associa à aplicação, vendedor e inscrição atuais. */
     public GatewayCheckout resumeCheckout(String preferenceId, CheckoutCommand c) {
-        if (c.seller() != null && c.seller().platformDirect()) throw ApiException.unprocessable("Cartão exige a conta OAuth do organizador.");
+        if (c.seller() != null && c.seller().platformDirect()) throw ApiException.unprocessable("O checkout exige a conta OAuth do organizador.");
         requireCheckoutToken(c.seller());
         if (preferenceId == null || preferenceId.isBlank()) return null;
         try {
@@ -82,15 +81,17 @@ public class MercadoPagoGateway implements PaymentGateway {
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
                     .retrieve().toEntity(JsonNode.class);
             GatewayCheckout checkout = preference(response.getBody(), c, preferenceId);
-            if (checkout != null && !excludesPix(response.getBody())) {
-                // Atualiza preferências legadas, sem abrir uma segunda preferência válida.
+            if (checkout != null && hasPaymentExclusions(response.getBody())) {
+                // Remove restrições legadas na mesma preferência, sem duplicar o checkout.
                 response = client.put().uri("/checkout/preferences/{id}", preferenceId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + c.seller().accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .body(Map.of("payment_methods", Map.of("excluded_payment_methods", List.of(Map.of("id", "pix")))))
+                        // No PUT, [] é ignorado; [{"id":""}] limpa a exclusão existente.
+                        .body(Map.of("payment_methods", Map.of("excluded_payment_methods", List.of(Map.of("id", "")),
+                                "excluded_payment_types", List.of(Map.of("id", "")))))
                         .retrieve().toEntity(JsonNode.class);
                 checkout = preference(response.getBody(), c, preferenceId);
-                if (checkout != null && !excludesPix(response.getBody())) throw invalidPreference(c, "payment_methods");
+                if (checkout != null && hasPaymentExclusions(response.getBody())) throw invalidPreference(c, "payment_methods");
             }
             if (checkout != null) logCheckout("resumed", c, checkout, response.getHeaders(), response.getBody());
             return checkout;
@@ -100,9 +101,14 @@ public class MercadoPagoGateway implements PaymentGateway {
         } catch (RestClientException e) { throw unavailable(e); }
     }
 
-    private static boolean excludesPix(JsonNode preference) {
-        for (JsonNode method : preference.path("payment_methods").path("excluded_payment_methods"))
-            if ("pix".equals(text(method.path("id")))) return true;
+    private static boolean hasPaymentExclusions(JsonNode preference) {
+        for (String field : List.of("excluded_payment_methods", "excluded_payment_types")) {
+            for (JsonNode method : preference.path("payment_methods").path(field)) {
+                String id = text(method.path("id"));
+                // O provedor pode representar listas vazias como [{"id":""}].
+                if (id != null && !id.isBlank()) return true;
+            }
+        }
         return false;
     }
 
@@ -156,13 +162,28 @@ public class MercadoPagoGateway implements PaymentGateway {
         BigDecimal fee = decimal(n.path("marketplace_fee"));
         if (fee == null || expectedFee.compareTo(fee) != 0)
             throw invalidPreference(c, "marketplace_fee");
-        if (n.path("preference_expired").asBoolean(false)) return null;
+        boolean expiredFlag = n.path("preference_expired").asBoolean(false);
         String expiration = text(n.path("expiration_date_to"));
         if (expiration != null || n.path("expires").asBoolean(false)) {
             if (expiration == null) throw invalidPreference(c, "expiration_date_to");
-            try { if (!OffsetDateTime.parse(expiration).toInstant().isAfter(Instant.now())) return null; }
+            try {
+                Instant now = Instant.now();
+                Instant end = OffsetDateTime.parse(expiration).toInstant();
+                if (!end.isAfter(now)) return null;
+                String from = text(n.path("expiration_date_from"));
+                Instant start = from == null ? null : OffsetDateTime.parse(from).toInstant();
+                if (start != null && start.isAfter(now)) return null;
+                if (expiredFlag) {
+                    // A API de teste pode indicar expirada uma preferência que o checkout ainda abre.
+                    // Só tolera essa divergência em conta test_user validada e com a vigência exata.
+                    if (!c.testMode() || !n.path("expires").asBoolean(false) || start == null
+                            || !start.isBefore(end)
+                            || !end.equals(c.expiresAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS))) return null;
+                    log.warn("Checkout Pro de teste com indicador de expiração divergente: checkout={}", c.sessionId());
+                }
+            }
             catch (java.time.format.DateTimeParseException e) { throw invalidPreference(c, "expiration_date_to"); }
-        }
+        } else if (expiredFlag) return null;
         JsonNode back = n.path("back_urls");
         if (!(c.returnUrl() + "&retorno=sucesso").equals(text(back.path("success")))
                 || !(c.returnUrl() + "&retorno=pendente").equals(text(back.path("pending")))

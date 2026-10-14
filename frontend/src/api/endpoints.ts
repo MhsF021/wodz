@@ -68,7 +68,7 @@ export const publicApi = {
 
 export const paymentApi = {
   summary: (code: string) => http.get<RegistrationSummary>(`/api/public/registrations/${enc(code)}`),
-  checkout: (code: string, request: { method: 'CARD'; termsAccepted: boolean }) =>
+  checkout: (code: string, request: { termsAccepted: boolean }) =>
     http.post<Checkout>(`/api/public/registrations/${enc(code)}/checkout`, request),
   checkoutDetails: (code: string, checkoutId: number) =>
     http.get<Checkout>(`/api/public/registrations/${enc(code)}/checkout/${checkoutId}/details`),

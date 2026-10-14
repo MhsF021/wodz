@@ -35,6 +35,13 @@ function Convert-TracePayment {
         marketplace_fee=$Payment.marketplace_fee; captured=$Payment.captured
     }
 }
+function Get-TraceOrigin([string]$Value) {
+    try {
+        $uri=[Uri]$Value
+        if($uri.IsAbsoluteUri -and $uri.Scheme -eq 'https' -and -not $uri.UserInfo){return $uri.GetLeftPart([UriPartial]::Authority)}
+    } catch { }
+    return $null
+}
 try {
     $traceConfig=@{}
     foreach($line in Get-Content -LiteralPath $EnvFile){if($line -match '^([A-Z0-9_]+)=(.*)$'){$traceConfig[$matches[1]]=$matches[2].Trim().Trim('"').Trim("'")}}
@@ -64,13 +71,18 @@ try {
         $me=Get-TraceApi '/users/me' $credential.token
         $result=[ordered]@{source=$credential.source;account_id=$credential.account_id;stored_application_id=$credential.stored_application_id;configured_application_id=$traceConfig['MP_CLIENT_ID'];credential_type=if($credential.token.StartsWith('APP_USR-')){'APP_USR'}elseif($credential.token.StartsWith('TEST-')){'TEST'}else{'UNKNOWN'};identity_http=$me.http}
         if($me.http -eq 200){
-            $result.seller_id=$me.body.id;$result.seller_test_user=@($me.body.tags) -contains 'test_user';$result.seller_site=$me.body.site_id
+            $result.seller_id=$me.body.id;$result.seller_nickname=$me.body.nickname;$result.seller_test_user=@($me.body.tags) -contains 'test_user';$result.seller_site=$me.body.site_id
             if($credential.expected_seller_id -and [string]$me.body.id -ne $credential.expected_seller_id){$result.identity_matches_stored=$false;$traceResults+=$result;continue}
         }
         $payment=Get-TraceApi ('/v1/payments/'+$PaymentId) $credential.token
         $result.payment_http=$payment.http
         if($payment.http -eq 200){
             $result.payment=Convert-TracePayment $payment.body
+            if([string]$payment.body.payer.id -match '^[0-9]{1,30}$' -and [string]$payment.body.collector_id -eq [string]$me.body.id){
+                $payer=Get-TraceApi ('/users/'+$payment.body.payer.id) $credential.token
+                $result.payer_identity_http=$payer.http
+                if($payer.http -eq 200){$result.payer_nickname=$payer.body.nickname}
+            }
             if($payment.body.order.type -eq 'mercadopago' -and [string]$payment.body.order.id -match '^[0-9]{1,30}$'){
                 $order=Get-TraceApi ('/merchant_orders/'+$payment.body.order.id) $credential.token
                 $result.approved_order_http=$order.http
@@ -83,6 +95,8 @@ try {
                         if($approvedPref.http -eq 200){
                             $ap=$approvedPref.body
                             $result.approved_preference=[ordered]@{id=$ap.id;client_id=$ap.client_id;collector_id=$ap.collector_id;external_reference=$ap.external_reference;created=$ap.date_created;expires=$ap.expires;expiry=$ap.expiration_date_to;marketplace=$ap.marketplace;marketplace_fee=$ap.marketplace_fee;auto_return=$ap.auto_return;success_return_present=-not [string]::IsNullOrWhiteSpace($ap.back_urls.success);failure_return_present=-not [string]::IsNullOrWhiteSpace($ap.back_urls.failure);pending_return_present=-not [string]::IsNullOrWhiteSpace($ap.back_urls.pending);notification_present=-not [string]::IsNullOrWhiteSpace($ap.notification_url);excluded_methods=@($ap.payment_methods.excluded_payment_methods | ForEach-Object {$_.id});items=@($ap.items | ForEach-Object {[ordered]@{quantity=$_.quantity;unit_price=$_.unit_price;currency=$_.currency_id}})}
+                            $result.approved_preference.success_return_origin=Get-TraceOrigin $ap.back_urls.success
+                            $result.approved_preference.notification_origin=Get-TraceOrigin $ap.notification_url
                         }
                     }
                 }

@@ -170,7 +170,10 @@ Deixe a variável vazia para desligar o login com Google.
 O WODZ cria uma preferência de **Checkout Pro** no servidor e redireciona o comprador
 para o Mercado Pago na mesma aba. Não existem formulário de cartão, QR Code,
 tokenização, SDK de pagamentos, desafio 3DS incorporado ou simulador local no WODZ.
-Os meios disponíveis são definidos pelo Mercado Pago no checkout hospedado.
+O atleta escolhe como pagar somente no Mercado Pago. Novas preferências não
+excluem Pix, cartão ou outros meios; restrições de preferências antigas são
+removidas ao retomá-las. Os meios disponíveis são definidos pelo Mercado Pago
+conforme a conta recebedora e a compra.
 
 Configure a aplicação Mercado Pago para **Checkout Pro / Marketplace**, mantendo
 Authorization Code com PKCE e a URL OAuth `FRONTEND_URL/api/public/mercadopago/callback`.
@@ -336,8 +339,9 @@ A inscrição é confirmada somente após a API conferir o pagamento no provedor
 Um checkout válido pode ser retomado após a validação da preferência.
 
 Os fluxos de emissão de QR Code e de repasses centralizados foram removidos.
-Não existe configuração para reativá-los. A preferência hospedada mantém o meio
-removido excluído. Cobranças e repasses históricos permanecem no banco; migrações
+Não existe configuração para reativá-los. A escolha de Pix, cartão e demais meios
+disponíveis ocorre no checkout hospedado, sem exclusões impostas pela WODZ.
+Cobranças e repasses históricos permanecem no banco; migrações
 já aplicadas não devem ser alteradas. Uma cobrança antiga ainda válida impede
 outro pagamento até seu vencimento, e uma aprovação no provedor impede duplicação.
 

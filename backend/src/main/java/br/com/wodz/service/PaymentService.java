@@ -44,14 +44,13 @@ public class PaymentService {
 
     @Transactional(noRollbackFor = ApiException.class)
     public CheckoutDto createCheckout(String code) {
-        return createCheckout(code, new CheckoutRequest(CheckoutMethod.CARD, true));
+        return createCheckout(code, new CheckoutRequest(null, true));
     }
 
     // Preserva a tentativa e sua chave de idempotência mesmo em timeout/erro do provedor.
     @Transactional(noRollbackFor = ApiException.class)
     public CheckoutDto createCheckout(String code, CheckoutRequest request) {
-        if (request == null || request.method() == null) throw ApiException.badRequest("Escolha a forma de pagamento.");
-        if (!request.termsAccepted()) throw ApiException.badRequest("Leia e aceite os termos para continuar.");
+        if (request == null || !request.termsAccepted()) throw ApiException.badRequest("Leia e aceite os termos para continuar.");
         Team team = lockTeam(findTeam(code));
         if (team.getStatus() == TeamStatus.CONFIRMED) throw ApiException.conflict("Esta inscrição já está confirmada");
         if (team.getStatus() == TeamStatus.CANCELLED) throw ApiException.unprocessable("Esta inscrição foi cancelada");
@@ -66,6 +65,7 @@ public class PaymentService {
         SellerAccount seller = payoutTokens.seller(account.getId(), true);
         refreshAccount(account);
         CheckoutSession previous = checkouts.findFirstByTeamIdOrderByIdDesc(team.getId()).orElse(null);
+        boolean pendingPix = false;
         if (previous != null) {
             PayoutAccount original = payoutAccounts.findById(previous.getPayoutAccountId())
                     .orElseThrow(() -> ApiException.notFound("Conta de recebimento não encontrada"));
@@ -75,6 +75,8 @@ public class PaymentService {
                 verify(remote, previous.getAmount(), previous.getExternalReference(), original);
                 if (remote.status() == PaymentStatus.APPROVED)
                     throw ApiException.conflict("O Mercado Pago já confirmou este pagamento. Aguarde a atualização da inscrição.");
+                if (remote.method() == PaymentMethod.PIX && remote.status() == PaymentStatus.PENDING)
+                    pendingPix = true;
             }
             // Cobranças antigas continuam válidas no provedor mesmo sem uma opção de retomada no WODZ.
             if (!"CARD".equals(previous.getMethod()) && previous.getExpiresAt().isAfter(now))
@@ -93,6 +95,9 @@ public class PaymentService {
                 return checkoutDto(previous);
             }
         }
+        // O vencimento da preferência não cancela um Pix já emitido no checkout.
+        if (pendingPix)
+            throw ApiException.conflict("Já existe um Pix aguardando confirmação no Mercado Pago. Aguarde o pagamento ou o cancelamento dessa cobrança antes de iniciar outro checkout.");
         CheckoutSession session = new CheckoutSession();
         session.setTeam(team); session.setPayoutAccountId(account.getId()); session.setAmount(amount);
         session.setApplicationFee(applicationFee(amount));

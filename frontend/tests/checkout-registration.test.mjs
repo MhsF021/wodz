@@ -79,8 +79,8 @@ test('checkout permits only official HTTPS checkout pages',()=>{
   assert.equal(checkoutDestination(url),null);
 });
 
-test('browser success parameters never confirm a pending payment and checkout uses the same tab',()=>{
- let mutation;let assigned;let replaced;let query=0;
+test('checkout leaves payment choice to Mercado Pago and browser success cannot confirm payment',async()=>{
+ let mutation;let assigned;let replaced;let requested;
  const registration={code:'ABC',teamName:'EQUIPE',categoryName:'RX',championshipName:'EVENTO',championshipSlug:'evento',
   amount:150,teamStatus:'PENDING_PAYMENT',lastPayment:{status:'PENDING'},checkoutId:20};
  const {checkoutDestination}=module('../src/lib/checkout.ts',{}, {URL});
@@ -89,10 +89,15 @@ test('browser success parameters never confirm a pending payment and checkout us
   'react-router':{Link:link,useParams:()=>({code:'ABC'}),useSearchParams:()=>[new URLSearchParams('checkout=20&status=approved&retorno=sucesso'),p=>replaced=p]},
   '@tanstack/react-query':{useQuery:o=>({isPending:false,data:o.queryKey[0]==='checkout-details'
    ? {id:20,method:'CARD',expiresAt:new Date(Date.now()+600000).toISOString()} : registration,refetch:()=>{}}),useMutation:c=>{mutation=c;return{mutate(){}};}},
-  '../api/endpoints':{paymentApi:{},publicApi:{}},'../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination},'../components/States':states,
+  '../api/endpoints':{paymentApi:{checkout:async(code,request)=>{requested={code,request};}},publicApi:{}},'../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination},'../components/States':states,
  },{window:{location:{assign:x=>assigned=x}}}).default;
  const html=renderToStaticMarkup(React.createElement(component));
  assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/Pagamento confirmado|type="password"|<iframe|<form/);
+ assert.match(html,/Lá, escolha como pagar: Pix, cartão/);
+ assert.doesNotMatch(html,/<select|type="radio"|Gerar Pix|QR Code|Copia e Cola/);
+ await mutation.mutationFn();
+ assert.equal(requested.code,'ABC');
+ assert.deepEqual(Object.keys(requested.request),['termsAccepted']);
  mutation.onSuccess({id:20,url:'https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=1'});
  assert.equal(assigned,'https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=1');assert.equal(replaced.checkout,'20');
 });
@@ -120,7 +125,7 @@ test('return without a provider payment offers a retry instead of claiming a pen
  }
 });
 
-test('checkout requires consent and submits only the hosted method without payer or QR fields',async()=>{
+test('checkout requires consent and submits no payment method, payer or QR fields',async()=>{
  for(const accepted of [false,true]) {
   let mutation;let sent;let state=0;
   const registration={code:'ABC',teamName:'EQUIPE',categoryName:'RX',championshipName:'EVENTO',championshipSlug:'evento',
@@ -135,10 +140,32 @@ test('checkout requires consent and submits only the hosted method without payer
   }).default;
   const html=renderToStaticMarkup(React.createElement(Page));
   assert.match(html,/Pagar no Mercado Pago/);
-  assert.doesNotMatch(html,/Pix|QR Code|Copia e Cola|CPF|payment-methods|type="radio"/);
+  assert.doesNotMatch(html,/QR Code|Copia e Cola|CPF|payment-methods|type="radio"/);
   const button=html.match(/<button[^>]*>Pagar no Mercado Pago<\/button>/)[0];
   assert.equal(button.includes('disabled'),!accepted);
   if(accepted){await mutation.mutationFn();assert.equal(sent.code,'ABC');
-   assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{method:'CARD',termsAccepted:true});}
+   assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{termsAccepted:true});}
  }
+});
+
+test('pending Pix remains pending when the preference expires and cannot start another checkout',()=>{
+ let state=0;let statusQuery;
+ const registration={code:'ABC',teamName:'EQUIPE',categoryName:'RX',championshipName:'EVENTO',championshipSlug:'evento',
+  amount:210,teamStatus:'PENDING_PAYMENT',lastPayment:{status:'PENDING',method:'PIX'},checkoutId:20};
+ const Page=module('../src/pages/PaymentPage.tsx',{
+  react:{...React,useState:x=>[state++===1?true:x,()=>{}],useEffect:()=>{}},
+  'react-router':{Link:link,useParams:()=>({code:'ABC'}),useSearchParams:()=>[new URLSearchParams('checkout=20'),()=>{}]},
+  '@tanstack/react-query':{useQuery:o=>{
+   if(o.queryKey[0]==='checkout-status')statusQuery=o;
+   return{isPending:false,data:o.queryKey[0]==='public-config'?{}:o.queryKey[0]==='checkout-details'
+    ? {id:20,expiresAt:new Date(Date.now()-60000).toISOString()}:registration,refetch:()=>{}};
+  },useMutation:()=>({mutate(){}})},
+  '../api/endpoints':{publicApi:{},paymentApi:{}},'../lib/format':{money:x=>String(x)},
+  '../lib/checkout':{checkoutDestination:x=>x},'../components/States':states,
+ }).default;
+ const html=renderToStaticMarkup(React.createElement(Page));
+ assert.match(html,/Aguardando confirmação/);
+ assert.doesNotMatch(html,/prazo desta cobrança terminou|gerar um novo pagamento/);
+ assert.match(html,/<button[^>]*disabled[^>]*>Pagar no Mercado Pago<\/button>/);
+ assert.equal(statusQuery.refetchInterval({state:{data:registration}}),5000);
 });

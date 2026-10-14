@@ -2,6 +2,7 @@ package br.com.wodz.payment;
 import br.com.wodz.common.ApiException;
 import br.com.wodz.config.AppProperties;
 import br.com.wodz.domain.PaymentStatus;
+import br.com.wodz.domain.PaymentMethod;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
 import org.springframework.http.*;
@@ -33,19 +34,19 @@ class MercadoPagoGatewayTest {
                  "init_point":"https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref",
                  "sandbox_init_point":"https://sandbox.mercadopago.com.br/checkout/v1/redirect?pref_id=pref",
                  "items":[{"currency_id":"BRL","quantity":1,"unit_price":150.00}],"marketplace_fee":7.50,
-                 "payment_methods":{"excluded_payment_methods":[{"id":"pix"}]},
+                 "payment_methods":{"excluded_payment_methods":[],"excluded_payment_types":[]},
                  "expires":true,"expiration_date_to":"%s","preference_expired":false,
                  "back_urls":{"success":"https://wodz.test/pagamento/ABC?checkout=20&retorno=sucesso",
                               "pending":"https://wodz.test/pagamento/ABC?checkout=20&retorno=pendente",
                               "failure":"https://wodz.test/pagamento/ABC?checkout=20&retorno=erro"}}
                 """.formatted(OffsetDateTime.now().plusMinutes(10));
     }
-    @Test void criaPreferenciaHospedadaSemCartaoCpfPixOuSdk() {
+    @Test void criaPreferenciaHospedadaSemEscolherOuExcluirMeiosDePagamento() {
         server.expect(requestTo("https://api.mercadopago.com/checkout/preferences"))
             .andExpect(method(HttpMethod.POST)).andExpect(header("Authorization","Bearer APP_USR-test"))
             .andExpect(jsonPath("$.items[0].unit_price").value(150.00))
             .andExpect(jsonPath("$.marketplace_fee").value(7.50))
-            .andExpect(jsonPath("$.payment_methods.excluded_payment_methods[0].id").value("pix"))
+            .andExpect(jsonPath("$.payment_methods").doesNotExist())
             .andExpect(jsonPath("$.external_reference").value("reference"))
             .andExpect(jsonPath("$.back_urls.success").value("https://wodz.test/pagamento/ABC?checkout=20&retorno=sucesso"))
             .andExpect(jsonPath("$.auto_return").value("approved"))
@@ -305,13 +306,94 @@ class MercadoPagoGatewayTest {
         } finally { logger.detachAppender(logs); logs.stop(); }
     }
 
-    @Test void atualizarPreferenciaLegadaExcluiPixSemCriarOutroCheckout() {
-        String legacy=preference().replace("\"excluded_payment_methods\":[{\"id\":\"pix\"}]","\"excluded_payment_methods\":[]");
+    @Test void atualizarPreferenciaLegadaLiberaPixSemCriarOutroCheckout() {
+        String legacy=preference().replace("\"excluded_payment_methods\":[]","\"excluded_payment_methods\":[{\"id\":\"pix\"}]");
         server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
                 .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(legacy,MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
-                .andExpect(method(HttpMethod.PUT)).andExpect(jsonPath("$.payment_methods.excluded_payment_methods[0].id").value("pix"))
+                .andExpect(method(HttpMethod.PUT))
+                .andExpect(jsonPath("$.payment_methods.excluded_payment_methods[0].id").value(""))
+                .andExpect(jsonPath("$.payment_methods.excluded_payment_types[0].id").value(""))
                 .andRespond(withSuccess(preference(),MediaType.APPLICATION_JSON));
         assertEquals("pref",gateway.resumeCheckout("pref",command("APP_USR-test")).preferenceId()); server.verify();
+    }
+
+    @Test void retomadaRemoveExclusaoDoTipoTransferenciaBancaria() {
+        String restricted=preference().replace("\"excluded_payment_types\":[]", "\"excluded_payment_types\":[{\"id\":\"bank_transfer\"}]");
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
+                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(restricted,MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
+                .andExpect(method(HttpMethod.PUT))
+                .andExpect(jsonPath("$.payment_methods.excluded_payment_types[0].id").value(""))
+                .andRespond(withSuccess(preference(),MediaType.APPLICATION_JSON));
+        assertNotNull(gateway.resumeCheckout("pref",command("APP_USR-test"))); server.verify();
+    }
+
+    @Test void recusaCriacaoERetomadaQuandoProvedorMantemPixExcluido() {
+        String restricted=preference().replace("\"excluded_payment_methods\":[]", "\"excluded_payment_methods\":[{\"id\":\"pix\"}]");
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences"))
+                .andRespond(withSuccess(restricted,MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
+                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(restricted,MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
+                .andExpect(method(HttpMethod.PUT)).andRespond(withSuccess(restricted,MediaType.APPLICATION_JSON));
+        assertThrows(ApiException.class,()->gateway.createCheckout(command("APP_USR-test")));
+        assertThrows(ApiException.class,()->gateway.resumeCheckout("pref",command("APP_USR-test")));
+        server.verify();
+    }
+
+    @Test void listasComIdVazioDoProvedorNaoExcluemMeiosNemExigemAtualizacao() {
+        String unrestricted=preference().replace("\"excluded_payment_methods\":[]", "\"excluded_payment_methods\":[{\"id\":\"\"}]");
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences/pref"))
+                .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(unrestricted,MediaType.APPLICATION_JSON));
+        assertNotNull(gateway.resumeCheckout("pref",command("APP_USR-test"))); server.verify();
+    }
+
+    @Test void consultaPixEscolhidoNoCheckoutReconhecePendenciaEAprovacao() {
+        var seller=command("APP_USR-test").seller();
+        for (String status : new String[]{"pending", "approved"}) {
+            server.reset();
+            server.expect(requestTo("https://api.mercadopago.com/v1/payments/900"))
+                    .andExpect(method(HttpMethod.GET)).andExpect(header("Authorization","Bearer APP_USR-test"))
+                    .andRespond(withSuccess(pixResponse("").replace("\"pending\"", "\""+status+"\""),MediaType.APPLICATION_JSON));
+            var payment=gateway.fetch("900",seller);
+            assertEquals(PaymentMethod.PIX,payment.method());
+            assertEquals("approved".equals(status)?PaymentStatus.APPROVED:PaymentStatus.PENDING,payment.status());
+            assertEquals("reference",payment.externalReference());
+            assertEquals("123",payment.collectorId());
+            server.verify();
+        }
+    }
+
+    @Test void indicadorDivergenteSoEAdmitidoEmContaDeTesteComVigenciaExata() throws Exception {
+        var c=command("APP_USR-test");
+        var response=(com.fasterxml.jackson.databind.node.ObjectNode)new ObjectMapper().readTree(preference());
+        response.put("preference_expired",true);
+        response.put("expiration_date_from",OffsetDateTime.now().minusMinutes(1).toString());
+        response.put("expiration_date_to",c.expiresAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).atOffset(ZoneOffset.UTC).toString());
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences"))
+                .andRespond(withSuccess(response.toString(),MediaType.APPLICATION_JSON));
+        assertNotNull(gateway.createCheckout(c));server.verify();
+        server.reset();
+        var production=new CheckoutCommand(c.sessionId(),c.externalReference(),c.amount(),c.description(),
+                c.returnUrl(),c.expiresAt(),c.seller(),c.marketplaceFee(),false);
+        server.expect(requestTo("https://api.mercadopago.com/checkout/preferences"))
+                .andRespond(withSuccess(response.toString(),MediaType.APPLICATION_JSON));
+        assertThrows(ApiException.class,()->gateway.createCheckout(production));server.verify();
+    }
+
+    @Test void inicioFuturoOuVencimentoDivergenteNaoAbremCheckoutDeTeste() throws Exception {
+        var c=command("APP_USR-test");
+        for(boolean futureStart:new boolean[]{true,false}) {
+            server.reset();
+            var response=(com.fasterxml.jackson.databind.node.ObjectNode)new ObjectMapper().readTree(preference());
+            response.put("preference_expired",true);
+            response.put("expiration_date_from",OffsetDateTime.now().plusMinutes(futureStart?1:-1).toString());
+            response.put("expiration_date_to",c.expiresAt().plusSeconds(futureStart?0:60)
+                    .truncatedTo(java.time.temporal.ChronoUnit.MILLIS).atOffset(ZoneOffset.UTC).toString());
+            server.expect(requestTo("https://api.mercadopago.com/checkout/preferences"))
+                    .andRespond(withSuccess(response.toString(),MediaType.APPLICATION_JSON));
+            assertThrows(ApiException.class,()->gateway.createCheckout(c));server.verify();
+        }
     }
 }

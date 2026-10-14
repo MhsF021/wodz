@@ -41,7 +41,7 @@ export default function PaymentPage() {
   const data = status.data ?? summary.data;
   const create = useMutation<Checkout, Error, void>({
     mutationFn: (): Promise<Checkout> => paymentApi.checkout(code, {
-      method: 'CARD', termsAccepted: accepted,
+      termsAccepted: accepted,
     }),
     onSuccess: (checkout) => {
       setParams({ checkout: String(checkout.id) }, { replace: true });
@@ -78,6 +78,7 @@ export default function PaymentPage() {
   const approved = data.teamStatus === 'CONFIRMED';
   const closed = data.teamStatus === 'CANCELLED' || data.championshipStarted;
   const pending = !approved && data.lastPayment?.status === 'PENDING';
+  const pendingPix = pending && data.lastPayment?.method === 'PIX';
   const noAttempt = !!checkoutId && !!status.data && !data.lastPayment && !status.error;
   const processing = !approved && !!checkoutId && (status.isPending || details.isPending);
   const remaining = Math.max(0, Math.ceil((expiresAt - now) / 1000));
@@ -106,13 +107,13 @@ export default function PaymentPage() {
         : (
         <div className="stack">
           {processing ? <p role="status">Verificando o retorno do Mercado Pago…</p>
-            : pending && !expired ? <p role="status">Aguardando confirmação do Mercado Pago. Esta página será atualizada automaticamente.</p>
+            : pending && (!expired || pendingPix) ? <p role="status">Aguardando confirmação do Mercado Pago. Esta página será atualizada automaticamente.</p>
             : expired ? <p role="status">O prazo desta cobrança terminou. Você pode gerar um novo pagamento.</p>
             : noAttempt ? <p role="status">O Mercado Pago ainda não registrou um pagamento para esta inscrição. Você pode tentar novamente.</p>
             : terminal ? <p role="status">O pagamento não foi aprovado. Você pode tentar novamente.</p> : null}
           <div className="payment-redirect">
             <strong className="payment-redirect__title"><Lock size={18} strokeWidth={1.8} aria-hidden /> Redirecionamento seguro</strong>
-            <p>Você será redirecionado para o ambiente seguro do Mercado Pago para pagar com cartão de crédito à vista ou parcelado, ou outro meio disponível.</p>
+            <p>Você será redirecionado para o ambiente seguro do Mercado Pago. Lá, escolha como pagar: Pix, cartão ou outro meio disponível para sua compra.</p>
           </div>
           <div className="payment-breakdown"><div><span>Inscrição ({data.categoryName})</span><strong>{money(data.amount)}</strong></div>
             <div className="payment-breakdown__total"><strong>Total</strong><strong>{money(data.amount)}</strong></div>
@@ -127,7 +128,7 @@ export default function PaymentPage() {
             <span>Li e concordo com os <Link to="/termos" target="_blank" rel="noopener noreferrer">Termos e Políticas de Compra</Link> e estou ciente da <Link to="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</Link>.</span></label>
           <InlineError error={create.error ?? status.error ?? details.error} />
           <button type="button" className="btn btn--primary btn--block"
-            disabled={!accepted || create.isPending || redirecting || processing || !!details.error}
+            disabled={!accepted || create.isPending || redirecting || processing || !!details.error || (pendingPix && expired)}
             onClick={() => create.mutate()}>
             {create.isPending || redirecting ? 'Processando…' : 'Pagar no Mercado Pago'}
           </button>
