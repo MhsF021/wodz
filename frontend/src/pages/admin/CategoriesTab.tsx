@@ -5,6 +5,7 @@ import { adminApi } from '../../api/endpoints';
 import type { Category, CategoryInput, ChampionshipDetail, MovementStandard } from '../../api/types';
 import { money } from '../../lib/format';
 import { categoryComposition, compositionLabel } from '../../lib/categoryComposition';
+import { isAvailabilitySymbol, normalizeMovementStandard } from '../../lib/movementStandards';
 import { Field } from '../../components/Field';
 import { PlateChip } from '../../components/Plate';
 import { Empty, InlineError } from '../../components/States';
@@ -41,14 +42,14 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
     setLocalError(null);
     setGenderPolicy(c.genderPolicy ?? '');
     setAllowedMaleCounts(c.allowedMaleCounts ?? []);
-    setStandards(c.movementStandards ?? []);
+    setStandards((c.movementStandards ?? []).map(row => normalizeMovementStandard(row, c.genderPolicy)));
     setForm({
       name: c.name,
       description: c.description ?? '',
       teamSize: String(c.teamSize),
       maxTeams: c.maxTeams ? String(c.maxTeams) : '',
       price: String(c.price),
-      displayOrder: String(c.displayOrder),
+      displayOrder: String(c.displayOrder + 1),
     });
   }
 
@@ -56,6 +57,10 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
     event.preventDefault();
     if (!form.name.trim() || form.price === '') {
       setLocalError('Informe o nome e o valor da inscrição');
+      return;
+    }
+    if (form.displayOrder !== '' && (!Number.isInteger(Number(form.displayOrder)) || Number(form.displayOrder) < 1)) {
+      setLocalError('Informe uma posição inteira a partir de 1 ou deixe o campo em branco para definir automaticamente');
       return;
     }
     setLocalError(null);
@@ -67,8 +72,14 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
       setLocalError('Selecione o tipo da categoria e as composições permitidas para equipes mistas');
       return;
     }
+    if (standards.some(row => row.kind === 'LOAD' && loadFields.some(field => isAvailabilitySymbol(row[field.key])))) {
+      setLocalError('Use a caixa de seleção para indicar se o item poderá ser pedido. No campo de carga, informe a carga, por exemplo: 45 kg.');
+      return;
+    }
     save.mutate({
-      movementStandards: standards.map(row => ({ movement: row.movement.trim(), male: row.male.trim() || '—', female: row.female.trim() || '—' })),
+      movementStandards: standards.map(row => ({ movement: row.movement.trim(), kind: row.kind,
+        male: row.kind === 'MOVEMENT' ? '—' : row.male.trim() || '—',
+        female: row.kind === 'MOVEMENT' ? '—' : row.female.trim() || '—', allowed: row.allowed !== false })),
       genderPolicy,
       allowedMaleCounts: genderPolicy === 'MIXED' ? allowedMaleCounts.filter(n => n > 0 && n < Number(form.teamSize)) : [],
       name: form.name.trim(),
@@ -76,11 +87,15 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
       teamSize: Number(form.teamSize),
       maxTeams: form.maxTeams ? Number(form.maxTeams) : null,
       price: Number(form.price.replace(',', '.')),
-      displayOrder: form.displayOrder ? Number(form.displayOrder) : championship.categories.length,
+      displayOrder: form.displayOrder ? Number(form.displayOrder) - 1 : championship.categories.length,
     });
   }
 
   const set = (key: keyof typeof EMPTY) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const loadFields: { key: 'male' | 'female'; label: string; placeholder: string }[] = genderPolicy === 'MIXED'
+    ? [{ key: 'male', label: 'Carga masculina', placeholder: 'Ex.: 30 kg' }, { key: 'female', label: 'Carga feminina', placeholder: 'Ex.: 15 kg' }]
+    : genderPolicy === 'MALE' ? [{ key: 'male', label: 'Carga', placeholder: 'Ex.: 30 kg' }]
+    : genderPolicy === 'FEMALE' ? [{ key: 'female', label: 'Carga', placeholder: 'Ex.: 15 kg' }] : [];
 
   return (
     <div className="split">
@@ -133,8 +148,9 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
             <Field label="Limite de equipes" htmlFor="cat-max" hint="Vazio = sem limite">
               <input id="cat-max" className="input" type="number" min={1} value={form.maxTeams} onChange={set('maxTeams')} />
             </Field>
-            <Field label="Ordem de exibição" htmlFor="cat-order">
-              <input id="cat-order" className="input" type="number" min={0} value={form.displayOrder} onChange={set('displayOrder')} />
+            <Field label="Posição da categoria na lista" htmlFor="cat-order"
+              hint="Define a ordem das categorias nas listas do campeonato e na geração das baterias: números menores aparecem primeiro. Exemplo: 1 = Iniciante, 2 = Scaled e 3 = RX. Se deixar em branco, a posição será definida automaticamente.">
+              <input id="cat-order" className="input" type="number" min={1} step={1} placeholder="Ex.: 1" value={form.displayOrder} onChange={set('displayOrder')} />
             </Field>
           </div>
           <Field label="Tipo de categoria" htmlFor="cat-gender" hint="As inscrições devem respeitar a composição escolhida. Após receber inscrições, estas regras não podem ser alteradas.">
@@ -166,18 +182,31 @@ export function CategoriesTab({ championship }: { championship: ChampionshipDeta
           </Field>
           <fieldset className="movement-editor">
             <legend>Cargas e movimentos</legend>
-            <p className="note">Informe a carga (ex.: 30 kg), a variação (ex.: Box step up), ✓ para previsto ou ✕ para não previsto. Campos vazios aparecem como não informados.</p>
+            <p className="note" id="movement-editor-help">Marque a caixa dos itens que poderão ser pedidos nas provas. Desmarcado = não será pedido.</p>
+            <p className="note">Escolha o tipo: <strong>Com carga</strong> para informar o peso (ex.: Clean and jerk) ou <strong>Somente movimento</strong> quando não houver peso a informar (ex.: Toes to bar).</p>
+            {!genderPolicy && <p className="note">Selecione o tipo de categoria acima para informar as cargas.</p>}
             {standards.map((row, index) => <div className="movement-editor__row" key={index}>
-              <label>Movimento {index + 1}<input className="input" maxLength={80} value={row.movement} placeholder="Ex.: Clean and jerk"
+              <div className="movement-editor__header">
+                <label className="movement-editor__allowed"><input type="checkbox" checked={row.allowed !== false}
+                  aria-label={`Incluir ${row.movement || `item ${index + 1}`} nas provas`} aria-describedby="movement-editor-help"
+                  title="Marque se este item poderá ser pedido nas provas"
+                  onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, allowed: e.target.checked } : item))} /></label>
+                <span>Item {index + 1}</span>
+                <button type="button" className="btn btn--ghost" aria-label={`Remover movimento ${index + 1}`} onClick={() => setStandards(rows => rows.filter((_, i) => i !== index))}><Trash2 size={15} aria-hidden /></button>
+              </div>
+              <label className="movement-editor__kind">Tipo<select className="input" aria-label={`Tipo do item ${index + 1}`} value={row.kind}
+                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, kind: e.target.value as MovementStandard['kind'] } : item))}>
+                <option value="LOAD">Com carga</option><option value="MOVEMENT">Somente movimento</option>
+              </select></label>
+              <label className="movement-editor__name">Movimento {index + 1}<input className="input" maxLength={80} value={row.movement} placeholder={row.kind === 'MOVEMENT' ? 'Ex.: Toes to bar' : 'Ex.: Clean and jerk'}
                 onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, movement: e.target.value } : item))} /></label>
-              <label>Masculino<input className="input" maxLength={60} value={row.male} placeholder="Ex.: 30 kg"
-                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, male: e.target.value } : item))} /></label>
-              <label>Feminino<input className="input" maxLength={60} value={row.female} placeholder="Ex.: 15 kg"
-                onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, female: e.target.value } : item))} /></label>
-              <button type="button" className="btn btn--ghost" aria-label={`Remover movimento ${index + 1}`} onClick={() => setStandards(rows => rows.filter((_, i) => i !== index))}><Trash2 size={15} aria-hidden /></button>
+              {row.kind === 'LOAD' && loadFields.map(field => <label key={field.key} className={genderPolicy !== 'MIXED' ? 'movement-editor__load--single' : undefined}>
+                {field.label}<input className="input" maxLength={60} disabled={row.allowed === false} value={row[field.key]} placeholder={field.placeholder}
+                  onChange={e => setStandards(rows => rows.map((item, i) => i === index ? { ...item, [field.key]: e.target.value } : item))} />
+              </label>)}
             </div>)}
             <button type="button" className="btn btn--ghost btn--small" disabled={standards.length >= 30}
-              onClick={() => setStandards(rows => [...rows, { movement: '', male: '', female: '' }])}><Plus size={15} aria-hidden /> Adicionar movimento</button>
+              onClick={() => setStandards(rows => [...rows, { movement: '', male: '', female: '', allowed: false, kind: 'LOAD' }])}><Plus size={15} aria-hidden /> Adicionar movimento</button>
           </fieldset>
           {localError && <p className="form-error" role="alert">{localError}</p>}
           <InlineError error={save.error} />

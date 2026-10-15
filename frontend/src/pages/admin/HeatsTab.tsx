@@ -1,367 +1,242 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { ClipboardList, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { adminApi } from '../../api/endpoints';
-import type { ChampionshipDetail, HeatStatus, HeatView, TeamOverview, Workout } from '../../api/types';
-import { capLabel, clockTime, dayLabel, fromLocalInput, toLocalInput, workoutTypeLabel } from '../../lib/format';
-import { CategoryPicker } from '../../components/Plate';
+import { errorMessage } from '../../api/client';
+import type { ChampionshipDetail, HeatPlanEntry, HeatStatus, HeatView } from '../../api/types';
+import { clockTime, dayLabel, fromLocalInput, toLocalInput } from '../../lib/format';
 import { Field } from '../../components/Field';
 import { HeatBadge } from '../../components/StatusBadge';
 import { LiveHeat } from '../../components/LiveHeat';
 import { HeatTiming } from '../../components/HeatTiming';
+import { Dialog } from '../../components/Dialog';
 import { Empty, ErrorState, InlineError, Loading } from '../../components/States';
+import { HeatSettingsPanel } from './HeatSettingsPanel';
 
-/** Limite de equipes por bateria (o mesmo da API e do banco). */
-const MAX_LANES = 8;
+function asPlan(heats: HeatView[]): HeatPlanEntry[] {
+  return heats.map(h => ({ heatId: h.heatId, workoutId: h.workoutId, heatNumber: h.heatNumber,
+    scheduledAt: h.scheduledAt, teamIds: h.lanes.map(l => l.teamId) }));
+}
 
-export function HeatsTab({ championship }: { championship: ChampionshipDetail }) {
-  const categories = championship.categories;
-  const [categoryId, setCategoryId] = useState<number | null>(categories[0]?.id ?? null);
-  const category = categories.find((c) => c.id === categoryId);
-  const [workoutId, setWorkoutId] = useState<number | null>(category?.workouts[0]?.id ?? null);
-
-  useEffect(() => {
-    setWorkoutId(category?.workouts[0]?.id ?? null);
-  }, [category?.id]);
-
-  const heats = useQuery({
-    queryKey: ['admin-heats', championship.id],
-    queryFn: () => adminApi.heats(championship.id),
-    refetchInterval: 15_000,
+/** Mantém o descanso e desloca as próximas quando uma bateria manual é incluída. */
+function sequence(plan: HeatPlanEntry[], c: ChampionshipDetail): HeatPlanEntry[] {
+  const workouts = c.categories.flatMap(cat => cat.workouts.map(w => ({ ...w, order: cat.displayOrder })));
+  const ordered = [...plan].sort((a, b) => {
+    const wa = workouts.find(w => w.id === a.workoutId)!;
+    const wb = workouts.find(w => w.id === b.workoutId)!;
+    return wa.number - wb.number || wa.order - wb.order || wa.categoryId - wb.categoryId || a.heatNumber - b.heatNumber;
   });
-  const teams = useQuery({ queryKey: ['admin-teams', championship.id], queryFn: () => adminApi.teams(championship.id) });
+  let next = new Date(c.heatFirstStart ?? ordered[0]?.scheduledAt ?? `${c.startDate}T08:00`).getTime();
+  return ordered.map(entry => {
+    const w = workouts.find(w => w.id === entry.workoutId)!;
+    const start = Math.max(next, new Date(entry.scheduledAt).getTime());
+    next = start + ((w.timeCapSeconds ?? 0) + (c.heatIntervalMinutes ?? 0) * 60) * 1000;
+    return { ...entry, scheduledAt: new Date(start).toISOString() };
+  });
+}
 
-  if (categories.length === 0) return <Empty title="Cadastre categorias e provas antes de montar as baterias" />;
-  if (heats.isLoading) return <Loading />;
-  if (heats.error) return <ErrorState error={heats.error} />;
+export function HeatsTab({ championship: c }: { championship: ChampionshipDetail }) {
+  const queryClient = useQueryClient();
+  const [categoryId, setCategoryId] = useState('');
+  const [workoutNumber, setWorkoutNumber] = useState('');
+  const [status, setStatus] = useState<HeatStatus | ''>('');
+  const [search, setSearch] = useState('');
+  const [draft, setDraft] = useState<HeatPlanEntry[] | null>(null);
+  const [notice, setNotice] = useState<{ title: string; text?: string; names?: string[] } | null>(null);
+  const [regenerate, setRegenerate] = useState(false);
+  const [manual, setManual] = useState<{ category: string; workout: string; start: string; teams: number[] }>({
+    category: '', workout: '', start: `${c.startDate}T08:00`, teams: [],
+  });
+  const heats = useQuery({ queryKey: ['admin-heats', c.id], queryFn: () => adminApi.heats(c.id), refetchInterval: 15_000 });
+  const teams = useQuery({ queryKey: ['admin-teams', c.id], queryFn: () => adminApi.teams(c.id) });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-heats', c.id] });
+    queryClient.invalidateQueries({ queryKey: ['admin-championship', c.id] });
+  };
+  const generate = useMutation({ mutationFn: () => adminApi.generateAllHeats(c.id, {
+    lanes: c.heatLanes!, firstStart: c.heatFirstStart!, intervalMinutes: c.heatIntervalMinutes!,
+  }), onSuccess: () => { refresh(); setRegenerate(false); },
+    onError: error => { setRegenerate(false); setNotice({ title: 'Não foi possível gerar', text: errorMessage(error) }); } });
+  const save = useMutation({ mutationFn: (plan: HeatPlanEntry[]) => adminApi.saveHeatPlan(c.id, plan),
+    onSuccess: data => { queryClient.setQueryData(['admin-heats', c.id], data); setDraft(null); refresh(); },
+    onError: error => setNotice({ title: 'Revise a distribuição', text: errorMessage(error) }) });
 
+  if (heats.isLoading || teams.isLoading) return <Loading />;
+  if (heats.error || teams.error) return <ErrorState error={heats.error || teams.error} />;
   const all = heats.data ?? [];
-  const live = all.filter((h) => h.status === 'IN_PROGRESS');
-  const workout = category?.workouts.find((w) => w.id === workoutId);
-
-  return (
-    <div className="stack">
-      {live.map((h) => <LiveHeat key={h.heatId} heat={h} />)}
-
-      <GenerateAllPanel championship={championship} heats={all} />
-
-      <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} />
-      {category && category.workouts.length === 0 && <Empty title="Esta categoria ainda não tem provas" />}
-      {category && category.workouts.length > 0 && (
-        <div className="picker" role="group" aria-label="Prova">
-          {category.workouts.map((w) => (
-            <button key={w.id} type="button" className="picker__option" aria-pressed={workoutId === w.id}
-              onClick={() => setWorkoutId(w.id)}>
-              Prova {w.number}: {w.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {workout && (
-        <WorkoutHeats
-          key={workout.id}
-          championship={championship}
-          workout={workout}
-          heats={all.filter((h) => h.workoutId === workout.id)}
-          teams={(teams.data ?? []).filter((t) => t.categoryId === workout.categoryId && t.status === 'CONFIRMED')}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Monta a grade do campeonato inteiro de uma vez, sem gerar prova por prova. */
-function GenerateAllPanel({ championship, heats }: { championship: ChampionshipDetail; heats: HeatView[] }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({ start: `${championship.startDate}T08:00`, interval: '15' });
-  const generate = useMutation({
-    mutationFn: () =>
-      adminApi.generateAllHeats(championship.id, {
-        firstStart: fromLocalInput(form.start)!,
-        intervalMinutes: Number(form.interval),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-heats', championship.id] }),
+  const confirmed = (teams.data ?? []).filter(t => t.status === 'CONFIRMED');
+  const mutable = !c.registrationFlag && !c.started && !['IN_PROGRESS', 'FINISHED', 'CANCELLED'].includes(c.status)
+    && all.every(h => h.status === 'UPCOMING');
+  const live = all.filter(h => h.status === 'IN_PROGRESS');
+  const next = [...all].filter(h => h.status === 'UPCOMING')
+    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.heatId - b.heatId)[0];
+  const numbers = [...new Set(c.categories.flatMap(cat => cat.workouts.map(w => w.number)))].sort((a, b) => a - b);
+  const shown = (draft ?? asPlan(all)).filter(entry => {
+    const cat = c.categories.find(cat => cat.workouts.some(w => w.id === entry.workoutId));
+    const workout = cat?.workouts.find(w => w.id === entry.workoutId);
+    const heat = all.find(h => h.heatId === entry.heatId);
+    const text = `${cat?.name} ${workout?.name} ${entry.teamIds.map(id => confirmed.find(t => t.teamId === id)?.teamName).join(' ')}`;
+    return (!categoryId || cat?.id === Number(categoryId)) && (!workoutNumber || workout?.number === Number(workoutNumber))
+      && (!status || (heat?.status ?? 'UPCOMING') === status) && text.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'));
   });
-  const started = heats.some((h) => h.status !== 'UPCOMING');
+  const manualCategory = c.categories.find(cat => cat.id === Number(manual.category));
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!form.start) return;
-    if (heats.length && !window.confirm('A grade atual será substituída por uma nova. Continuar?')) return;
-    generate.mutate();
+  function updateTeams(entry: HeatPlanEntry, ids: number[]) {
+    const cat = c.categories.find(cat => cat.workouts.some(w => w.id === entry.workoutId))!;
+    const siblings = new Set(cat.workouts.map(w => w.id));
+    setDraft(plan => (plan ?? asPlan(all)).map(e => siblings.has(e.workoutId)
+      ? { ...e, teamIds: e.heatNumber === entry.heatNumber ? ids : e.teamIds.filter(id => !ids.includes(id)) } : e));
   }
 
-  return (
-    <section className="panel" aria-labelledby="gen-all-title">
-      <h2 id="gen-all-title" className="panel__title">Gerar baterias de todas as provas</h2>
-      <p className="panel__lead">
-        Monta a grade inteira com as equipes confirmadas, até {MAX_LANES} equipes por bateria, divididas de forma
-        equilibrada. A Prova 1 de cada categoria vem primeiro, depois a Prova 2, e assim por diante. Em cada prova,
-        as equipes com pior colocação correm primeiro. Cada horário soma a duração / time cap da prova e o intervalo
-        após seu término. Ao iniciar uma bateria, atrasos ajustam automaticamente as seguintes.
-      </p>
-      {started ? (
-        <p className="note">
-          O campeonato já tem baterias iniciadas ou concluídas. Para ajustar, gere as baterias de cada prova que ainda
-          não começou, logo abaixo.
-        </p>
-      ) : (
-        <form className="form" onSubmit={submit} noValidate>
-          <div className="grid-2">
-            <Field label="Horário da primeira bateria" htmlFor="gen-all-start">
-              <input id="gen-all-start" className="input" type="datetime-local" value={form.start}
-                onChange={(e) => setForm({ ...form, start: e.target.value })} />
-            </Field>
-            <Field label="Intervalo após o término (min)" htmlFor="gen-all-interval" hint="Ex.: 13 min de prova + 8 min de intervalo = próxima bateria em 21 min.">
-              <input id="gen-all-interval" className="input" type="number" min={0} max={240} value={form.interval}
-                onChange={(e) => setForm({ ...form, interval: e.target.value })} />
-            </Field>
-          </div>
-          <div className="form-actions">
-            <InlineError error={generate.error} />
-            {generate.isSuccess && (
-              <p className="form-ok" role="status">{generate.data.length} baterias geradas.</p>
-            )}
-            <button type="submit" className="btn btn--primary" disabled={generate.isPending || !form.start}>
-              {generate.isPending ? 'Gerando…' : heats.length ? 'Gerar todas de novo' : 'Gerar todas as baterias'}
-            </button>
-          </div>
-        </form>
-      )}
-    </section>
-  );
-}
-
-function WorkoutHeats({
-  championship,
-  workout,
-  heats,
-  teams,
-}: {
-  championship: ChampionshipDetail;
-  workout: Workout;
-  heats: HeatView[];
-  teams: TeamOverview[];
-}) {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-heats', championship.id] });
-  const defaultStart = heats[0]?.scheduledAt
-    ? toLocalInput(heats[0].scheduledAt)
-    : `${championship.startDate}T08:00`;
-  const [gen, setGen] = useState({ lanes: String(MAX_LANES), start: defaultStart, interval: '15' });
-  const [manual, setManual] = useState<{ start: string; teamIds: number[] }>({ start: defaultStart, teamIds: [] });
-
-  const allocated = new Set(heats.flatMap((h) => h.lanes.map((l) => l.teamId)));
-  const free = teams.filter((t) => !allocated.has(t.teamId));
-
-  const generate = useMutation({
-    mutationFn: () =>
-      adminApi.generateHeats(workout.id, {
-        lanes: Number(gen.lanes),
-        firstStart: fromLocalInput(gen.start)!,
-        intervalMinutes: Number(gen.interval),
-      }),
-    onSuccess: refresh,
-  });
-  const create = useMutation({
-    mutationFn: () => adminApi.createHeat(workout.id, { scheduledAt: fromLocalInput(manual.start)!, teamIds: manual.teamIds,
-      intervalMinutes: Number(gen.interval) }),
-    onSuccess: () => {
-      refresh();
-      setManual((m) => ({ ...m, teamIds: [] }));
-    },
-  });
-
-  function submitGenerate(event: FormEvent) {
-    event.preventDefault();
-    if (!gen.start) return;
-    if (heats.length && !window.confirm('As baterias desta prova serão substituídas. Continuar?')) return;
-    generate.mutate();
+  function submitPlan() {
+    const plan = (draft ?? []).filter(e => e.teamIds.length > 0);
+    const missing = new Set<string>();
+    for (const cat of c.categories) for (const w of cat.workouts) {
+      const assigned = new Set(plan.filter(e => e.workoutId === w.id).flatMap(e => e.teamIds));
+      for (const t of confirmed.filter(t => t.categoryId === cat.id))
+        if (!assigned.has(t.teamId)) missing.add(`${t.teamName} · ${cat.name}`);
+    }
+    if (missing.size) { setNotice({ title: 'Equipes sem bateria', names: [...missing] }); return; }
+    save.mutate(sequence(plan, c));
   }
 
-  return (
-    <div className="split">
-      <section aria-labelledby="heat-list" className="stack">
-        <h2 id="heat-list" className="section-title">
-          Prova {workout.number}: {workout.name}
-          <span className="section-title__sub">
-            {workoutTypeLabel[workout.type]}{capLabel(workout.timeCapSeconds) ? `, cap ${capLabel(workout.timeCapSeconds)}` : ''}
-          </span>
-        </h2>
-        {heats.length === 0 && (
-          <Empty title="Nenhuma bateria nesta prova">
-            <p>Gere automaticamente com as equipes confirmadas ou crie uma bateria manualmente.</p>
-          </Empty>
-        )}
-        {heats.map((heat) => (
-          <HeatCard key={heat.heatId} heat={heat} onChanged={refresh} />
-        ))}
-      </section>
+  function addManual() {
+    const cat = manualCategory!;
+    const siblings = new Set(cat.workouts.map(w => w.id));
+    let plan = draft ?? asPlan(all);
+    const number = Math.max(0, ...plan.filter(e => siblings.has(e.workoutId)).map(e => e.heatNumber)) + 1;
+    plan = plan.map(e => siblings.has(e.workoutId) ? { ...e, teamIds: e.teamIds.filter(id => !manual.teams.includes(id)) } : e)
+      .filter(e => e.teamIds.length > 0);
+    const scheduledAt = fromLocalInput(manual.start)!;
+    for (const w of cat.workouts) plan.push({ heatId: null, workoutId: w.id, heatNumber: number,
+      scheduledAt: w.id === Number(manual.workout) ? scheduledAt : c.heatFirstStart!, teamIds: [...manual.teams] });
+    setDraft(sequence(plan, c));
+    setManual({ ...manual, teams: [] });
+    setCategoryId(manual.category); setWorkoutNumber('');
+  }
 
-      <div className="stack">
-        <section className="panel" aria-labelledby="gen-title">
-          <h2 id="gen-title" className="panel__title">Gerar só esta prova</h2>
-          <p className="note">
-            Distribui as {teams.length} equipes confirmadas. Equipes com pior colocação no leaderboard correm primeiro.
-            O próximo início considera a duração da prova mais o intervalo após o término.
-          </p>
-          <form className="form" onSubmit={submitGenerate} noValidate>
-            <div className="grid-2">
-              <Field label={`Equipes por bateria (máx. ${MAX_LANES})`} htmlFor="gen-lanes">
-                <input id="gen-lanes" className="input" type="number" min={1} max={MAX_LANES} value={gen.lanes}
-                  onChange={(e) => setGen({ ...gen, lanes: e.target.value })} />
-              </Field>
-              <Field label="Intervalo após o término (min)" htmlFor="gen-interval">
-                <input id="gen-interval" className="input" type="number" min={0} max={240} value={gen.interval}
-                  onChange={(e) => setGen({ ...gen, interval: e.target.value })} />
-              </Field>
-            </div>
-            <Field label="Horário da primeira bateria" htmlFor="gen-start">
-              <input id="gen-start" className="input" type="datetime-local" value={gen.start}
-                onChange={(e) => setGen({ ...gen, start: e.target.value })} />
-            </Field>
-            <InlineError error={generate.error} />
-            <button type="submit" className="btn btn--primary" disabled={generate.isPending || teams.length === 0}>
-              {heats.length ? 'Gerar de novo' : 'Gerar baterias'}
-            </button>
-          </form>
-        </section>
-
-        <section className="panel" aria-labelledby="manual-title">
-          <h2 id="manual-title" className="panel__title">Nova bateria manual</h2>
-          <form className="form" onSubmit={(e) => { e.preventDefault(); create.mutate(); }} noValidate>
-            <Field label="Horário" htmlFor="manual-start">
-              <input id="manual-start" className="input" type="datetime-local" value={manual.start}
-                onChange={(e) => setManual({ ...manual, start: e.target.value })} />
-            </Field>
-            <p className="note">Duração: {capLabel(workout.timeCapSeconds) ?? 'defina a duração na aba Provas'}.
-              Intervalo após o término: {gen.interval} min (configurado acima).</p>
-            {free.length === 0 ? (
-              <p className="note">Todas as equipes confirmadas já estão em alguma bateria desta prova.</p>
-            ) : (
-              <fieldset className="checks">
-                <legend className="field__label">Equipes (na ordem das raias, até {MAX_LANES})</legend>
-                {free.map((t) => (
-                  <label key={t.teamId} className="check">
-                    <input
-                      type="checkbox"
-                      checked={manual.teamIds.includes(t.teamId)}
-                      disabled={!manual.teamIds.includes(t.teamId) && manual.teamIds.length >= MAX_LANES}
-                      onChange={() =>
-                        setManual((m) => ({
-                          ...m,
-                          teamIds: m.teamIds.includes(t.teamId)
-                            ? m.teamIds.filter((id) => id !== t.teamId)
-                            : [...m.teamIds, t.teamId],
-                        }))
-                      }
-                    />
-                    {t.teamName}
-                    {manual.teamIds.includes(t.teamId) && (
-                      <span className="check__lane">raia {manual.teamIds.indexOf(t.teamId) + 1}</span>
-                    )}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            <InlineError error={create.error} />
-            <button type="submit" className="btn btn--secondary" disabled={create.isPending || !manual.start}>
-              Criar bateria
-            </button>
-          </form>
-        </section>
-      </div>
+  return <div className="stack heat-manager">
+    {!c.started && !['IN_PROGRESS', 'FINISHED', 'CANCELLED'].includes(c.status) && <HeatSettingsPanel championship={c} editing={draft !== null} />}
+    {live.map(h => <LiveHeat key={h.heatId} heat={h} actions={c.status !== 'FINISHED'
+      ? <CompleteAndLaunch heat={h} onChanged={refresh} /> : undefined} />)}
+    {next && <div className="next-heat" aria-label="Próxima bateria">
+      <span className="next-heat__label">Próxima · {clockTime(next.scheduledAt)}</span>
+      <strong>{next.categoryName} · Bateria {next.heatNumber} · {next.workoutName}</strong>
+      <span className="next-heat__teams" title={next.lanes.map(l => l.teamName).join(' · ')}>
+        {next.lanes.slice(0, 3).map(l => l.teamName).join(' · ') || 'Sem equipes'}
+        {next.lanes.length > 3 && ` · +${next.lanes.length - 3} equipes`}
+      </span>
+      {c.status === 'IN_PROGRESS' && !c.registrationFlag && next.lanes.length > 0 &&
+        <div className="next-heat__actions"><HeatActions heat={next} onChanged={refresh} disableStart={live.length > 0} />
+          {live.length > 0 && <span className="next-heat__hint">Conclua a bateria em andamento para iniciar a próxima.</span>}
+        </div>}
+    </div>}
+    <div className="heat-manager__head">
+      <div><h2 className="section-title">Grade de baterias</h2>
+        <p className="note">{all.length} baterias · {confirmed.length} equipes confirmadas</p></div>
+      {mutable && c.heatLanes && <div className="row-actions">
+        <button className="btn btn--secondary" disabled={generate.isPending || draft !== null || !confirmed.length}
+          onClick={() => setRegenerate(true)}><RotateCcw size={16} aria-hidden />Nova Geração</button>
+        <button className="btn btn--primary" disabled={draft !== null || !all.length}
+          onClick={() => setDraft(asPlan(all))}><Pencil size={16} aria-hidden />Editar grade</button>
+      </div>}
     </div>
-  );
+    {c.registrationFlag && !c.started && <p className="note">A grade será gerada automaticamente ao fechar as inscrições.</p>}
+    {(c.started || c.status === 'IN_PROGRESS') && <p className="note">O campeonato iniciou. A distribuição das baterias e raias está bloqueada.</p>}
+    {draft && <div className="heat-edit-bar" role="status">
+      <span>Distribuição em edição · as raias são mantidas em todas as provas da categoria.</span>
+      <div className="row-actions"><button className="btn btn--ghost" disabled={save.isPending} onClick={() => setDraft(null)}>Cancelar edição</button>
+        <button className="btn btn--primary" disabled={save.isPending} onClick={submitPlan}>Salvar baterias</button></div>
+    </div>}
+    <div className="panel heat-filters">
+      <Field label="Categoria" htmlFor="heat-category"><select id="heat-category" className="input" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+        <option value="">Todas as categorias</option>{c.categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+      </select></Field>
+      <Field label="Prova" htmlFor="heat-workout"><select id="heat-workout" className="input" value={workoutNumber} onChange={e => setWorkoutNumber(e.target.value)}>
+        <option value="">Todas as provas</option>{numbers.map(n => <option key={n} value={n}>Prova {n}</option>)}
+      </select></Field>
+      <Field label="Situação" htmlFor="heat-status"><select id="heat-status" className="input" value={status} onChange={e => setStatus(e.target.value as HeatStatus | '')}>
+        <option value="">Todas</option><option value="UPCOMING">Próximas</option><option value="IN_PROGRESS">Em andamento</option><option value="FINISHED">Concluídas</option>
+      </select></Field>
+      <Field label="Buscar" htmlFor="heat-search"><input id="heat-search" className="input" type="search" placeholder="Equipe ou prova" value={search} onChange={e => setSearch(e.target.value)} /></Field>
+    </div>
+    <p className="note" role="status">{shown.length} baterias exibidas</p>
+    {shown.length === 0 && <Empty title={all.length ? 'Nenhuma bateria corresponde aos filtros' : 'Nenhuma bateria gerada'} />}
+    <div className="heat-grid">{shown.map(entry => {
+      const cat = c.categories.find(cat => cat.workouts.some(w => w.id === entry.workoutId))!;
+      const w = cat.workouts.find(w => w.id === entry.workoutId)!;
+      const heat = all.find(h => h.heatId === entry.heatId);
+      return <article className={`heat-card heat-card--${(heat?.status ?? 'UPCOMING').toLowerCase()}`} key={`${entry.workoutId}-${entry.heatNumber}`}>
+        <header className="heat-card__head"><div><span className="heat-card__category">{cat.name}</span>
+          <h3 className="heat-card__title">Bateria {entry.heatNumber}</h3><p className="heat-card__time">Prova {w.number}: {w.name}</p>
+          <p className="heat-card__time">{dayLabel(entry.scheduledAt)}, {clockTime(entry.scheduledAt)}</p></div>
+          <HeatBadge status={heat?.status ?? 'UPCOMING'} /></header>
+        {draft ? <div className="stack">
+          <Field label="Horário" htmlFor={`draft-time-${w.id}-${entry.heatNumber}`}><input id={`draft-time-${w.id}-${entry.heatNumber}`} type="datetime-local" className="input"
+            value={toLocalInput(entry.scheduledAt)} onChange={e => { const value = fromLocalInput(e.target.value); if (value) setDraft(plan => plan!.map(p => p === entry ? { ...p, scheduledAt: value } : p)); }} /></Field>
+          <ol className="lanes lanes--admin">{entry.teamIds.map((id, index) => <li key={id}><span className="lanes__no">{index + 1}</span>
+            <span>{confirmed.find(t => t.teamId === id)?.teamName}</span><button className="btn btn--ghost btn--small" aria-label={`Remover ${confirmed.find(t => t.teamId === id)?.teamName}`}
+              onClick={() => updateTeams(entry, entry.teamIds.filter(t => t !== id))}><Trash2 size={14} aria-hidden /></button>
+            {index > 0 && <button className="btn btn--ghost btn--small" aria-label="Mover para a raia anterior" onClick={() => {
+              const ids = [...entry.teamIds]; [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; updateTeams(entry, ids);
+            }}>↑</button>}</li>)}</ol>
+          <Field label="Adicionar ou mover equipe" htmlFor={`add-team-${w.id}-${entry.heatNumber}`}>
+            <select id={`add-team-${w.id}-${entry.heatNumber}`} className="input" value="" disabled={entry.teamIds.length >= (c.heatLanes ?? 8)}
+              onChange={e => e.target.value && updateTeams(entry, [...entry.teamIds, Number(e.target.value)])}>
+              <option value="">Selecione uma equipe</option>{confirmed.filter(t => t.categoryId === cat.id && !entry.teamIds.includes(t.teamId)).map(t => <option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}
+            </select></Field>
+          <button className="btn btn--danger btn--small" onClick={() => setDraft(plan => plan!.filter(p => !(cat.workouts.some(w => w.id === p.workoutId) && p.heatNumber === entry.heatNumber)))}>Remover bateria</button>
+        </div> : heat && <><HeatTiming heat={heat} /><ol className="lanes lanes--admin">{heat.lanes.map(l => <li key={l.teamId}><span className="lanes__no">{l.lane}</span>{l.teamName}</li>)}</ol>
+          {c.status !== 'FINISHED' && c.status !== 'CANCELLED' && !c.registrationFlag && <HeatActions heat={heat} onChanged={refresh} disableStart={live.length > 0} />}</>}
+      </article>;
+    })}</div>
+    {mutable && c.heatLanes && <section className="panel" aria-labelledby="manual-title">
+      <h2 id="manual-title" className="panel__title">Nova bateria manual</h2>
+      <form className="form" onSubmit={e => { e.preventDefault(); addManual(); }}>
+        <div className="heat-filters"><Field label="Categoria" htmlFor="manual-category"><select id="manual-category" className="input" required value={manual.category}
+          onChange={e => setManual({ ...manual, category: e.target.value, workout: '', teams: [] })}>
+          <option value="">Selecione</option>{c.categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+        </select></Field><Field label="Prova" htmlFor="manual-workout"><select id="manual-workout" className="input" required value={manual.workout} onChange={e => setManual({ ...manual, workout: e.target.value })}>
+          <option value="">Selecione</option>{manualCategory?.workouts.map(w => <option key={w.id} value={w.id}>Prova {w.number}: {w.name}</option>)}
+        </select></Field><Field label="Horário" htmlFor="manual-start"><input id="manual-start" className="input" type="datetime-local" required value={manual.start} onChange={e => setManual({ ...manual, start: e.target.value })} /></Field></div>
+        <fieldset className="checks"><legend className="field__label">Equipes · até {c.heatLanes}</legend>
+          {confirmed.filter(t => t.categoryId === Number(manual.category)).map(t => <label className="check" key={t.teamId}>
+            <input type="checkbox" checked={manual.teams.includes(t.teamId)} disabled={!manual.teams.includes(t.teamId) && manual.teams.length >= c.heatLanes!}
+              onChange={() => setManual({ ...manual, teams: manual.teams.includes(t.teamId) ? manual.teams.filter(id => id !== t.teamId) : [...manual.teams, t.teamId] })} />{t.teamName}
+          </label>)}
+        </fieldset>
+        <button className="btn btn--secondary" disabled={!manual.teams.length || save.isPending}>Adicionar à grade</button>
+      </form>
+    </section>}
+    {notice && <Dialog title={notice.title} closeLabel="Voltar à edição" onClose={() => setNotice(null)}>
+      <p>{notice.text ?? 'As equipes abaixo estão sem bateria. Inclua todas na grade antes de salvar.'}</p>
+      {notice.names && <ul>{notice.names.map(name => <li key={name}>{name}</li>)}</ul>}
+      <button className="btn btn--primary" onClick={() => setNotice(null)}>Corrigir distribuição</button>
+    </Dialog>}
+    {regenerate && <Dialog title="Nova Geração" closeLabel="Cancelar nova geração" onClose={() => !generate.isPending && setRegenerate(false)}>
+      <p>A grade atual será substituída usando a configuração salva. As mesmas equipes e raias serão mantidas em todas as provas de cada categoria.</p>
+      <div className="row-actions"><button className="btn btn--ghost" disabled={generate.isPending} onClick={() => setRegenerate(false)}>Cancelar</button>
+        <button className="btn btn--primary" disabled={generate.isPending} onClick={() => generate.mutate()}>Gerar novamente</button></div>
+    </Dialog>}
+  </div>;
 }
 
-function HeatCard({ heat, onChanged }: { heat: HeatView; onChanged: () => void }) {
+function CompleteAndLaunch({ heat, onChanged }: { heat: HeatView; onChanged: () => void }) {
   const [, setParams] = useSearchParams();
-  const [time, setTime] = useState(toLocalInput(heat.scheduledAt));
-  useEffect(() => setTime(toLocalInput(heat.scheduledAt)), [heat.scheduledAt]);
+  const complete = useMutation({ mutationFn: () => adminApi.setHeatStatus(heat.heatId, 'FINISHED'), onSuccess: () => {
+    onChanged(); setParams({ aba: 'resultados', prova: String(heat.workoutId), bateria: String(heat.heatId) }, { replace: true });
+  } });
+  return <><button className="btn btn--primary" disabled={complete.isPending} onClick={() => complete.mutate()}>Concluir e Lançar</button><InlineError error={complete.error} /></>;
+}
 
+function HeatActions({ heat, onChanged, disableStart = false }: { heat: HeatView; onChanged: () => void; disableStart?: boolean }) {
+  const [, setParams] = useSearchParams();
   const start = useMutation({ mutationFn: () => adminApi.startHeat(heat.heatId), onSuccess: onChanged });
-  const status = useMutation({
-    mutationFn: (next: HeatStatus) => adminApi.setHeatStatus(heat.heatId, next),
-    onSuccess: onChanged,
-  });
-  const reschedule = useMutation({
-    mutationFn: () => adminApi.updateHeat(heat.heatId, { scheduledAt: fromLocalInput(time)! }),
-    onSuccess: onChanged,
-  });
-  const remove = useMutation({ mutationFn: () => adminApi.deleteHeat(heat.heatId), onSuccess: onChanged });
-  const error = start.error || status.error || reschedule.error || remove.error;
-  const changedTime = time !== toLocalInput(heat.scheduledAt);
-
-  return (
-    <article className={`heat-card heat-card--${heat.status.toLowerCase()}`}>
-      <header className="heat-card__head">
-        <div>
-          <h3 className="heat-card__title">Bateria {heat.heatNumber}</h3>
-          <p className="heat-card__time">{dayLabel(heat.scheduledAt)}, {clockTime(heat.scheduledAt)}</p>
-        </div>
-        <HeatBadge status={heat.status} />
-      </header>
-
-      <HeatTiming heat={heat} />
-
-      <ol className="lanes lanes--admin">
-        {heat.lanes.map((l) => (
-          <li key={l.lane}>
-            <span className="lanes__no">{l.lane}</span>
-            {l.teamName}
-            {l.judgeName && <span className="lanes__judge">judge {l.judgeName}</span>}
-          </li>
-        ))}
-        {heat.lanes.length === 0 && <li className="note">Sem equipes</li>}
-      </ol>
-
-      <div className="heat-card__actions">
-        {heat.status === 'UPCOMING' && (
-          <button type="button" className="btn btn--primary btn--small" disabled={start.isPending}
-            onClick={() => start.mutate()}>
-            <Play size={14} aria-hidden /> Iniciar bateria
-          </button>
-        )}
-        {heat.status === 'IN_PROGRESS' && (
-          <button type="button" className="btn btn--primary btn--small" disabled={status.isPending}
-            onClick={() => status.mutate('FINISHED')}>
-            <Square size={14} aria-hidden /> Concluir
-          </button>
-        )}
-        {heat.status === 'FINISHED' && (
-          <button type="button" className="btn btn--primary btn--small"
-            onClick={() => setParams({ aba: 'pontuacao', prova: String(heat.workoutId) }, { replace: true })}>
-            <ClipboardList size={14} aria-hidden /> Lançar resultados
-          </button>
-        )}
-        {heat.status !== 'UPCOMING' && (
-          <button type="button" className="btn btn--ghost btn--small" disabled={status.isPending}
-            onClick={() => window.confirm('Voltar esta bateria para "Próxima"?') && status.mutate('UPCOMING')}>
-            <RotateCcw size={14} aria-hidden /> Marcar como próxima
-          </button>
-        )}
-        {heat.status === 'UPCOMING' && (
-          <>
-            <label className="sr-only" htmlFor={`heat-time-${heat.heatId}`}>Novo horário</label>
-            <input id={`heat-time-${heat.heatId}`} className="input input--inline" type="datetime-local" value={time}
-              onChange={(e) => setTime(e.target.value)} />
-            {changedTime && (
-              <button type="button" className="btn btn--secondary btn--small" disabled={reschedule.isPending}
-                onClick={() => reschedule.mutate()}>
-                Salvar horário
-              </button>
-            )}
-            <button type="button" className="btn btn--danger btn--small" disabled={remove.isPending}
-              onClick={() => window.confirm(`Excluir a bateria ${heat.heatNumber}?`) && remove.mutate()}>
-              <Trash2 size={14} aria-hidden /> Excluir
-            </button>
-          </>
-        )}
-      </div>
-      <InlineError error={error} />
-    </article>
-  );
+  return <div className="heat-card__actions">
+    {heat.status === 'UPCOMING' && <button className="btn btn--primary btn--small" disabled={disableStart || start.isPending} onClick={() => start.mutate()}><Play size={14} aria-hidden />Iniciar bateria</button>}
+    {heat.status === 'IN_PROGRESS' && <CompleteAndLaunch heat={heat} onChanged={onChanged} />}
+    {heat.status === 'FINISHED' && <button className="btn btn--primary btn--small" onClick={() => setParams({ aba: 'resultados', prova: String(heat.workoutId), bateria: String(heat.heatId) }, { replace: true })}><ClipboardList size={14} aria-hidden />Lançar resultados</button>}
+    <InlineError error={start.error} />
+  </div>;
 }

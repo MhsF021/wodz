@@ -1,11 +1,11 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { publicApi } from '../api/endpoints';
 import type { Leaderboard, LeaderboardRow, ResultCell, WorkoutRef } from '../api/types';
 import { ordinal, points, workoutTypeLabel } from '../lib/format';
 import { searchLeaderboard } from '../lib/leaderboardSearch';
-import { CategoryPicker } from './Plate';
+import { Field } from './Field';
 import { Empty, ErrorState, Loading } from './States';
 
 function Cell({ cell }: { cell?: ResultCell }) {
@@ -21,7 +21,9 @@ function Cell({ cell }: { cell?: ResultCell }) {
 }
 
 export function LeaderboardView({ slug, categories }: { slug: string; categories: { id: number; name: string }[] }) {
-  const [categoryId, setCategoryId] = useState<number | null>(categories[0]?.id ?? null);
+  const filterId = useId();
+  const [selectedCategoryId, setCategoryId] = useState<number | null>(categories[0]?.id ?? null);
+  const categoryId = categories.some(c => c.id === selectedCategoryId) ? selectedCategoryId : categories[0]?.id ?? null;
   const [open, setOpen] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const query = useQuery({
@@ -31,14 +33,23 @@ export function LeaderboardView({ slug, categories }: { slug: string; categories
 
   return (
     <div className="leaderboard">
-      <CategoryPicker categories={categories} value={categoryId} onChange={(id) => setCategoryId(id)} />
+      <div className="results-filters leaderboard-filters" role="group" aria-label="Filtrar leaderboard">
+        <Field label="Categoria" htmlFor={`${filterId}-category`}>
+          <select id={`${filterId}-category`} className="input" value={categoryId ?? ''} disabled={!categories.length}
+            onChange={event => { setCategoryId(Number(event.target.value)); setOpen(null); }}>
+            {!categories.length && <option value="">Nenhuma categoria cadastrada</option>}
+            {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Buscar atleta ou equipe" htmlFor={`${filterId}-search`}>
       <div className="lb-search" role="search">
-        <label className="sr-only" htmlFor="leaderboard-search">Buscar atleta ou equipe</label>
         <Search size={18} aria-hidden />
-        <input id="leaderboard-search" className="input" type="search" placeholder="Buscar atleta ou equipe"
+        <input id={`${filterId}-search`} className="input" type="search" placeholder="Digite o nome do atleta ou da equipe"
           value={search} onChange={(event) => { setSearch(event.target.value); setOpen(null); }} />
         {search && <button type="button" className="lb-search__clear" aria-label="Limpar busca"
           onClick={() => setSearch('')}><X size={18} aria-hidden /></button>}
+      </div>
+        </Field>
       </div>
       {query.isLoading && <Loading />}
       {query.error && <ErrorState error={query.error} />}

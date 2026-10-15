@@ -51,6 +51,9 @@ public class Workout {
     /** Só para AMRAP: permite exibir "5 rds + 12" a partir do total de reps. */
     private Integer repsPerRound;
 
+    /** Teto de repetições da prova; AMRAP sem teto usa apenas repsPerRound. */
+    private Integer maxReps;
+
     private boolean hasTiebreak;
 
     @CreationTimestamp

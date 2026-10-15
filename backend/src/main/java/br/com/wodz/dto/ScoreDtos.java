@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -43,4 +44,8 @@ public final class ScoreDtos {
 
     public record WorkoutScores(ChampionshipDtos.WorkoutDto workout, String categoryName, List<ScoreEntry> entries) {
     }
+
+    public record HeatScoreEntry(@NotNull Long teamId, @NotNull @Valid ScoreRequest result) {}
+    public record HeatScoresRequest(@NotNull Long heatId,
+                                    @NotNull @Size(min = 1, max = 8) List<@NotNull @Valid HeatScoreEntry> entries) {}
 }

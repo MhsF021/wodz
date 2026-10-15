@@ -20,7 +20,9 @@ class DemoCategoryProfileTest {
         assertEquals("15 kg", profile.standards().get("INICIANTE").getFirst().female());
         assertEquals("45 kg", profile.standards().get("SCALED").getFirst().male());
         assertEquals("25 kg", profile.standards().get("SCALED").getFirst().female());
-        assertEquals("✕", profile.standards().get("SCALED").stream().filter(row -> row.movement().equals("Toes to bar")).findFirst().orElseThrow().female());
+        var toesToBar = profile.standards().get("SCALED").stream().filter(row -> row.movement().equals("Toes to bar")).findFirst().orElseThrow();
+        assertFalse(toesToBar.forGender(CategoryGender.FEMALE).allowed());
+        assertTrue(toesToBar.forGender(CategoryGender.MALE).allowed());
     }
     @Test void envJsonRoundTripsAndRejectsMixedOrDoublesRx() throws Exception {
         var mapper = new ObjectMapper();

@@ -13,6 +13,7 @@ import br.com.wodz.domain.Workout;
 import br.com.wodz.dto.ScoreDtos.ScoreEntry;
 import br.com.wodz.dto.ScoreDtos.ScoreRequest;
 import br.com.wodz.dto.ScoreDtos.WorkoutScores;
+import br.com.wodz.dto.ScoreDtos.HeatScoresRequest;
 import br.com.wodz.repository.ScoreRepository;
 import br.com.wodz.repository.TeamRepository;
 import br.com.wodz.repository.WorkoutRepository;
@@ -75,8 +76,9 @@ public class ScoreService {
 
     @Transactional
     public ScoreEntry save(Long workoutId, Long teamId, ScoreRequest req, Long userId) {
-        guard.workout(workoutId, userId);
+        guard.requireEditable(guard.workout(workoutId, userId).getCategory().getChampionship());
         Workout workout = lock(workoutId);
+        ScoreRules.validate(workout, req);
         Team team = teams.findById(teamId).orElseThrow(() -> ApiException.notFound("Equipe não encontrada"));
         if (!team.getCategory().getId().equals(workout.getCategory().getId())) {
             throw ApiException.badRequest("A equipe não pertence à categoria desta prova");
@@ -114,12 +116,27 @@ public class ScoreService {
 
     @Transactional
     public void delete(Long workoutId, Long teamId, Long userId) {
-        guard.workout(workoutId, userId);
+        guard.requireEditable(guard.workout(workoutId, userId).getCategory().getChampionship());
         Workout workout = lock(workoutId);
         auditAs(userId);
         scores.findByWorkoutIdAndTeamId(workoutId, teamId).ifPresent(scores::delete);
         scores.flush();
         publish(workout);
+    }
+
+    @Transactional
+    public WorkoutScores saveHeat(Long workoutId, HeatScoresRequest req, Long userId) {
+        guard.requireEditable(guard.workout(workoutId, userId).getCategory().getChampionship());
+        lock(workoutId);
+        var expected = loadLanes(workoutId, null).entrySet().stream()
+                .filter(e -> e.getValue().heatId().equals(req.heatId())).map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toSet());
+        var supplied = req.entries().stream().map(e -> e.teamId()).collect(java.util.stream.Collectors.toSet());
+        if (expected.isEmpty() || !expected.equals(supplied) || supplied.size() != req.entries().size()) {
+            throw ApiException.badRequest("Informe um resultado para cada equipe desta bateria");
+        }
+        for (var entry : req.entries()) save(workoutId, entry.teamId(), entry.result(), userId);
+        return list(workoutId, userId);
     }
 
     // ----------------------------------------------------------------- helpers

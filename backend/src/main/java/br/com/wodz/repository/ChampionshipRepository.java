@@ -12,6 +12,17 @@ import java.util.Optional;
 
 public interface ChampionshipRepository extends JpaRepository<Championship, Long> {
 
+    interface LockedState {
+        String getStatus();
+        java.time.LocalDate getStartDate();
+        boolean getRegistrationOpen();
+    }
+
+    // A projeção escalar lê o estado atual mesmo se a entidade já estiver no cache JPA.
+    @Query(value = "SELECT status, start_date AS \"startDate\", registration_open AS \"registrationOpen\" "
+            + "FROM championship WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<LockedState> lockStateById(@Param("id") Long id);
+
     Optional<Championship> findBySlug(String slug);
 
     boolean existsBySlug(String slug);

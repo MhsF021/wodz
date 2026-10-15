@@ -272,6 +272,11 @@ public class TeamService {
     @Transactional
     public TeamDto changeStatus(Long teamId, Long userId, TeamStatus status) {
         Team team = guard.team(teamId, userId);
+        guard.requireEditable(team.getCategory().getChampionship());
+        if (team.getCategory().getChampionship().hasStarted(Instant.now())
+                || team.getCategory().getChampionship().getStatus() == br.com.wodz.domain.ChampionshipStatus.IN_PROGRESS) {
+            throw ApiException.unprocessable("As equipes das baterias não podem ser alteradas depois do início do campeonato");
+        }
         team.setStatus(status);
         if (status == TeamStatus.CONFIRMED && team.getConfirmedAt() == null) {
             team.setConfirmedAt(Instant.now());

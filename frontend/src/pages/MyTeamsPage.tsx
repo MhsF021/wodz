@@ -140,7 +140,7 @@ export function TeamDetails({ team, onClose }: { team: Team; onClose: () => void
         <TeamBadge status={team.status} />
         {team.status === 'PENDING_PAYMENT' && <div className="row-actions">
           {!cancel.isPending && <Link className="btn btn--primary" to={`/pagamento/${team.registrationCode}`}>
-            Pagar inscrição · {money(team.registrationAmount ?? team.category.price)}
+            Continuar para pagamento · {money(team.registrationAmount ?? team.category.price)}
           </Link>}
           {isCaptain && <button type="button" className="btn btn--danger" disabled={cancel.isPending}
             onClick={() => setConfirmingCancel(true)}>

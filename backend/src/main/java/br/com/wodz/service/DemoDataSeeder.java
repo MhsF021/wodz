@@ -193,11 +193,13 @@ public class DemoDataSeeder implements ApplicationRunner {
                 roster.team(cat, null, registeredAt);
             }
         }
-        close(c, start, ChampionshipStatus.FINISHED);
+        c.setRegistrationOpen(false);
+        championships.saveAndFlush(c);
 
         Map<Long, Workout> byId = ws.stream().collect(Collectors.toMap(Workout::getId, Function.identity()));
         List<HeatView> heats = heatService.generateAll(c.getId(), organizer.getId(),
-                new GenerateAllHeatsRequest(at(start, 8), HEAT_INTERVAL_MINUTES));
+                new GenerateAllHeatsRequest(8, at(start, 8), HEAT_INTERVAL_MINUTES));
+        close(c, start, ChampionshipStatus.IN_PROGRESS);
         // Uma dupla do RX não compareceu à última prova.
         Long noShow = heats.stream()
                 .filter(h -> h.workoutNumber() == 3 && h.categoryName().startsWith("RX"))
@@ -241,11 +243,13 @@ public class DemoDataSeeder implements ApplicationRunner {
                 roster.team(cat, anasTeam ? athlete : null, registeredAt);
             }
         }
-        close(c, today, ChampionshipStatus.IN_PROGRESS);
+        c.setRegistrationOpen(false);
+        championships.saveAndFlush(c);
 
         Map<Long, Workout> byId = ws.stream().collect(Collectors.toMap(Workout::getId, Function.identity()));
         List<HeatView> heats = heatService.generateAll(c.getId(), organizer.getId(),
-                new GenerateAllHeatsRequest(at(today, 8), HEAT_INTERVAL_MINUTES));
+                new GenerateAllHeatsRequest(8, at(today, 8), HEAT_INTERVAL_MINUTES));
+        close(c, today, ChampionshipStatus.IN_PROGRESS);
         for (HeatView heat : heats.stream().filter(h -> h.workoutNumber() == 1).toList()) {
             finish(heat);
             for (LaneView lane : heat.lanes()) {
@@ -332,7 +336,8 @@ public class DemoDataSeeder implements ApplicationRunner {
             category.setTeamSize(definition.teamSize());
             category.setGenderPolicy(definition.genderPolicy());
             category.setAllowedMaleCounts(definition.genderPolicy() == CategoryGender.MIXED ? List.of(1) : List.of());
-            category.setMovementStandards(categoryProfile.standards().get(definition.level()));
+            category.setMovementStandards(categoryProfile.standards().get(definition.level()).stream()
+                    .map(row -> row.forGender(definition.genderPolicy())).toList());
             category.setMaxTeams(20);
             int priceIndex = switch (definition.level()) { case "SCALED" -> 1; case "INTERMEDIARIO" -> 2; case "RX" -> 3; default -> 0; };
             category.setPrice(new BigDecimal(prices[priceIndex]));
@@ -370,6 +375,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         workout.setType(type);
         workout.setTimeCapSeconds(timeCap);
         workout.setRepsPerRound(repsPerRound);
+        workout.setMaxReps(type == WorkoutType.FOR_TIME ? ("Largada".equals(name) ? 120 : 90) : null);
         workout.setDescription(description);
         return workouts.save(workout);
     }

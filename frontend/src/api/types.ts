@@ -141,6 +141,7 @@ export interface Workout {
   type: WorkoutType;
   timeCapSeconds?: number | null;
   repsPerRound?: number | null;
+  maxReps?: number | null;
   hasTiebreak: boolean;
 }
 
@@ -148,6 +149,8 @@ export interface MovementStandard {
   movement: string;
   male: string;
   female: string;
+  allowed?: boolean;
+  kind?: 'LOAD' | 'MOVEMENT';
 }
 
 export interface Category {
@@ -180,6 +183,10 @@ export interface ChampionshipDetail {
   status: ChampionshipStatus;
   registrationOpen: boolean;
   registrationFlag: boolean;
+  heatLanes: number | null;
+  heatFirstStart: string | null;
+  heatIntervalMinutes: number | null;
+  heatsRequireReview: boolean;
   /** Já é o dia de início (horário de Brasília) ou depois: inscrições fechadas. */
   started: boolean;
   registrationOpensAt?: string | null;
@@ -230,6 +237,7 @@ export interface WorkoutInput {
   type: WorkoutType;
   timeCapSeconds?: number | null;
   repsPerRound?: number | null;
+  maxReps?: number | null;
   hasTiebreak: boolean;
 }
 
@@ -476,6 +484,15 @@ export interface GenerateHeatsInput {
 
 /** Todas as provas do campeonato de uma vez, até 8 equipes por bateria. */
 export interface GenerateAllHeatsInput {
+  lanes: number;
   firstStart: string;
   intervalMinutes: number;
+}
+
+export interface HeatPlanEntry {
+  heatId: number | null;
+  workoutId: number;
+  heatNumber: number;
+  scheduledAt: string;
+  teamIds: number[];
 }

@@ -7,7 +7,7 @@ no Mercado Pago, com redirecionamento na mesma aba.
 
 1. Abra o pagamento de uma inscrição pendente e confira a equipe, categoria e total.
 2. Leia os termos de compra e a política de privacidade e marque o aceite.
-3. **Pagar no Mercado Pago** abre o checkout hospedado na mesma aba. O atleta
+3. **Continuar para pagamento** abre o checkout hospedado na mesma aba. O atleta
    escolhe Pix, cartão ou outro meio disponível somente no Mercado Pago.
 4. No retorno, o backend consulta o pagamento no provedor. Parâmetros da URL
    não confirmam uma inscrição.

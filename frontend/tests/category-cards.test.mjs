@@ -18,13 +18,27 @@ function module(file, imports) {
 }
 const format = module('../src/lib/format.ts', {});
 const composition = module('../src/lib/categoryComposition.ts', {});
-const table = module('../src/components/MovementStandardsTable.tsx', {});
+const movementStandards = module('../src/lib/movementStandards.ts', {});
+const table = module('../src/components/MovementStandardsTable.tsx', { '../lib/movementStandards': movementStandards });
 const category = { id: 1, name: 'Scaled misto', teamSize: 2, genderPolicy: 'MIXED', allowedMaleCounts: [1],
   price: 210, maxTeams: 20, slotsLeft: 5, description: 'Duplas mistas.',
   movementStandards: [{ movement: 'Clean and jerk', male: '45 kg', female: '25 kg' },
     { movement: 'Toes to bar', male: '✓', female: '✕' }],
   workouts: [{ id: 4, number: 1, name: 'Largada', type: 'FOR_TIME', timeCapSeconds: 600, description: '30 cleans' }] };
 const championship = { name: 'TCB 2026', slug: 'tcb-2026', registrationOpen: true, categories: [category] };
+
+test('Nova Prova is in the organizer composition filter row and never on the public page', () => {
+  const action=React.createElement('button',{},'Nova Prova');
+  const organizer=renderToStaticMarkup(harness().CategoryCards({championship,organizer:true,filterActions:action}));
+  assert.match(organizer,/champ-filters[\s\S]*Misto[\s\S]*champ-filters__actions[\s\S]*Nova Prova/);
+  assert.doesNotMatch(renderToStaticMarkup(harness().CategoryCards({championship,filterActions:action})),/Nova Prova/);
+});
+
+test('an unchecked movement is published as not requested while stored loads are preserved', () => {
+  const cat={...category,movementStandards:[{movement:'Snatch',male:'45 kg',female:'25 kg',allowed:false}]};
+  const html=renderToStaticMarkup(React.createElement(table.MovementStandardsTable,{category:cat}));
+  assert.match(html,/Snatch/); assert.match(html,/Não será pedido/); assert.doesNotMatch(html,/45 kg|25 kg/);
+});
 function harness(selected = null, filter = 'ALL') {
   let selection; let chosenFilter; let hook = 0;
   const components = module('../src/components/CategoryCards.tsx', {
@@ -87,13 +101,32 @@ test('composition filters select actual category rules, include individuals, and
 });
 
 test('same-sex tables show the applicable column and mixed tables show both', () => {
-  const female = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: { ...category, genderPolicy: 'FEMALE' } }));
-  assert.match(female, /Feminino/); assert.match(female, /25 kg/); assert.doesNotMatch(female, /Masculino|45 kg/);
-  const male = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: { ...category, genderPolicy: 'MALE' } }));
-  assert.match(male, /Masculino/); assert.doesNotMatch(male, /Feminino|25 kg/);
-  const mixed = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category }));
-  assert.match(mixed, /Masculino/); assert.match(mixed, /Feminino/);
-  assert.match(mixed, />Previsto</); assert.match(mixed, />Não previsto</);
+  const loadsOnly = { ...category, movementStandards: [category.movementStandards[0]] };
+  const female = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: { ...loadsOnly, genderPolicy: 'FEMALE' } }));
+  assert.match(female, /<th scope="col">Carga<\/th>/); assert.match(female, /25 kg/); assert.doesNotMatch(female, /[Mm]asculin|[Ff]eminin|45 kg/);
+  const male = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: { ...loadsOnly, genderPolicy: 'MALE' } }));
+  assert.match(male, /<th scope="col">Carga<\/th>/); assert.match(male, /45 kg/); assert.doesNotMatch(male, /[Mm]asculin|[Ff]eminin|25 kg/);
+  const mixed = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: loadsOnly }));
+  assert.match(mixed, /Carga masculina/); assert.match(mixed, /Carga feminina/);
+  assert.equal((female.match(/scope="col"/g) ?? []).length, 2);
+  assert.equal((male.match(/scope="col"/g) ?? []).length, 2);
+  assert.equal((mixed.match(/scope="col"/g) ?? []).length, 3);
+});
+
+test('movement-only items publish checkbox availability separately from loads, including legacy symbols', () => {
+  const cat = { ...category, movementStandards: [...category.movementStandards,
+    { movement: 'Handstand walk', male: '—', female: '—', kind: 'MOVEMENT', allowed: false }] };
+  const html = renderToStaticMarkup(React.createElement(table.MovementStandardsTable, { category: cat }));
+  assert.match(html, /Com carga[\s\S]*45 kg[\s\S]*25 kg/);
+  assert.match(html, /Somente movimento[\s\S]*Situação[\s\S]*Toes to bar[\s\S]*Poderá ser pedido[\s\S]*Handstand walk[\s\S]*Não será pedido/);
+  assert.doesNotMatch(html, /✓|✕|Carga[^<]*[\s\S]*>✓</);
+});
+
+test('legacy movement flags respect the category gender when converted into a checkbox', () => {
+  const row = { movement: 'Toes to bar', male: '✓', female: '✕' };
+  assert.equal(movementStandards.normalizeMovementStandard(row, 'MALE').allowed, true);
+  assert.equal(movementStandards.normalizeMovementStandard(row, 'FEMALE').allowed, false);
+  assert.equal(movementStandards.normalizeMovementStandard({ ...row, allowed: false }, 'MALE').allowed, false);
 });
 
 test('category details refresh with current data and handle absent standards and workouts without displaying capacity', () => {
@@ -104,4 +137,24 @@ test('category details refresh with current data and handle absent standards and
   assert.doesNotMatch(html, /[Vv]agas|Sem limite|disponíveis/);
   assert.match(html, /cargas e os movimentos serão divulgados/); assert.match(html, /provas desta categoria serão divulgadas/);
   assert.doesNotMatch(html, /Largada/);
+});
+
+test('organizer category cards omit prices and keep standards and workouts inside the popup', () => {
+  const page = harness();
+  const html = renderToStaticMarkup(page.CategoryCards({ championship, organizer: true }));
+  assert.doesNotMatch(html, /R\$|Gratuita|\/ atleta|30 cleans|45 kg/);
+  const selected = harness(category.id);
+  const popup = renderToStaticMarkup(selected.CategoryCards({ championship, organizer: true,
+    renderWorkoutActions: () => React.createElement('button', {}, 'Editar prova') }));
+  assert.match(popup, /45 kg|30 cleans/); assert.match(popup, /Editar prova/);
+  assert.doesNotMatch(popup, /Inscrição por atleta|Total da equipe|Ir para inscrição|R\$/);
+});
+
+test('public category popups never expose organizer editing even when callbacks are passed', () => {
+  const page = harness(category.id);
+  const html = renderToStaticMarkup(page.CategoryDetails({ category, championship,
+    renderWorkoutActions: () => React.createElement('button', {}, 'Editar prova'),
+    renderWorkoutEditor: () => React.createElement('form', {}, 'Editor exclusivo') }));
+  assert.doesNotMatch(html, /Editar prova|Editor exclusivo/);
+  assert.match(html, /Inscrição por atleta|30 cleans/);
 });

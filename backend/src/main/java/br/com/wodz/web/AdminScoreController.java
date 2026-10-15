@@ -4,6 +4,7 @@ import br.com.wodz.common.CurrentUser;
 import br.com.wodz.dto.ScoreDtos.ScoreEntry;
 import br.com.wodz.dto.ScoreDtos.ScoreRequest;
 import br.com.wodz.dto.ScoreDtos.WorkoutScores;
+import br.com.wodz.dto.ScoreDtos.HeatScoresRequest;
 import br.com.wodz.service.ScoreService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -43,6 +44,12 @@ public class AdminScoreController {
     public ScoreEntry save(@AuthenticationPrincipal Jwt jwt, @PathVariable Long workoutId,
                            @PathVariable Long teamId, @Valid @RequestBody ScoreRequest req) {
         return scores.save(workoutId, teamId, req, CurrentUser.id(jwt));
+    }
+
+    @PutMapping("/heat")
+    public WorkoutScores saveHeat(@AuthenticationPrincipal Jwt jwt, @PathVariable Long workoutId,
+                                  @Valid @RequestBody HeatScoresRequest req) {
+        return scores.saveHeat(workoutId, req, CurrentUser.id(jwt));
     }
 
     @DeleteMapping("/{teamId}")

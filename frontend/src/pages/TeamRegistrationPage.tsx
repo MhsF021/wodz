@@ -100,7 +100,7 @@ export default function TeamRegistrationPage() {
       <h1 className="page-title">Você já possui uma inscrição para esse campeonato</h1>
       <p className="lead">{existing.name} · {existing.category.name}</p>
       <div className="form-actions">
-        {existing.status === 'PENDING_PAYMENT' && <Link className="btn btn--primary" to={`/pagamento/${existing.registrationCode}`}>Continuar pagamento</Link>}
+        {existing.status === 'PENDING_PAYMENT' && <Link className="btn btn--primary" to={`/pagamento/${existing.registrationCode}`}>Continuar para pagamento</Link>}
         <Link className="btn btn--secondary" to={`/minhas-equipes?equipe=${existing.id}`}>Ver minha equipe</Link>
       </div>
     </div>
@@ -278,7 +278,7 @@ export default function TeamRegistrationPage() {
             </p>
           )}
           <button type="submit" className="btn btn--primary btn--large" disabled={mutation.isPending || !category}>
-            {mutation.isPending ? 'Enviando inscrição…' : free ? 'Confirmar inscrição' : 'Inscrever e ir para o pagamento'}
+            {mutation.isPending ? 'Enviando inscrição…' : free ? 'Confirmar inscrição' : 'Inscrever e continuar para pagamento'}
           </button>
         </div>
       </form>

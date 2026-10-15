@@ -147,7 +147,7 @@ public class MercadoPagoGateway implements PaymentGateway {
             throw invalidPreference(c, "collector_id");
         if (config.clientId() == null || !config.clientId().equals(text(n.path("client_id")))) {
             log.warn("Checkout Pro recusado: checkout={} motivo=client_id", c.sessionId());
-            throw ApiException.unprocessable("A autorização do organizador pertence a outra aplicação Mercado Pago. Reconecte a conta em Recebimentos.");
+            throw ApiException.unprocessable("A autorização de recebimentos do organizador precisa ser renovada. Fale com a organização.");
         }
         if (!c.externalReference().equals(text(n.path("external_reference"))))
             throw invalidPreference(c, "external_reference");
@@ -218,13 +218,13 @@ public class MercadoPagoGateway implements PaymentGateway {
 
     private static void requireCheckoutToken(SellerAccount seller) {
         if (seller == null || seller.accessToken() == null || !seller.accessToken().startsWith("APP_USR-"))
-            throw ApiException.unprocessable("O organizador precisa reconectar uma conta Mercado Pago compatível com Checkout Pro.");
+            throw ApiException.unprocessable("O organizador precisa reconectar a conta de recebimentos para habilitar os pagamentos.");
     }
 
     private ApiException invalidPreference(CheckoutCommand c, String reason) {
         log.warn("Checkout Pro recusado: checkout={} motivo={}", c.sessionId(), reason);
         return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
-                "O Mercado Pago não confirmou a preferência desta inscrição. Tente novamente; se persistir, fale com a organização.");
+                "Não foi possível preparar o pagamento desta inscrição. Tente novamente; se persistir, fale com a organização.");
     }
 
     public GatewayPayment fetch(String id, SellerAccount seller) {
@@ -297,7 +297,7 @@ public class MercadoPagoGateway implements PaymentGateway {
     }
     private static ApiException incomplete() {
         return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
-                "O Mercado Pago retornou informações incompletas. Tente novamente.");
+                "Não foi possível obter todas as informações do pagamento. Tente novamente.");
     }
     private ApiException unavailable(RestClientException e) {
         int status = e instanceof RestClientResponseException r ? r.getStatusCode().value() : 0;
@@ -318,7 +318,7 @@ public class MercadoPagoGateway implements PaymentGateway {
 
     private static ApiException providerFailure() {
         return new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
-                "O Mercado Pago está indisponível. Tente novamente em instantes.");
+                "O serviço de pagamento está indisponível. Tente novamente em instantes.");
     }
 
     private static String providerReason(RestClientException e) {

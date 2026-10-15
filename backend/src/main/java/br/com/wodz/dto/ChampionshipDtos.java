@@ -84,7 +84,9 @@ public final class ChampionshipDtos {
                                      boolean started,
                                      Instant registrationOpensAt, Instant registrationClosesAt,
                                      ScoringSystem scoringSystem, int pointsFirstPlace, int pointsStep,
-                                     String bannerUrl, String profileUrl, List<CategoryDto> categories) {
+                                     String bannerUrl, String profileUrl, List<CategoryDto> categories,
+                                     Integer heatLanes, Instant heatFirstStart, Integer heatIntervalMinutes,
+                                     boolean heatsRequireReview) {
     }
 
     public record CategoryRequest(
@@ -117,10 +119,15 @@ public final class ChampionshipDtos {
             @NotNull WorkoutType type,
             @Min(1) Integer timeCapSeconds,
             @Min(1) Integer repsPerRound,
-            boolean hasTiebreak) {
+            boolean hasTiebreak,
+            @Min(1) Integer maxReps) {
+        public WorkoutRequest(List<Long> categoryIds, Integer number, String name, String description,
+                              WorkoutType type, Integer timeCapSeconds, Integer repsPerRound, boolean hasTiebreak) {
+            this(categoryIds, number, name, description, type, timeCapSeconds, repsPerRound, hasTiebreak, null);
+        }
     }
 
     public record WorkoutDto(Long id, Long categoryId, int number, String name, String description,
-                             WorkoutType type, Integer timeCapSeconds, Integer repsPerRound, boolean hasTiebreak) {
+                             WorkoutType type, Integer timeCapSeconds, Integer repsPerRound, boolean hasTiebreak, Integer maxReps) {
     }
 }

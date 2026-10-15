@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { HeatView } from '../api/types';
 import { formatClock } from '../lib/format';
 import { HeatTiming } from './HeatTiming';
@@ -14,7 +14,7 @@ export function useElapsed(startedAt?: string | null): number {
 }
 
 /** O relógio de prova: bateria em andamento com tempo correndo e raias. */
-export function LiveHeat({ heat, highlightTeamIds = [] }: { heat: HeatView; highlightTeamIds?: number[] }) {
+export function LiveHeat({ heat, highlightTeamIds = [], actions }: { heat: HeatView; highlightTeamIds?: number[]; actions?: ReactNode }) {
   const elapsed = useElapsed(heat.startedAt);
   const capMs = heat.timeCapSeconds ? heat.timeCapSeconds * 1000 : null;
   const capped = capMs !== null && elapsed >= capMs;
@@ -36,6 +36,7 @@ export function LiveHeat({ heat, highlightTeamIds = [] }: { heat: HeatView; high
           <p className="live__cap">
             {capMs ? (capped ? 'Time cap atingido' : `Time cap ${formatClock(capMs)}`) : 'Sem time cap'}
           </p>
+          {actions && <div className="live__actions">{actions}</div>}
         </div>
         <div className="live__info">
           <h3 className="live__title">

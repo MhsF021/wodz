@@ -14,11 +14,11 @@ import type {
   DeleteAccountInput,
   DisconnectGoogleInput,
   GenerateAllHeatsInput,
-  GenerateHeatsInput,
   GoogleLoginResult,
   Gender,
   HeatStatus,
   HeatView,
+  HeatPlanEntry,
   Leaderboard,
   MyHeats,
   Payment,
@@ -119,8 +119,11 @@ export const adminApi = {
   heats: (championshipId: number) => http.get<HeatView[]>(`/api/admin/championships/${championshipId}/heats`),
   generateAllHeats: (championshipId: number, input: GenerateAllHeatsInput) =>
     http.post<HeatView[]>(`/api/admin/championships/${championshipId}/heats/generate`, input),
-  generateHeats: (workoutId: number, input: GenerateHeatsInput) =>
-    http.post<HeatView[]>(`/api/admin/workouts/${workoutId}/heats/generate`, input),
+  saveHeatSettings: (id: number, input: GenerateAllHeatsInput) =>
+    http.put<void>(`/api/admin/championships/${id}/heats/settings`, input),
+  saveHeatPlan: (id: number, heats: HeatPlanEntry[]) =>
+    http.put<HeatView[]>(`/api/admin/championships/${id}/heats/plan`, { heats }),
+  reviewHeats: (id: number) => http.post<void>(`/api/admin/championships/${id}/heats/review`),
   createHeat: (workoutId: number, input: { scheduledAt: string; teamIds: number[]; intervalMinutes?: number }) =>
     http.post<HeatView>(`/api/admin/workouts/${workoutId}/heats`, input),
   updateHeat: (id: number, input: { scheduledAt: string; teamIds?: number[] | null }) =>
@@ -132,5 +135,7 @@ export const adminApi = {
   scores: (workoutId: number) => http.get<WorkoutScores>(`/api/admin/workouts/${workoutId}/scores`),
   saveScore: (workoutId: number, teamId: number, input: ScoreInput) =>
     http.put<ScoreEntry>(`/api/admin/workouts/${workoutId}/scores/${teamId}`, input),
+  saveHeatScores: (workoutId: number, heatId: number, entries: { teamId: number; result: ScoreInput }[]) =>
+    http.put<WorkoutScores>(`/api/admin/workouts/${workoutId}/scores/heat`, { heatId, entries }),
   deleteScore: (workoutId: number, teamId: number) => http.del(`/api/admin/workouts/${workoutId}/scores/${teamId}`),
 };

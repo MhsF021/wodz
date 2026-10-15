@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 
 @Entity
+@org.hibernate.annotations.DynamicUpdate
 @Table(name = "championship")
 @Getter
 @Setter
@@ -86,6 +87,11 @@ public class Championship {
 
     private String bannerUrl;
     private String profileUrl;
+
+    private Integer heatLanes;
+    private Instant heatFirstStart;
+    private Integer heatIntervalMinutes;
+    private boolean heatsRequireReview;
 
     @CreationTimestamp
     @Column(updatable = false)
