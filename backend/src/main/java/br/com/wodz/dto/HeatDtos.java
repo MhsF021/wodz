@@ -5,6 +5,8 @@ import br.com.wodz.domain.WorkoutType;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.util.List;
@@ -46,9 +48,16 @@ public final class HeatDtos {
 
     /** Todas as provas do campeonato de uma vez, até 8 equipes por bateria, em sequência a partir de firstStart. */
     public record GenerateAllHeatsRequest(
+            @NotNull(message = "Informe a quantidade de equipes por bateria") @Min(1) @Max(8) Integer lanes,
             @NotNull Instant firstStart,
             @NotNull @Min(0) @Max(240) Integer intervalMinutes) {
     }
+
+    public record HeatPlanEntry(Long heatId, @NotNull Long workoutId, @Min(1) int heatNumber,
+                                @NotNull Instant scheduledAt,
+                                @NotNull @Size(max = 8) List<@NotNull Long> teamIds) {}
+
+    public record HeatPlanRequest(@NotNull @Size(max = 5000) List<@NotNull @Valid HeatPlanEntry> heats) {}
 
     /** teamIds na ordem das raias (1, 2, 3...). Null = mantém as raias atuais. */
     public record HeatRequest(@NotNull Instant scheduledAt, List<Long> teamIds,

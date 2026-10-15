@@ -110,13 +110,13 @@ test('a heat opens its workout in the same popup and Back restores the schedule 
 });
 test('pending payment stays discoverable inside the popup and never fetches a schedule', () => {
   const app = harness({ status: 'PENDING_PAYMENT' }); const html = renderToStaticMarkup(app.details());
-  assert.match(html, /Pagar inscrição/); assert.match(html, /href="\/pagamento\/REG2"/); assert.match(html, /Confirme sua inscrição/);
+  assert.match(html, /Continuar para pagamento/); assert.match(html, /href="\/pagamento\/REG2"/); assert.match(html, /Confirme sua inscrição/);
   assert.equal(app.queries.find(query => query.queryKey[0] === 'my-heats').enabled, false);
 });
 
 test('a linked teammate can see payment and schedules but cannot cancel or rename', () => {
   const html = renderToStaticMarkup(harness({ status: 'PENDING_PAYMENT', userId: 20 }).details());
-  assert.match(html, /Pagar inscrição/);
+  assert.match(html, /Continuar para pagamento/);
   assert.doesNotMatch(html, /Cancelar a inscrição|Alterar nome da equipe/);
   assert.match(renderToStaticMarkup(harness({ userId: 20 }).details()), /Horários das baterias/);
 });
@@ -131,7 +131,7 @@ test('only pending registrations offer cancellation and declining confirmation d
   assert.equal(app.cancellations(), 0);
   assert.match(renderToStaticMarkup(app.details()), /Cancelar inscrição\?.*EQUIPE DA ANA/);
   nodes(app.details()).find(node => node.props.children === 'Manter inscrição').props.onClick();
-  assert.equal(app.cancellations(), 0); assert.match(renderToStaticMarkup(app.details()), /Pagar inscrição/);
+  assert.equal(app.cancellations(), 0); assert.match(renderToStaticMarkup(app.details()), /Continuar para pagamento/);
 });
 
 test('confirmed cancellation targets the selected team and immediately updates the popup and cached registration', async () => {
@@ -153,11 +153,11 @@ test('confirmed cancellation targets the selected team and immediately updates t
 test('cancellation disables repeated submission and errors keep the registration visible with a refreshed status', () => {
   const busy = harness({ status: 'PENDING_PAYMENT', cancelPending: true }); const tree = busy.details();
   assert.equal(nodes(tree).find(node => node.props.children === 'Cancelando…').props.disabled, true);
-  assert.doesNotMatch(renderToStaticMarkup(tree), /Pagar inscrição/);
+  assert.doesNotMatch(renderToStaticMarkup(tree), /Continuar para pagamento/);
   const failed = harness({ status: 'PENDING_PAYMENT', cancelError: new Error('A inscrição já foi confirmada') });
   assert.match(renderToStaticMarkup(failed.details()), /role="alert"[^>]*>A inscrição já foi confirmada/);
   failed.mutation().onError(); assert.deepEqual(failed.invalidations, [['my-teams']]);
-  assert.match(renderToStaticMarkup(failed.details()), /Pagar inscrição/);
+  assert.match(renderToStaticMarkup(failed.details()), /Continuar para pagamento/);
 });
 
 test('the open popup refreshes registration status and keeps existing details during a network failure', () => {
@@ -218,7 +218,7 @@ test('an existing unpaid registration replaces the form with a clear warning and
     throw new Error(id);
   } });
   const html = renderToStaticMarkup(React.createElement(exports.default));
-  assert.match(html, /Você já possui uma inscrição para esse campeonato/); assert.match(html, /Continuar pagamento/);
+  assert.match(html, /Você já possui uma inscrição para esse campeonato/); assert.match(html, /Continuar para pagamento/);
   assert.match(html, /href="\/pagamento\/REG2"/); assert.doesNotMatch(html, /<form/); assert.equal(registered, false);
 });
 

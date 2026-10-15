@@ -31,12 +31,13 @@ public final class Mappers {
 
     public static WorkoutDto workout(Workout w) {
         return new WorkoutDto(w.getId(), w.getCategory().getId(), w.getNumber(), w.getName(), w.getDescription(),
-                w.getType(), w.getTimeCapSeconds(), w.getRepsPerRound(), w.isHasTiebreak());
+                w.getType(), w.getTimeCapSeconds(), w.getRepsPerRound(), w.isHasTiebreak(), w.getMaxReps());
     }
 
     public static CategoryDto category(Category c, Integer slotsLeft, List<WorkoutDto> workouts) {
         return new CategoryDto(c.getId(), c.getName(), c.getDescription(), c.getTeamSize(), c.getMaxTeams(),
-                c.getPrice(), c.getDisplayOrder(), slotsLeft, workouts, c.getGenderPolicy(), c.getAllowedMaleCounts(), c.getMovementStandards());
+                c.getPrice(), c.getDisplayOrder(), slotsLeft, workouts, c.getGenderPolicy(), c.getAllowedMaleCounts(),
+                c.getMovementStandards().stream().map(row -> row.forGender(c.getGenderPolicy())).toList());
     }
 
     public static ChampionshipSummary summary(Championship c, Instant now) {

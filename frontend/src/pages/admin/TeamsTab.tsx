@@ -121,14 +121,14 @@ export function TeamsTab({ championship }: { championship: ChampionshipDetail })
                   <span className="organizer-team__date">Inscrita em {dateTime(t.createdAt)}</span>
                   <div className="row-actions">
                     {t.status === 'PENDING_PAYMENT' && <CopyButton value={payLink} label="Link de pagamento" />}
-                    {t.status !== 'CONFIRMED' && (
+                    {championship.status !== 'FINISHED' && !championship.started && championship.status !== 'IN_PROGRESS' && t.status !== 'CONFIRMED' && (
                       <button type="button" className="btn btn--secondary btn--small"
                         disabled={change.isPending} onClick={() => window.confirm(`Confirmar ${t.teamName} sem pagamento online (ex.: pago em dinheiro)?`)
                           && change.mutate({ id: t.teamId, next: 'CONFIRMED' })}>
                         Confirmar
                       </button>
                     )}
-                    {t.status !== 'CANCELLED' && (
+                    {championship.status !== 'FINISHED' && !championship.started && championship.status !== 'IN_PROGRESS' && t.status !== 'CANCELLED' && (
                       <button type="button" className="btn btn--danger btn--small"
                         disabled={change.isPending} onClick={() => window.confirm(`Cancelar a inscrição de ${t.teamName}? A equipe sai das baterias que ainda não começaram.`)
                           && change.mutate({ id: t.teamId, next: 'CANCELLED' })}>

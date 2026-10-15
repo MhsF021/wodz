@@ -39,7 +39,7 @@ class NameNormalizationTest {
         championship.setSlug("torneio-acao-2030");
         when(guard.championship(1L, 3L)).thenReturn(championship);
         ChampionshipService service = new ChampionshipService(championships, categories, workouts,
-                mock(AppUserRepository.class), guard, mock(JdbcTemplate.class), mock(PayoutAccountService.class));
+                mock(AppUserRepository.class), guard, mock(JdbcTemplate.class), mock(PayoutAccountService.class), mock(ApplicationEventPublisher.class));
         LocalDate start = LocalDate.now().plusMonths(2);
         String banner = "https://example.test/Foto.jpg?token=AbCd";
 
@@ -146,7 +146,9 @@ class NameNormalizationTest {
             invocation.<RowCallbackHandler>getArgument(1).processRow(lane);
             return null;
         }).when(jdbc).query(contains("FROM heat_lane"), any(RowCallbackHandler.class), eq(5L), eq(7L));
-        ScoreService service = new ScoreService(scores, workouts, teams, mock(OwnershipGuard.class),
+        OwnershipGuard guard = mock(OwnershipGuard.class);
+        when(guard.workout(5L, 3L)).thenReturn(workout);
+        ScoreService service = new ScoreService(scores, workouts, teams, guard,
                 jdbc, mock(ApplicationEventPublisher.class));
 
         service.save(5L, 7L, new ScoreRequest(ScoreStatus.DNS, null, null, null, null,

@@ -75,4 +75,15 @@ public class OwnershipGuard {
             throw ApiException.forbidden("Você não é o organizador deste campeonato");
         }
     }
+
+    public void requireEditable(Championship championship) {
+        var locked = championships.lockStateById(championship.getId())
+                .orElseThrow(() -> ApiException.notFound("Campeonato não encontrado"));
+        if (locked.getStatus().equals("FINISHED")) {
+            throw ApiException.unprocessable("Este campeonato foi encerrado e está disponível apenas para consulta");
+        }
+        championship.setStatus(br.com.wodz.domain.ChampionshipStatus.valueOf(locked.getStatus()));
+        championship.setStartDate(locked.getStartDate());
+        championship.setRegistrationOpen(locked.getRegistrationOpen());
+    }
 }

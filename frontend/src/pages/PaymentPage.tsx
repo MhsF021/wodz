@@ -106,22 +106,22 @@ export default function PaymentPage() {
         : closed ? <Empty title={data.teamStatus === 'CANCELLED' ? 'Inscrição cancelada' : 'O campeonato já começou'}><p>Fale com a organização do evento para acompanhar esta inscrição.</p></Empty>
         : (
         <div className="stack">
-          {processing ? <p role="status">Verificando o retorno do Mercado Pago…</p>
-            : pending && (!expired || pendingPix) ? <p role="status">Aguardando confirmação do Mercado Pago. Esta página será atualizada automaticamente.</p>
+          {processing ? <p role="status">Verificando o pagamento…</p>
+            : pending && (!expired || pendingPix) ? <p role="status">Aguardando confirmação do pagamento. Esta página será atualizada automaticamente.</p>
             : expired ? <p role="status">O prazo desta cobrança terminou. Você pode gerar um novo pagamento.</p>
-            : noAttempt ? <p role="status">O Mercado Pago ainda não registrou um pagamento para esta inscrição. Você pode tentar novamente.</p>
+            : noAttempt ? <p role="status">Ainda não há um pagamento registrado para esta inscrição. Você pode tentar novamente.</p>
             : terminal ? <p role="status">O pagamento não foi aprovado. Você pode tentar novamente.</p> : null}
           <div className="payment-redirect">
             <strong className="payment-redirect__title"><Lock size={18} strokeWidth={1.8} aria-hidden /> Redirecionamento seguro</strong>
-            <p>Você será redirecionado para o ambiente seguro do Mercado Pago. Lá, escolha como pagar: Pix, cartão ou outro meio disponível para sua compra.</p>
+            <p>Você será redirecionado para um ambiente seguro de pagamento. Lá, escolha como pagar: Pix, cartão ou outro meio disponível para sua compra.</p>
           </div>
           <div className="payment-breakdown"><div><span>Inscrição ({data.categoryName})</span><strong>{money(data.amount)}</strong></div>
             <div className="payment-breakdown__total"><strong>Total</strong><strong>{money(data.amount)}</strong></div>
-            <p className="note"><strong>Pagamento processado pelo Mercado Pago</strong><br />Sua inscrição será confirmada após a aprovação do pagamento.</p>
+            <p className="note">Sua inscrição será confirmada após a aprovação do pagamento.</p>
           </div>
           <details className="payment-conditions"><summary>Condições de pagamento e uso dos dados</summary>
-            <p>Confira a categoria, a equipe e o valor antes de continuar. A inscrição fica pré-registrada até o Mercado Pago confirmar o pagamento. Parcelamento e condições de cartão são apresentados pelo Mercado Pago.</p>
-            <p>Os dados de cartão são preenchidos no Mercado Pago.</p>
+            <p>Confira a categoria, a equipe e o valor antes de continuar. A inscrição fica pré-registrada até a confirmação do pagamento. Parcelamento e condições de cartão são apresentados no ambiente de pagamento.</p>
+            <p>Os dados de cartão são preenchidos no ambiente seguro de pagamento.</p>
             <p>Consulte a organização do evento sobre regras de participação, cancelamento e reembolso.</p>
           </details>
           <label className="payment-consent"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} />
@@ -130,13 +130,13 @@ export default function PaymentPage() {
           <button type="button" className="btn btn--primary btn--block"
             disabled={!accepted || create.isPending || redirecting || processing || !!details.error || (pendingPix && expired)}
             onClick={() => create.mutate()}>
-            {create.isPending || redirecting ? 'Processando…' : 'Pagar no Mercado Pago'}
+            {create.isPending || redirecting ? 'Processando…' : 'Continuar para pagamento'}
           </button>
           {!!details.error && <button type="button" className="btn btn--secondary" onClick={() => void details.refetch()}>Retomar cobrança</button>}
           {active && <p className="note">Uma cobrança já foi iniciada. Você pode retomá-la até o vencimento em {Math.ceil(remaining / 60)} minutos.</p>}
         </div>
       )}
-      {config.data?.mercadoPagoTestMode && !approved && <p className="note" role="note"><strong>Modo de teste do Mercado Pago.</strong> Use os dados de teste indicados pelo Mercado Pago.</p>}
+      {config.data?.mercadoPagoTestMode && !approved && <p className="note" role="note"><strong>Modo de teste de pagamento.</strong> Use os dados de teste indicados pelo provedor de pagamento.</p>}
       {!approved && <div className="row-actions"><Link className="btn btn--secondary" to="/minhas-equipes">Minhas equipes</Link></div>}
     </div>
   );

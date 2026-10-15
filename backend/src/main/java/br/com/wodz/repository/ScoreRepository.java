@@ -10,4 +10,5 @@ public interface ScoreRepository extends JpaRepository<Score, Long> {
     Optional<Score> findByWorkoutIdAndTeamId(Long workoutId, Long teamId);
 
     boolean existsByWorkoutId(Long workoutId);
+    boolean existsByWorkoutIdAndRepsGreaterThan(Long workoutId, Integer reps);
 }

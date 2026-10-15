@@ -75,7 +75,7 @@ organizador de demonstração, cada um com 11 categorias e 3 provas por categori
 - **TCB 2026** (São Paulo/SP): inscrições abertas e começa daqui a 30 dias, para
   testar pagamentos. 8 equipes pagas por categoria (sobram vagas para inscrever
   novas equipes) e o "Tico e Teco", na Scaled misto, aguardando pagamento: entre como
-  atleta e use "Pagar inscrição" em Minhas equipes.
+  atleta e use "Continuar para pagamento" em Minhas equipes.
 
 O seed só roda com o banco vazio e não reescreve campeonatos ou inscrições existentes.
 `SEED_DEMO_CATEGORIES_JSON` no `.env` define os exemplos usados nos três campeonatos:
@@ -237,7 +237,7 @@ Os logs identificam HTTP e motivos fixos, sem registrar tokens ou o corpo privad
 da resposta. A configuração da conta/aplicação e o pagamento completo precisam
 ser verificados no Mercado Pago; testes locais não substituem essa verificação.
 
-Quando o erro ocorre **depois de clicar em Pagar no Mercado Pago**, anote o
+Quando o erro ocorre **depois de clicar em Continuar para pagamento**, anote o
 `preference-id` e o `router-request-id` da URL. O caminho `/error/` é uma tela
 genérica do provedor e não contém o motivo da falha. Uma preferência criada com
 sucesso também não comprova que uma tentativa financeira foi registrada.
@@ -449,6 +449,28 @@ No painel **Categorias**, a organização pode adicionar, editar ou remover até
 30 movimentos por categoria, usando cargas em kg ou variações em texto. O Flyway
 aplica **V22** para persistir essas tabelas; categorias existentes começam sem tabela.
 
+## Gestão de baterias do organizador
+
+Na aba **Provas**, categorias usam os mesmos cards e filtros por composição da página pública, sem preços ou links de inscrição. Cargas, movimentos e WODs ficam no pop-up. **Nova Prova** é um botão à direita dos filtros por composição e abre o formulário em um pop-up; aparece somente antes do início, para eventos em rascunho ou publicados. **Editar prova** abre o formulário dentro do pop-up da categoria. Em andamento, nome e descrição podem ser corrigidos e limites de repetições ausentes podem ser preenchidos, mantendo formato, duração e raias. Eventos encerrados ou cancelados permitem apenas consultar as provas.
+
+O cadastro da categoria indica **Pode ser pedido** para cada movimento. Desmarcado, o movimento aparece como não previsto; suas cargas ficam preservadas para uma eventual reativação. O **Leaderboard** usa uma lista de categorias e mantém a busca por atleta ou equipe.
+
+Os resultados são validados por tipo tanto na interface quanto na API: **For time** recebe tempo até o cap ou CAP com reps até o total cadastrado; **AMRAP** recebe rounds completos e reps extras menores que um round, com teto total opcional; **PR** recebe apenas a carga total em kg. O total da prova é informado explicitamente (ex.: 21+21+15+15+9+9 = 90), sem inferir números do texto do WOD. Provas antigas precisam completar os limites ausentes antes de lançar reps; limites já definidos ficam bloqueados durante o campeonato e após resultados. A migração V34 adiciona o teto e o protege também no banco.
+
+**Resultados** fica imediatamente à direita de **Equipes**, com listas de categoria, prova e bateria. Os filtros ficam na URL e trocar categoria/prova limpa a seleção anterior de bateria. Links antigos com `aba=pontuacao` continuam funcionando; novos links usam `aba=resultados`. No campeonato em andamento, o card da próxima bateria oferece **Iniciar bateria**, habilitado quando a bateria atual tiver sido concluída.
+
+Em `organizador/campeonatos/{id}`, informe obrigatoriamente a quantidade de equipes por bateria (1 a 8), o horário inicial e o intervalo após cada prova. Campeonatos existentes sem configuração também precisam preencher esses campos; não é adotada uma quantidade implícita.
+
+Enquanto as inscrições estiverem abertas, a grade não pode ser gerada ou editada. Fechar as inscrições gera todas as provas automaticamente. O servidor verifica o fechamento por data a cada 15 segundos, mesmo sem o painel aberto. Antes do início, **Nova Geração** substitui a grade usando a configuração salva. Salvar outra configuração com inscrições fechadas também refaz a grade.
+
+**Editar grade** permite mover equipes, ajustar raias e horários e remover baterias. **Nova bateria manual** exige categoria e prova; a distribuição é espelhada em todas as provas da categoria. Alterações ficam em edição até **Salvar baterias**. Equipes confirmadas sem bateria aparecem num diálogo e impedem o salvamento. A API valida a grade completa numa transação.
+
+O início por situação do campeonato ou pelo dia de início bloqueia a edição. Se a grade estiver ausente ou incompleta, o sistema tenta recuperá-la com a configuração salva e persiste um aviso com **Verificar geração**. Provas precisam ter duração/time cap definido para gerar horários. Grades com baterias já iniciadas não são substituídas.
+
+**Concluir e Lançar** conclui a bateria ao vivo e abre somente os resultados daquela bateria. O botão **Lançar** envia todas as raias numa transação: um resultado inválido desfaz o lançamento inteiro. Resultados existentes continuam com **Atualizar** e **Apagar**. Campeonatos **Encerrados** ficam disponíveis apenas para consulta, com bloqueios também na API para dados, inscrições, categorias, provas, equipes, baterias e resultados.
+
+O Flyway aplica **V33** para a configuração e as rotinas de geração. Os testes de `OrganizerHeatLifecycleDatabaseTest` usam PostgreSQL descartável, sem acessar o banco do aplicativo.
+
 ## Banco de dados
 
 As migrations ficam em `backend/src/main/resources/db/migration`. As regras que
@@ -474,7 +496,8 @@ ranking) estão no próprio PostgreSQL.
 | Nome | O que faz |
 |---|---|
 | `sp_start_heat` | Marca a bateria como em andamento e conclui a que estava rodando. |
-| `sp_generate_heats` | Distribui as equipes confirmadas em baterias de até 8 equipes, de forma equilibrada (17 equipes viram 5 + 6 + 6). As piores colocadas correm primeiro e os líderes na última. |
+| `sp_generate_heats` | Distribui as equipes confirmadas da primeira prova usando a quantidade configurada (1 a 8), de forma equilibrada. |
+| `sp_generate_championship_heats` / `fn_prepare_championship_heats` | Montam todas as provas em sequência, copiando baterias e raias da primeira prova de cada categoria. Recuperam grades ausentes ou incompletas antes do início. |
 | `sp_expire_pending_payments` | Expira cobranças pendentes vencidas. |
 
 **Triggers**
@@ -514,7 +537,7 @@ Documentação interativa em `/swagger-ui`, disponível somente com `APP_ENV=dev
 | Pagamento (link público) | `GET /api/public/registrations/{código}`, `POST .../checkout` (método CARD e aceite), `GET .../checkout/{id}/details` (retomada), `GET .../checkout/{id}?paymentId=...` (situação), `GET .../payments/{id}` (histórico) |
 | Webhook | `POST /api/webhooks/mercadopago` |
 | Atleta | `POST /api/athlete/championships/{slug}/teams`, `GET /api/athlete/teams`, `GET /api/athlete/heats` |
-| Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `POST /workouts/{id}/heats/generate` refaz uma prova, até 8 equipes por bateria; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/{teamId}`, só com a bateria da equipe concluída e com o nome do judge da raia) |
+| Organizador | `/api/admin/championships` (CRUD, `PATCH .../registration`, `PATCH .../status`), categorias, provas (criação para várias categorias de uma vez), equipes (`PATCH /teams/{id}/status`), baterias (`POST /championships/{id}/heats/generate` monta a grade de todas as provas de uma vez, `PUT /championships/{id}/heats/settings` salva a configuração obrigatória, `PUT .../heats/plan` salva a edição completa; `POST /heats/{id}/start`, `PATCH /heats/{id}/status`), resultados (`PUT /workouts/{id}/scores/heat` lança a bateria inteira numa transação; `PUT /workouts/{id}/scores/{teamId}` corrige um resultado, só com a bateria concluída e o nome do judge) |
 
 Erros seguem o padrão ProblemDetail (RFC 9457) com mensagens em português.
 

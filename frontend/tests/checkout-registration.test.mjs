@@ -117,11 +117,11 @@ test('return without a provider payment offers a retry instead of claiming a pen
   }).default;
   const html=renderToStaticMarkup(React.createElement(component));
   assert.doesNotMatch(html,/Pagamento confirmado/);
-  assert.match(html,/Modo de teste do Mercado Pago/);
+  assert.match(html,/Modo de teste de pagamento/);
   assert.doesNotMatch(html,/QR Code|Copia e Cola|Gerar Pix|Responsável Pagador/);
-  if(!payment){assert.match(html,/ainda não registrou um pagamento/);assert.doesNotMatch(html,/Aguardando confirmação/);}
-  else if(payment.status==='REJECTED'){assert.match(html,/não foi aprovado/);assert.doesNotMatch(html,/ainda não registrou|Aguardando confirmação/);}
-  else{assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/ainda não registrou/);}
+  if(!payment){assert.match(html,/Ainda não há um pagamento registrado/);assert.doesNotMatch(html,/Aguardando confirmação/);}
+  else if(payment.status==='REJECTED'){assert.match(html,/não foi aprovado/);assert.doesNotMatch(html,/Ainda não há um pagamento registrado|Aguardando confirmação/);}
+  else{assert.match(html,/Aguardando confirmação/);assert.doesNotMatch(html,/Ainda não há um pagamento registrado/);}
  }
 });
 
@@ -139,9 +139,9 @@ test('checkout requires consent and submits no payment method, payer or QR field
    '../lib/format':{money:x=>String(x)},'../lib/checkout':{checkoutDestination:x=>x},'../components/States':states,
   }).default;
   const html=renderToStaticMarkup(React.createElement(Page));
-  assert.match(html,/Pagar no Mercado Pago/);
+  assert.match(html,/Continuar para pagamento/);
   assert.doesNotMatch(html,/QR Code|Copia e Cola|CPF|payment-methods|type="radio"/);
-  const button=html.match(/<button[^>]*>Pagar no Mercado Pago<\/button>/)[0];
+  const button=html.match(/<button[^>]*>Continuar para pagamento<\/button>/)[0];
   assert.equal(button.includes('disabled'),!accepted);
   if(accepted){await mutation.mutationFn();assert.equal(sent.code,'ABC');
    assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{termsAccepted:true});}
@@ -166,6 +166,6 @@ test('pending Pix remains pending when the preference expires and cannot start a
  const html=renderToStaticMarkup(React.createElement(Page));
  assert.match(html,/Aguardando confirmação/);
  assert.doesNotMatch(html,/prazo desta cobrança terminou|gerar um novo pagamento/);
- assert.match(html,/<button[^>]*disabled[^>]*>Pagar no Mercado Pago<\/button>/);
+ assert.match(html,/<button[^>]*disabled[^>]*>Continuar para pagamento<\/button>/);
  assert.equal(statusQuery.refetchInterval({state:{data:registration}}),5000);
 });

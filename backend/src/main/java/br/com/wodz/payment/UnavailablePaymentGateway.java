@@ -9,6 +9,6 @@ import org.springframework.stereotype.Component;
 public class UnavailablePaymentGateway implements PaymentGateway {
     public String providerName() { return "DISABLED"; }
     public GatewayCheckout createCheckout(CheckoutCommand command) {
-        throw ApiException.unprocessable("O pagamento pelo Mercado Pago ainda não está disponível. Fale com a organização.");
+        throw ApiException.unprocessable("O pagamento online ainda não está disponível. Fale com a organização.");
     }
 }

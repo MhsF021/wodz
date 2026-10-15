@@ -19,6 +19,7 @@ import br.com.wodz.repository.CategoryRepository;
 import br.com.wodz.repository.ChampionshipRepository;
 import br.com.wodz.repository.WorkoutRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,10 +44,11 @@ public class ChampionshipService {
     private final OwnershipGuard guard;
     private final JdbcTemplate jdbc;
     private final PayoutAccountService payoutAccounts;
+    private final ApplicationEventPublisher events;
 
     public ChampionshipService(ChampionshipRepository championships, CategoryRepository categories,
                                WorkoutRepository workouts, AppUserRepository users, OwnershipGuard guard,
-                               JdbcTemplate jdbc, PayoutAccountService payoutAccounts) {
+                               JdbcTemplate jdbc, PayoutAccountService payoutAccounts, ApplicationEventPublisher events) {
         this.championships = championships;
         this.categories = categories;
         this.workouts = workouts;
@@ -54,6 +56,7 @@ public class ChampionshipService {
         this.guard = guard;
         this.jdbc = jdbc;
         this.payoutAccounts = payoutAccounts;
+        this.events = events;
     }
 
     // ------------------------------------------------------------------ público
@@ -133,6 +136,11 @@ public class ChampionshipService {
     public ChampionshipDetail update(Long id, Long userId, ChampionshipRequest req) {
         validate(req);
         Championship c = guard.championship(id, userId);
+        guard.requireEditable(c);
+        if ((c.hasStarted(Instant.now()) || c.getStatus() == ChampionshipStatus.IN_PROGRESS)
+                && !c.getStartDate().equals(req.startDate())) {
+            throw ApiException.unprocessable("A data de início não pode ser alterada depois que o campeonato começou");
+        }
         apply(c, req);
         applyImage(c, req.imageData(), "COVER");
         applyImage(c, req.profileImageData(), "PROFILE");
@@ -144,6 +152,8 @@ public class ChampionshipService {
     @Transactional
     public ChampionshipDetail setRegistrationOpen(Long id, Long userId, boolean open) {
         Championship c = guard.championship(id, userId);
+        guard.requireEditable(c);
+        requireHeatSettings(c);
         if (open) {
             payoutAccounts.requireConnected(userId);
             if (categories.findByChampionshipIdOrderByDisplayOrderAscNameAsc(id).isEmpty()) {
@@ -160,12 +170,27 @@ public class ChampionshipService {
         }
         c.setRegistrationOpen(open);
         championships.saveAndFlush(c);
+        if (!open) prepareHeats(c, c.hasStarted(Instant.now()));
         return toDetail(c);
     }
 
     @Transactional
     public ChampionshipDetail setStatus(Long id, Long userId, ChampionshipStatus status) {
         Championship c = guard.championship(id, userId);
+        guard.requireEditable(c);
+        if ((c.getStatus() == ChampionshipStatus.IN_PROGRESS || c.hasStarted(Instant.now()))
+                && (status == ChampionshipStatus.DRAFT || status == ChampionshipStatus.PUBLISHED)) {
+            throw ApiException.unprocessable("O campeonato já começou e não pode voltar para uma situação anterior");
+        }
+        if (status == ChampionshipStatus.IN_PROGRESS) {
+            requireHeatSettings(c);
+            c.setRegistrationOpen(false);
+            championships.saveAndFlush(c);
+            prepareHeats(c, true);
+            if (!Boolean.TRUE.equals(jdbc.queryForObject("SELECT fn_championship_heats_complete(?)", Boolean.class, id))) {
+                throw ApiException.unprocessable("Não há baterias completas para iniciar o campeonato. Verifique as equipes e provas");
+            }
+        }
         if (status == ChampionshipStatus.PUBLISHED) payoutAccounts.requireConnected(userId);
         c.setStatus(status);
         if (status != ChampionshipStatus.PUBLISHED) {
@@ -173,6 +198,20 @@ public class ChampionshipService {
         }
         championships.saveAndFlush(c);
         return toDetail(c);
+    }
+
+    static void requireHeatSettings(Championship c) {
+        if (c.getHeatLanes() == null || c.getHeatFirstStart() == null || c.getHeatIntervalMinutes() == null) {
+            throw ApiException.unprocessable("Informe a quantidade de equipes por bateria, o horário inicial e o intervalo na aba Baterias");
+        }
+    }
+
+    private void prepareHeats(Championship c, boolean fallback) {
+        boolean generated = Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT fn_prepare_championship_heats(?, ?)", Boolean.class, c.getId(), fallback));
+        if (generated) events.publishEvent(new ChampionshipUpdatedEvent(c.getId(), ChampionshipUpdatedEvent.HEATS));
+        c.setHeatsRequireReview(Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT heats_require_review FROM championship WHERE id=?", Boolean.class, c.getId())));
     }
 
     // ---------------------------------------------------------------- helpers
@@ -265,6 +304,7 @@ public class ChampionshipService {
                 c.getAddress(), c.getCity(), c.getState(), c.getStartDate(), c.getEndDate(), c.getStatus(),
                 c.isAcceptingRegistrations(now), c.isRegistrationOpen(), c.hasStarted(now),
                 c.getRegistrationOpensAt(), c.getRegistrationClosesAt(), c.getScoringSystem(), c.getPointsFirstPlace(), c.getPointsStep(),
-                c.getBannerUrl(), c.getProfileUrl(), categoryDtos);
+                c.getBannerUrl(), c.getProfileUrl(), categoryDtos, c.getHeatLanes(), c.getHeatFirstStart(),
+                c.getHeatIntervalMinutes(), c.isHeatsRequireReview());
     }
 }

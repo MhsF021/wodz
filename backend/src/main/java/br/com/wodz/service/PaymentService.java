@@ -57,11 +57,11 @@ public class PaymentService {
         Championship championship = team.getCategory().getChampionship();
         Instant now = Instant.now();
         if (championship.hasStarted(now)) throw ApiException.unprocessable("O campeonato já começou e não aceita pagamentos de inscrição.");
-        if (!gateway.supportsRemoteFetch()) throw ApiException.unprocessable("O pagamento pelo Mercado Pago ainda não está disponível.");
+        if (!gateway.supportsRemoteFetch()) throw ApiException.unprocessable("O pagamento online ainda não está disponível.");
         BigDecimal amount = team.getRegistrationAmount();
         if (amount.signum() <= 0) throw ApiException.unprocessable("Esta inscrição não exige pagamento.");
         PayoutAccount account = payoutAccounts.findFirstByUserIdAndStatus(championship.getOwner().getId(), PayoutAccountStatus.ACTIVE)
-                    .orElseThrow(() -> ApiException.unprocessable("O organizador ainda não conectou a conta Mercado Pago."));
+                    .orElseThrow(() -> ApiException.unprocessable("O organizador ainda não configurou a conta de recebimentos."));
         SellerAccount seller = payoutTokens.seller(account.getId(), true);
         refreshAccount(account);
         CheckoutSession previous = checkouts.findFirstByTeamIdOrderByIdDesc(team.getId()).orElse(null);
@@ -74,7 +74,7 @@ public class PaymentService {
             for (GatewayPayment remote : gateway.search(previous.getExternalReference(), originalSeller)) {
                 verify(remote, previous.getAmount(), previous.getExternalReference(), original);
                 if (remote.status() == PaymentStatus.APPROVED)
-                    throw ApiException.conflict("O Mercado Pago já confirmou este pagamento. Aguarde a atualização da inscrição.");
+                    throw ApiException.conflict("Este pagamento já foi confirmado. Aguarde a atualização da inscrição.");
                 if (remote.method() == PaymentMethod.PIX && remote.status() == PaymentStatus.PENDING)
                     pendingPix = true;
             }
@@ -97,7 +97,7 @@ public class PaymentService {
         }
         // O vencimento da preferência não cancela um Pix já emitido no checkout.
         if (pendingPix)
-            throw ApiException.conflict("Já existe um Pix aguardando confirmação no Mercado Pago. Aguarde o pagamento ou o cancelamento dessa cobrança antes de iniciar outro checkout.");
+            throw ApiException.conflict("Já existe um Pix aguardando confirmação. Aguarde o pagamento ou o cancelamento dessa cobrança antes de iniciar outro pagamento.");
         CheckoutSession session = new CheckoutSession();
         session.setTeam(team); session.setPayoutAccountId(account.getId()); session.setAmount(amount);
         session.setApplicationFee(applicationFee(amount));
@@ -234,7 +234,7 @@ public class PaymentService {
                 || p.refundedAmount().stripTrailingZeros().scale()>2)) throw invalidPayment();
     }
     private static ApiException invalidPayment() {
-        return ApiException.unprocessable("O Mercado Pago não confirmou os dados desta inscrição. Fale com a organização.");
+        return ApiException.unprocessable("Não foi possível confirmar os dados de pagamento desta inscrição. Fale com a organização.");
     }
     private Team findTeam(String code) {
         return teams.findByRegistrationCode(code.trim().toUpperCase(Locale.ROOT))

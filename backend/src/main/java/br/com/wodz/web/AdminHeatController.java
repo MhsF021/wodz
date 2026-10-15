@@ -2,7 +2,7 @@ package br.com.wodz.web;
 
 import br.com.wodz.common.CurrentUser;
 import br.com.wodz.dto.HeatDtos.GenerateAllHeatsRequest;
-import br.com.wodz.dto.HeatDtos.GenerateHeatsRequest;
+import br.com.wodz.dto.HeatDtos.HeatPlanRequest;
 import br.com.wodz.dto.HeatDtos.HeatRequest;
 import br.com.wodz.dto.HeatDtos.HeatStatusRequest;
 import br.com.wodz.dto.HeatDtos.HeatView;
@@ -53,11 +53,23 @@ public class AdminHeatController {
         return heats.generateAll(id, CurrentUser.id(jwt), req);
     }
 
-    @PostMapping("/workouts/{id}/heats/generate")
-    @Operation(summary = "Gera as baterias da prova com as equipes confirmadas (procedure sp_generate_heats)")
-    public List<HeatView> generate(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
-                                   @Valid @RequestBody GenerateHeatsRequest req) {
-        return heats.generate(id, CurrentUser.id(jwt), req);
+    @PutMapping("/championships/{id}/heats/settings")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void settings(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                         @Valid @RequestBody GenerateAllHeatsRequest req) {
+        heats.settings(id, CurrentUser.id(jwt), req);
+    }
+
+    @PutMapping("/championships/{id}/heats/plan")
+    public List<HeatView> plan(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                               @Valid @RequestBody HeatPlanRequest req) {
+        return heats.savePlan(id, CurrentUser.id(jwt), req);
+    }
+
+    @PostMapping("/championships/{id}/heats/review")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void review(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        heats.acknowledge(id, CurrentUser.id(jwt));
     }
 
     @PostMapping("/workouts/{id}/heats")

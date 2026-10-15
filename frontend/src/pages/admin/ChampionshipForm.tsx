@@ -29,10 +29,12 @@ export function ChampionshipForm({
   initial,
   submitLabel,
   onSubmit,
+  readOnly = false,
 }: {
   initial?: ChampionshipDetail;
   submitLabel: string;
   onSubmit: (input: ChampionshipInput) => Promise<unknown>;
+  readOnly?: boolean;
 }) {
   const [form, setForm] = useState(() => toForm(initial));
   const [error, setError] = useState<unknown>(null);
@@ -108,9 +110,9 @@ export function ChampionshipForm({
         <legend className="form-section__title">Identidade visual do campeonato</legend>
         <p className="note">Dê uma identidade ao seu evento. Escolha as imagens e ajuste o enquadramento antes de salvar.</p>
         <div className="championship-identity__pickers">
-          <ChampionshipImagePicker kind="profile" value={profile} disabled={busy} onBusy={setProfileBusy}
+          <ChampionshipImagePicker kind="profile" value={profile} disabled={busy || readOnly} onBusy={setProfileBusy}
             onChange={data => { setProfileImageData(data); setSaved(false); }} />
-          <ChampionshipImagePicker kind="cover" value={cover} disabled={busy} onBusy={setCoverBusy}
+          <ChampionshipImagePicker kind="cover" value={cover} disabled={busy || readOnly} onBusy={setCoverBusy}
             onChange={data => { setImageData(data); setSaved(false); }} />
         </div>
         <div className="championship-identity__preview">
@@ -142,7 +144,8 @@ export function ChampionshipForm({
           </Field>
           <span />
           <Field label="Início" htmlFor="ch-start">
-            <input id="ch-start" className="input" type="date" value={form.startDate} onChange={set('startDate')} />
+            <input id="ch-start" className="input" type="date" value={form.startDate} onChange={set('startDate')}
+              disabled={initial?.started || initial?.status === 'IN_PROGRESS'} />
           </Field>
           <Field label="Término" htmlFor="ch-end">
             <input id="ch-end" className="input" type="date" value={form.endDate} onChange={set('endDate')} />
@@ -206,7 +209,7 @@ export function ChampionshipForm({
       <div className="form-actions">
         <InlineError error={error} />
         {saved && <p className="form-ok" role="status">Alterações salvas.</p>}
-        <button type="submit" className="btn btn--primary btn--large" disabled={busy || imageBusy}>
+        <button type="submit" className="btn btn--primary btn--large" disabled={readOnly || busy || imageBusy}>
           {busy ? 'Salvando…' : submitLabel}
         </button>
       </div>

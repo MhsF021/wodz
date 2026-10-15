@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/endpoints';
@@ -9,54 +9,55 @@ import {
   dayLabel,
   formatDuration,
   ordinal,
-  parseDuration,
   points,
   scoreStatusLabel,
   workoutTypeLabel,
 } from '../../lib/format';
-import { CategoryPicker } from '../../components/Plate';
+import { Field } from '../../components/Field';
 import { HeatBadge } from '../../components/StatusBadge';
 import { Empty, ErrorState, Loading } from '../../components/States';
 import { errorMessage } from '../../api/client';
+import { buildScoreInput } from '../../lib/scoreInput';
 
 export function ScoresTab({ championship }: { championship: ChampionshipDetail }) {
+  const [params, setParams] = useSearchParams();
   const categories = championship.categories;
-  // ?prova= vem do botão "Lançar resultados" de uma bateria concluída.
-  const [params] = useSearchParams();
   const requested = Number(params.get('prova')) || null;
-  const initial = categories.find((c) => c.workouts.some((w) => w.id === requested)) ?? categories[0];
-  const [categoryId, setCategoryId] = useState<number | null>(initial?.id ?? null);
-  const [workoutId, setWorkoutId] = useState<number | null>(
-    initial?.workouts.some((w) => w.id === requested) ? requested : initial?.workouts[0]?.id ?? null,
-  );
-  const category = categories.find((c) => c.id === categoryId);
+  const category = categories.find(c => c.id === Number(params.get('categoria')))
+    ?? categories.find(c => c.workouts.some(w => w.id === requested)) ?? categories[0];
+  const workout = category?.workouts.find(w => w.id === requested) ?? category?.workouts[0];
 
-  if (categories.length === 0) return <Empty title="Cadastre categorias e provas antes de lançar resultados" />;
+  function filter(categoryId: number, workoutId?: number) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set('aba', 'resultados'); next.set('categoria', String(categoryId));
+      if (workoutId) next.set('prova', String(workoutId)); else next.delete('prova');
+      next.delete('bateria');
+      return next;
+    }, { replace: true });
+  }
 
-  return (
-    <div className="stack">
-      <CategoryPicker
-        categories={categories}
-        value={categoryId}
-        onChange={(id) => {
-          setCategoryId(id);
-          setWorkoutId(categories.find((c) => c.id === id)?.workouts[0]?.id ?? null);
-        }}
-      />
-      {category && category.workouts.length === 0 && <Empty title="Esta categoria ainda não tem provas" />}
-      {category && category.workouts.length > 0 && (
-        <div className="picker" role="group" aria-label="Prova">
-          {category.workouts.map((w) => (
-            <button key={w.id} type="button" className="picker__option" aria-pressed={workoutId === w.id}
-              onClick={() => setWorkoutId(w.id)}>
-              Prova {w.number}: {w.name}
-            </button>
-          ))}
-        </div>
-      )}
-      {workoutId && <ScoreSheet workoutId={workoutId} championshipSlug={championship.slug} />}
+  if (!categories.length) return <Empty title="Cadastre categorias e provas antes de lançar resultados" />;
+  return <div className="stack results-manager">
+    <div className="results-filters" role="group" aria-label="Filtrar resultados">
+      <Field label="Categoria" htmlFor="results-category">
+        <select id="results-category" className="input" value={category.id} onChange={e => {
+          const selected = categories.find(c => c.id === Number(e.target.value))!;
+          filter(selected.id, selected.workouts[0]?.id);
+        }}>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+      </Field>
+      <Field label="Prova" htmlFor="results-workout">
+        <select id="results-workout" className="input" value={workout?.id ?? ''} disabled={!category.workouts.length}
+          onChange={e => filter(category.id, Number(e.target.value))}>
+          {!category.workouts.length && <option value="">Nenhuma prova cadastrada</option>}
+          {category.workouts.map(w => <option key={w.id} value={w.id}>Prova {w.number}: {w.name}</option>)}
+        </select>
+      </Field>
     </div>
-  );
+    {!category.workouts.length && <Empty title="Esta categoria ainda não tem provas" />}
+    {workout && <ScoreSheet key={workout.id} workoutId={workout.id} championshipSlug={championship.slug}
+      readOnly={championship.status === 'FINISHED'} />}
+  </div>;
 }
 
 interface HeatGroup {
@@ -84,29 +85,39 @@ function groupByHeat(entries: ScoreEntry[]): HeatGroup[] {
   return [...groups.values()].sort((a, b) => a.heatNumber - b.heatNumber);
 }
 
-function ScoreSheet({ workoutId, championshipSlug }: { workoutId: number; championshipSlug: string }) {
+function ScoreSheet({ workoutId, championshipSlug, readOnly }: { workoutId: number; championshipSlug: string; readOnly: boolean }) {
+  const [params, setParams] = useSearchParams();
   const query = useQuery({ queryKey: ['admin-scores', workoutId], queryFn: () => adminApi.scores(workoutId) });
   if (query.isLoading) return <Loading />;
   if (query.error || !query.data) return <ErrorState error={query.error} />;
   const { workout, entries } = query.data;
   const groups = groupByHeat(entries);
+  const selectedHeat = groups.some(g => g.heatId === Number(params.get('bateria'))) ? params.get('bateria')! : '';
   const withoutHeat = entries.filter((e) => !e.heatId);
   const judgesListId = `judges-${workout.id}`;
   const judges = [...new Set(entries.map((e) => e.judgeName).filter((j): j is string => Boolean(j)))];
 
   return (
     <section aria-labelledby="sheet-title" className="stack">
-      <h2 id="sheet-title" className="section-title">
-        Prova {workout.number}: {workout.name}
-        <span className="section-title__sub">
-          {workoutTypeLabel[workout.type]}
-          {capLabel(workout.timeCapSeconds) ? `, cap ${capLabel(workout.timeCapSeconds)}` : ''}
-        </span>
-      </h2>
-      <p className="note">
-        Os resultados são lançados por bateria, depois que ela é concluída, com o nome do judge de cada raia. A
-        colocação e os pontos são recalculados na hora e aparecem no leaderboard público.
-      </p>
+      <div className="results-sheet__header">
+        <h2 id="sheet-title" className="section-title">
+          Prova {workout.number}: {workout.name}
+          <span className="section-title__sub">{workoutTypeLabel[workout.type]}{capLabel(workout.timeCapSeconds) ? ` · Cap ${capLabel(workout.timeCapSeconds)}` : ''}</span>
+        </h2>
+        {groups.length > 0 && <Field label="Bateria" htmlFor="score-heat-filter">
+          <select id="score-heat-filter" className="input" value={selectedHeat} onChange={e => {
+            const value = e.target.value;
+            setParams(previous => {
+              const next = new URLSearchParams(previous);
+              next.set('aba', 'resultados'); next.set('categoria', String(workout.categoryId)); next.set('prova', String(workout.id));
+              if (value) next.set('bateria', value); else next.delete('bateria');
+              return next;
+            }, { replace: true });
+          }}>
+            <option value="">Todas as baterias</option>{groups.map(g => <option key={g.heatId} value={g.heatId}>Bateria {g.heatNumber}</option>)}
+          </select>
+        </Field>}
+      </div>
       <datalist id={judgesListId}>
         {judges.map((j) => <option key={j} value={j} />)}
       </datalist>
@@ -117,9 +128,9 @@ function ScoreSheet({ workoutId, championshipSlug }: { workoutId: number; champi
           <p>Gere as baterias na aba Baterias para lançar os resultados.</p>
         </Empty>
       ) : (
-        groups.map((group) => (
+        groups.filter(g => !selectedHeat || g.heatId === Number(selectedHeat)).map((group) => (
           <HeatSheet key={group.heatId} group={group} workout={workout} championshipSlug={championshipSlug}
-            judgesListId={judgesListId} />
+            judgesListId={judgesListId} readOnly={readOnly} />
         ))
       )}
       {groups.length > 0 && withoutHeat.length > 0 && (
@@ -137,12 +148,30 @@ function HeatSheet({
   workout,
   championshipSlug,
   judgesListId,
+  readOnly,
 }: {
   group: HeatGroup;
   workout: Workout;
   championshipSlug: string;
   judgesListId: string;
+  readOnly: boolean;
 }) {
+  const queryClient = useQueryClient();
+  const builders = useRef(new Map<number, () => ScoreInput | null>());
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const batch = useMutation({ mutationFn: (entries: { teamId: number; result: ScoreInput }[]) => adminApi.saveHeatScores(workout.id, group.heatId, entries),
+    onSuccess: data => {
+      queryClient.setQueryData(['admin-scores', workout.id], data);
+      queryClient.invalidateQueries({ queryKey: ['leaderboard', championshipSlug] });
+      setBatchError(null);
+    }, onError: e => setBatchError(errorMessage(e)),
+  });
+  function launch() {
+    setBatchError(null);
+    const entries = group.entries.map(entry => ({ teamId: entry.teamId, result: builders.current.get(entry.teamId)?.() ?? null }));
+    if (entries.some(e => e.result === null)) { setBatchError('Preencha e revise os resultados de todas as equipes da bateria.'); return; }
+    batch.mutate(entries as { teamId: number; result: ScoreInput }[]);
+  }
   const launched = group.entries.filter((e) => e.scoreId).length;
   const titleId = `heat-sheet-${group.heatId}`;
   return (
@@ -158,7 +187,7 @@ function HeatSheet({
         <HeatBadge status={group.status} />
       </header>
       {group.status === 'FINISHED' ? (
-        <div className="table-scroll">
+        <fieldset className="readonly-fieldset" disabled={readOnly || batch.isPending}><div className="table-scroll">
           <table className="table table--scores table--stack">
             <thead>
               <tr>
@@ -175,11 +204,18 @@ function HeatSheet({
             <tbody>
               {group.entries.map((entry) => (
                 <ScoreRow key={`${entry.teamId}-${entry.scoreId ?? 'novo'}`} entry={entry} workout={workout}
-                  championshipSlug={championshipSlug} judgesListId={judgesListId} />
+                  championshipSlug={championshipSlug} judgesListId={judgesListId} readOnly={readOnly}
+                  register={(id, build) => { if (build) builders.current.set(id, build); else builders.current.delete(id); }} onLaunch={launch} />
               ))}
             </tbody>
           </table>
         </div>
+          {!readOnly && <div className="form-actions">
+            {batchError && <p className="form-error" role="alert">{batchError}</p>}
+            {batch.isSuccess && <p className="form-ok" role="status">Resultados da bateria lançados.</p>}
+            <button className="btn btn--primary" type="button" disabled={batch.isPending} onClick={launch}>Lançar</button>
+          </div>}
+        </fieldset>
       ) : (
         <>
           <p className="note">
@@ -201,7 +237,7 @@ function HeatSheet({
 }
 
 function initialState(entry: ScoreEntry, workout: Workout) {
-  const rpr = workout.repsPerRound ?? 0;
+  const rpr = workout.type === 'AMRAP' ? workout.repsPerRound ?? 0 : 0;
   const reps = entry.reps ?? null;
   return {
     judge: entry.judgeName?.toUpperCase() ?? '',
@@ -219,11 +255,17 @@ function ScoreRow({
   workout,
   championshipSlug,
   judgesListId,
+  readOnly,
+  register,
+  onLaunch,
 }: {
   entry: ScoreEntry;
   workout: Workout;
   championshipSlug: string;
   judgesListId: string;
+  readOnly: boolean;
+  register: (id: number, build: (() => ScoreInput | null) | null) => void;
+  onLaunch: () => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(() => initialState(entry, workout));
@@ -246,40 +288,15 @@ function ScoreRow({
   });
 
   function build(): ScoreInput | null {
-    if (!form.judge.trim()) return fail('Informe o nome do judge da raia');
-    const input: ScoreInput = { status: form.status, judgeName: form.judge.trim() };
-    if (form.status === 'DNS' || form.status === 'DQ') return input;
-    const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
+    const result = buildScoreInput(workout, form);
+    if (result.error) { setError(result.error); return null; }
+    return result.input!;
+  }
 
-    if (workout.type === 'FOR_TIME' && form.status === 'VALID') {
-      const ms = parseDuration(form.time);
-      if (!ms) return fail('Tempo inválido. Use mm:ss, ex.: 07:42');
-      input.timeMs = ms;
-    } else if (workout.type === 'MAX_LOAD') {
-      const kg = num(form.load);
-      if (kg === null || Number.isNaN(kg) || kg < 0) return fail('Informe a carga em kg');
-      input.loadKg = kg;
-    } else {
-      const reps = num(form.reps) ?? 0;
-      const rounds = rpr ? num(form.rounds) ?? 0 : 0;
-      if (Number.isNaN(reps) || Number.isNaN(rounds) || (form.reps.trim() === '' && form.rounds.trim() === '')) {
-        return fail('Informe as repetições');
-      }
-      input.reps = rounds * rpr + reps;
-    }
-    if (workout.hasTiebreak && form.tiebreak.trim()) {
-      const tb = parseDuration(form.tiebreak);
-      if (!tb) return fail('Tempo de desempate inválido');
-      input.tiebreakMs = tb;
-    }
-    return input;
-  }
-  function fail(message: string): null {
-    setError(message);
-    return null;
-  }
+  useEffect(() => { register(entry.teamId, () => { setError(null); return build(); }); return () => register(entry.teamId, null); });
 
   function submit() {
+    if (!entry.scoreId) { onLaunch(); return; }
     setError(null);
     const input = build();
     if (input) save.mutate(input);
@@ -326,7 +343,7 @@ function ScoreRow({
             <ScoreInputBox id={`${id}-time`} label="Tempo" placeholder="mm:ss" value={form.time}
               onChange={(v) => setForm({ ...form, time: v })} onEnter={submit} />
           ) : workout.type === 'MAX_LOAD' ? (
-            <ScoreInputBox id={`${id}-load`} label="Carga (kg)" placeholder="kg" inputMode="decimal" value={form.load}
+            <ScoreInputBox id={`${id}-load`} label="Carga total (kg)" placeholder="kg" inputMode="decimal" value={form.load}
               onChange={(v) => setForm({ ...form, load: v })} onEnter={submit} />
           ) : (
             <div className="score-inputs">
@@ -338,6 +355,8 @@ function ScoreRow({
                 inputMode="numeric" value={form.reps} onChange={(v) => setForm({ ...form, reps: v })} onEnter={submit} />
             </div>
           )}
+          {!noResult && workout.type === 'FOR_TIME' && form.status === 'CAPPED' && <span className="table__sub">CAP {capLabel(workout.timeCapSeconds)}{workout.maxReps != null ? ` · máximo ${workout.maxReps} reps` : ' · informe o total de reps em Editar prova'}</span>}
+          {!noResult && workout.type === 'AMRAP' && <span className="table__sub">{rpr ? `${rpr} reps por round` : 'Informe as reps por round em Editar prova'}{workout.maxReps != null && ` · máximo ${workout.maxReps} reps no total`}</span>}
         </td>
         {workout.hasTiebreak && (
           <td data-label="Desempate">
@@ -350,10 +369,10 @@ function ScoreRow({
         <td className="table__num" data-label="Pontos">{points(entry.points) || '–'}</td>
         <td>
           <div className="table__actions">
-            <button type="button" className="btn btn--primary btn--small" disabled={save.isPending} onClick={submit}>
-              {save.isPending ? 'Salvando…' : entry.scoreId ? 'Atualizar' : 'Lançar'}
-            </button>
-            {entry.scoreId && (
+            {entry.scoreId && !readOnly && <button type="button" className="btn btn--primary btn--small" disabled={save.isPending} onClick={submit}>
+              {save.isPending ? 'Salvando…' : 'Atualizar'}
+            </button>}
+            {entry.scoreId && !readOnly && (
               <button type="button" className="btn btn--ghost btn--small" disabled={remove.isPending}
                 onClick={() => window.confirm(`Apagar o resultado de ${entry.teamName}?`) && remove.mutate()}>
                 Apagar
@@ -392,7 +411,7 @@ function ScoreInputBox({
 }) {
   return (
     <span className="score-input">
-      <label className="sr-only" htmlFor={id}>{label}</label>
+      <label className="score-input__label" htmlFor={id}>{label}</label>
       <input id={id} className="input input--score" placeholder={placeholder} inputMode={inputMode} value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
